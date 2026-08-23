@@ -31,6 +31,7 @@ from ...i18n import t
 from ...models import Task, TaskState
 from ...pipeline.orchestrator import Orchestrator, phase_label
 from ...timefmt import format_duration
+from ...tokenfmt import format_tokens
 from ..widgets import PhaseBar, markdown_set
 
 _SPINNER = "⠋⠙⠹⠸⠼⠴⦦⣾"
@@ -305,9 +306,16 @@ class TaskDetailScreen(Screen[None]):
         bar = self.query_one("#activity-bar", Static)
         total = format_duration(self._total_seconds())
         runtime = self.runtime
+        total_in, total_out = self.current_task.token_totals()
         if not runtime.running or runtime.phase_started_at is None:
             if self.current_task.durations:
-                bar.update(Text(t("act.idle_total", total=total), style="dim"))
+                line = Text(t("act.idle_total", total=total), style="dim")
+                if total_in or total_out:
+                    line.append(
+                        f" · {t('det.tokens', input=format_tokens(total_in), output=format_tokens(total_out))}",
+                        style="dim",
+                    )
+                bar.update(line)
             else:
                 bar.update(Text(t("act.idle"), style="dim"))
             return
@@ -333,6 +341,11 @@ class TaskDetailScreen(Screen[None]):
         else:
             line.append(f" · {t('act.last', duration=format_duration(silence))}", style="dim")
         line.append(f" · {t('act.total', total=total)}", style="dim")
+        if total_in or total_out:
+            line.append(
+                f" · {t('det.tokens', input=format_tokens(total_in), output=format_tokens(total_out))}",
+                style="dim",
+            )
         bar.update(line)
 
     # ------------------------------------------------------------------ #

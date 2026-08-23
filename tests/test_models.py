@@ -116,3 +116,21 @@ def test_task_final_role_roundtrip_and_legacy(tmp_path):
     legacy = models.load(task.id)
     assert legacy.final.cli == "opencode"  # default_cli de from_dict
     assert legacy.final.model == ""
+
+
+def test_task_tokens_roundtrip(tmp_path):
+    from grafeno.drivers.base import TokenUsage
+
+    task = models.Task.create("Demo", "desc", str(tmp_path), Config())
+    task.record_tokens("prov/Model-X", TokenUsage(input=100, output=40))
+    task.record_tokens("prov/Model-X", TokenUsage(input=50, output=10))
+    task.record_tokens("", TokenUsage(input=5, output=2))  # modelo por defecto
+    models.save(task)
+
+    loaded = models.load(task.id)
+    assert loaded.tokens == task.tokens
+    assert loaded.token_totals() == (155, 52)
+    assert loaded.tokens_by_model() == {
+        "prov/Model-X": (150, 50),
+        "default": (5, 2),
+    }

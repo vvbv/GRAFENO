@@ -8,7 +8,7 @@ from pathlib import Path
 
 from grafeno import models, paths
 from grafeno.config import Config
-from grafeno.drivers.base import CLIDriver, RunResult
+from grafeno.drivers.base import CLIDriver, RunResult, TokenUsage
 from grafeno.models import Task, TaskState
 from grafeno.pipeline.orchestrator import Orchestrator, PhaseError
 
@@ -373,3 +373,24 @@ def test_final_steps_failure_marks_failed(tmp_path):
     orch = Orchestrator(task, drivers=drivers)
     _run(orch.run_automode())
     assert task.state is TaskState.FAILED
+
+
+def test_tokens_recorded_per_model(tmp_path):
+    task = _make_task(tmp_path)
+    task.implementer.model = "prov/Impl-Model"
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", [
+            RunResult(ok=True, text="impl", tokens=TokenUsage(input=1000, output=200)),
+        ]),
+        "fake-rev": FakeDriver("fake-rev", [_ok("VERDICT: APPROVED")]),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_automode())
+
+    assert task.state is TaskState.DONE
+    by_model = task.tokens_by_model()
+    assert by_model["prov/Impl-Model"] == (1000, 200)
+    # Persistido: se recarga de task.toml sin pérdida.
+    assert models.load(task.id).tokens == task.tokens

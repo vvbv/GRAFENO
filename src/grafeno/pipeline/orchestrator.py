@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import models, paths
+from ..config import RoleConfig
 from ..drivers import RunEvent, RunRequest, get_driver
 from ..drivers.base import CLIDriver, EventKind, RunResult
 from ..i18n import t
@@ -113,6 +114,7 @@ class Orchestrator:
             on_activity=lambda: self._on_activity(phase),
         )
         self._record_duration(phase, time.monotonic() - started_at)
+        self._record_tokens(role, result)
         if result.session_id:
             task.sessions[role_name] = result.session_id
         if not result.ok:
@@ -127,6 +129,13 @@ class Orchestrator:
     def _record_duration(self, phase: str, elapsed: float) -> None:
         durations = self.task.durations
         durations[phase] = int(durations.get(phase, 0) + round(elapsed))
+        models.save(self.task)
+
+    def _record_tokens(self, role: RoleConfig, result: RunResult) -> None:
+        """Acumula en la tarea los tokens de la ejecución, por modelo."""
+        if result.tokens.empty:
+            return
+        self.task.record_tokens(role.model, result.tokens)
         models.save(self.task)
 
     # ------------------------------------------------------------------ #
@@ -164,6 +173,7 @@ class Orchestrator:
             on_event=lambda event: self._on_event("plan", event),
             on_activity=lambda: self._on_activity("plan"),
         )
+        self._record_tokens(role, result)
         if result.ok and (workdir / "AGENTS.md").exists():
             self._info(t("orch.agents_md.done"))
         elif result.ok:

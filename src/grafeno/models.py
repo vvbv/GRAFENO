@@ -8,11 +8,14 @@ import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import _toml, paths
 from .config import Config, RoleConfig
 from .i18n import t
+
+if TYPE_CHECKING:
+    from .drivers.base import TokenUsage
 
 
 class TaskState(str, Enum):
@@ -36,6 +39,14 @@ def state_label(state: "TaskState") -> str:
 
 # Fases visibles en la barra de progreso del detalle.
 PHASES = ("plan", "implement", "review", "final", "done")
+
+TOKEN_KEY_SEP = "|"
+DEFAULT_MODEL_LABEL = "default"  # clave cuando el rol no fija modelo
+
+
+def _token_key(model: str, kind: str) -> str:
+    """Compone la clave plana ``"{modelo}|{input|output}"`` usada en tokens."""
+    return f"{model}{TOKEN_KEY_SEP}{kind}"
 
 
 def slugify(text: str, *, max_length: int = 40) -> str:
@@ -72,6 +83,7 @@ class Task:
     extensions: dict[str, str] = field(default_factory=dict)  # ciclo -> petición
     sessions: dict[str, str] = field(default_factory=dict)  # rol -> session id
     durations: dict[str, int] = field(default_factory=dict)  # fase -> segundos acumulados
+    tokens: dict[str, int] = field(default_factory=dict)  # "{modelo}|input" / "{modelo}|output" -> tokens acumulados
     created_at: str = ""
     updated_at: str = ""
 
@@ -125,6 +137,36 @@ class Task:
         self.iteration = 0
         self.state = TaskState.DRAFT
 
+    def record_tokens(self, model: str, usage: "TokenUsage") -> None:
+        """Acumula el uso de tokens de una ejecución bajo su modelo."""
+        key = model or DEFAULT_MODEL_LABEL
+        self.tokens[_token_key(key, "input")] = (
+            self.tokens.get(_token_key(key, "input"), 0) + usage.input
+        )
+        self.tokens[_token_key(key, "output")] = (
+            self.tokens.get(_token_key(key, "output"), 0) + usage.output
+        )
+
+    def token_totals(self) -> tuple[int, int]:
+        """Totales (input, output) de la tarea sumando todos los modelos."""
+        suffix_in = f"{TOKEN_KEY_SEP}input"
+        suffix_out = f"{TOKEN_KEY_SEP}output"
+        total_in = sum(v for k, v in self.tokens.items() if k.endswith(suffix_in))
+        total_out = sum(v for k, v in self.tokens.items() if k.endswith(suffix_out))
+        return total_in, total_out
+
+    def tokens_by_model(self) -> dict[str, tuple[int, int]]:
+        """Desglose modelo -> (input, output)."""
+        result: dict[str, list[int]] = {}
+        for key, value in self.tokens.items():
+            model, _, kind = key.rpartition(TOKEN_KEY_SEP)
+            entry = result.setdefault(model, [0, 0])
+            if kind == "input":
+                entry[0] += value
+            elif kind == "output":
+                entry[1] += value
+        return {model: (pair[0], pair[1]) for model, pair in result.items()}
+
     # ------------------------------------------------------------------ #
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -153,6 +195,7 @@ class Task:
             "sessions": dict(self.sessions),
             "durations": dict(self.durations),
             "extensions": dict(self.extensions),
+            "tokens": dict(self.tokens),
         }
 
     @classmethod
@@ -180,6 +223,7 @@ class Task:
             sessions={str(k): str(v) for k, v in data.get("sessions", {}).items()},
             durations={str(k): int(v) for k, v in data.get("durations", {}).items()},
             extensions={str(k): str(v) for k, v in data.get("extensions", {}).items()},
+            tokens={str(k): int(v) for k, v in data.get("tokens", {}).items()},
             created_at=str(raw.get("created_at", "")),
             updated_at=str(raw.get("updated_at", "")),
         )

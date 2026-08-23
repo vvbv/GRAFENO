@@ -392,3 +392,29 @@ def test_detail_screen_has_final_tab_and_binding():
             assert app.screen.query("#tab-final") is not None
 
     asyncio.run(scenario())
+
+
+def test_task_list_shows_global_token_summary():
+    """La lista agrega tokens por modelo en #token-summary."""
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.drivers.base import TokenUsage
+    from grafeno.models import Task
+    from textual.widgets import Static as StaticWidget
+
+    task = Task.create("Demo tokens", "desc", "/tmp", Config())
+    task.record_tokens("prov/M", TokenUsage(input=1500, output=600))
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            await pilot.pause()  # segundo pause: se ejecuta _reload tras on_mount
+            widget = app.screen.query_one("#token-summary", StaticWidget)
+            rendered = widget.render()
+            text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
+            assert "prov/M" in text
+            assert "1.5k" in text
+
+    asyncio.run(scenario())
