@@ -227,6 +227,9 @@ class TaskDetailScreen(Screen[None]):
         yield PhaseBar(self.current_task.state, self.current_task.iteration, id="phase-bar")
         yield Static("", id="activity-bar")
         with TabbedContent(id="tabs"):
+            with TabPane(t("det.tab.desc"), id="tab-desc"):
+                with VerticalScroll(id="desc-scroll"):
+                    yield Static("", id="desc-view")
             with TabPane(t("det.tab.plan"), id="tab-plan"):
                 with Horizontal():
                     yield FileList(id="plan-files")
@@ -263,8 +266,11 @@ class TaskDetailScreen(Screen[None]):
         self.set_interval(1.0, self._tick)
         self._maybe_plan_confirm()
         # Visores Markdown enfocables: el teclado (flechas, Re Pág...) hace scroll.
-        for scroll_id in ("#plan-scroll", "#review-scroll", "#final-scroll"):
+        for scroll_id in ("#desc-scroll", "#plan-scroll", "#review-scroll", "#final-scroll"):
             self.query_one(scroll_id, VerticalScroll).can_focus = True
+        self.query_one("#desc-view", Static).update(
+            self.current_task.description or t("det.desc.empty")
+        )
 
     def on_screen_suspend(self) -> None:
         self.runtime.remove_listener(self._on_runtime)

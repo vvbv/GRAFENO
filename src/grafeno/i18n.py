@@ -152,6 +152,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "implementer {implementer_cli} ({implementer_model}), "
             "reviewer {reviewer_cli} ({reviewer_model})."
         ),
+        "det.tab.desc": "Description",
+        "det.desc.empty": "(no description)",
         "det.tab.plan": "Plan",
         "det.tab.review": "Reviews",
         "det.tab.final": "Final",
@@ -378,6 +380,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "implementador {implementer_cli} ({implementer_model}), "
             "revisor {reviewer_cli} ({reviewer_model})."
         ),
+        "det.tab.desc": "Descripción",
+        "det.desc.empty": "(sin descripción)",
         "det.tab.plan": "Plan",
         "det.tab.review": "Revisiones",
         "det.tab.final": "Pasos finales",

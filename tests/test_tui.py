@@ -406,6 +406,31 @@ def test_detail_screen_has_final_tab_and_binding():
     asyncio.run(scenario())
 
 
+def test_detail_screen_shows_description():
+    """La pantalla de detalle muestra la descripción original de la tarea."""
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task
+    from grafeno.tui.screens.detail import TaskDetailScreen
+
+    task = Task.create("Demo desc ui", "descripcion de prueba unica", "/tmp", Config())
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+
+            assert app.screen.query("#tab-desc") is not None
+            from textual.widgets import Static
+            desc = app.screen.query_one("#desc-view", Static)
+            assert "descripcion de prueba unica" in str(desc.render())
+
+    asyncio.run(scenario())
+
+
 def test_markdown_views_are_scrollable():
     """Regresión: un plan largo debe poder hacer scroll en el visor Markdown."""
     async def scenario():
