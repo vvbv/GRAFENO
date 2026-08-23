@@ -79,7 +79,9 @@ class HookConfig:
 
 @dataclass
 class EditorConfig:
-    """Editor que se abre automáticamente al lanzar GRAFENO."""
+    """Editor opcional que se abre al lanzar GRAFENO cuando el usuario
+    lo activa desde la pantalla de configuración. Por defecto desactivado:
+    sin editor configurado solo se abre la TUI."""
 
     enabled: bool = False
     editor: str = ""        # vacío = ninguno (por defecto solo se abre grafeno)

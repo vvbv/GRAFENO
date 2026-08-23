@@ -91,9 +91,9 @@ def test_build_command_disabled(fake_which):
     assert editor.build_launch_command(cfg, editor.detect_terminal({}), "/tmp/work") is None
 
 
-def test_build_command_no_editor_configured(monkeypatch):
+def test_build_command_no_editor_configured(monkeypatch, fake_which):
     """Sin editor configurado no se abre nada (aunque haya editores instalados)."""
-    monkeypatch.setattr(editor, "available_editors", lambda: ["zed"])
+    fake_which({"zed"})
     cfg = EditorConfig(editor="", mode="window")
     cmd = editor.build_launch_command(cfg, editor.detect_terminal({}), "/tmp/work")
     assert cmd is None
