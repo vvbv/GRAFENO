@@ -35,6 +35,12 @@ Footer {
     padding: 1 2;
 }
 
+#token-summary {
+    color: #8b949e;
+    padding: 0 2;
+    margin-bottom: 1;
+}
+
 /* ---- Nueva tarea (modal) ---- */
 #new-task-dialog {
     background: #161b22;
