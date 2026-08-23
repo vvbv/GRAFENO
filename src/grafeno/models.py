@@ -43,11 +43,36 @@ PHASES = ("plan", "implement", "review", "final", "done")
 
 TOKEN_KEY_SEP = "|"
 DEFAULT_MODEL_LABEL = "default"  # clave cuando el rol no fija modelo
+LEGACY_PHASE = "legacy"          # fase de usos guardados con el formato antiguo
+# Orden de las fases con tokens (para mostrar el desglose).
+TOKEN_PHASES = ("plan", "implement", "review", "fix", "final")
 
 
-def _token_key(model: str, kind: str) -> str:
-    """Compone la clave plana ``"{modelo}|{input|output}"`` usada en tokens."""
-    return f"{model}{TOKEN_KEY_SEP}{kind}"
+def _token_key(phase: str, cli: str, model: str, kind: str) -> str:
+    """Compone la clave plana ``"{fase}|{cli}|{modelo}|{input|output}"``."""
+    return f"{phase}{TOKEN_KEY_SEP}{cli}{TOKEN_KEY_SEP}{model}{TOKEN_KEY_SEP}{kind}"
+
+
+def _parse_token_key(key: str) -> tuple[str, str, str, str]:
+    """Descompone una clave de tokens en (fase, cli, modelo, kind).
+
+    El formato legado ``"{modelo}|{kind}"`` se interpreta como fase
+    ``legacy`` y cli vacío. ``kind`` se separa con ``rpartition`` para que
+    los modelos con ``|`` en su nombre no rompan el parseo.
+    """
+    prefix, _, kind = key.rpartition(TOKEN_KEY_SEP)
+    parts = prefix.split(TOKEN_KEY_SEP)
+    if len(parts) >= 3:
+        phase = parts[0]
+        cli = parts[1]
+        model = TOKEN_KEY_SEP.join(parts[2:])
+        return (phase or LEGACY_PHASE), cli, model, kind or "input"
+    return LEGACY_PHASE, "", prefix, kind or "input"
+
+
+def cli_model_label(cli: str, model: str) -> str:
+    """Etiqueta de agente: ``"cli/modelo"``; solo el modelo si no hay cli."""
+    return f"{cli}/{model}" if cli else model
 
 
 def slugify(text: str, *, max_length: int = 40) -> str:
@@ -87,7 +112,7 @@ class Task:
     extensions: dict[str, str] = field(default_factory=dict)  # ciclo -> petición
     sessions: dict[str, str] = field(default_factory=dict)  # rol -> session id
     durations: dict[str, int] = field(default_factory=dict)  # fase -> segundos acumulados
-    tokens: dict[str, int] = field(default_factory=dict)  # "{modelo}|input" / "{modelo}|output" -> tokens acumulados
+    tokens: dict[str, int] = field(default_factory=dict)  # "{fase}|{cli}|{modelo}|{input|output}" -> tokens acumulados
     created_at: str = ""
     updated_at: str = ""
 
@@ -147,14 +172,14 @@ class Task:
         self.iteration = 0
         self.state = TaskState.DRAFT
 
-    def record_tokens(self, model: str, usage: "TokenUsage") -> None:
-        """Acumula el uso de tokens de una ejecución bajo su modelo."""
+    def record_tokens(self, cli: str, model: str, phase: str, usage: "TokenUsage") -> None:
+        """Acumula el uso de tokens de una ejecución bajo su fase y CLI+modelo."""
         key = model or DEFAULT_MODEL_LABEL
-        self.tokens[_token_key(key, "input")] = (
-            self.tokens.get(_token_key(key, "input"), 0) + usage.input
+        self.tokens[_token_key(phase, cli, key, "input")] = (
+            self.tokens.get(_token_key(phase, cli, key, "input"), 0) + usage.input
         )
-        self.tokens[_token_key(key, "output")] = (
-            self.tokens.get(_token_key(key, "output"), 0) + usage.output
+        self.tokens[_token_key(phase, cli, key, "output")] = (
+            self.tokens.get(_token_key(phase, cli, key, "output"), 0) + usage.output
         )
 
     def token_totals(self) -> tuple[int, int]:
@@ -165,17 +190,30 @@ class Task:
         total_out = sum(v for k, v in self.tokens.items() if k.endswith(suffix_out))
         return total_in, total_out
 
-    def tokens_by_model(self) -> dict[str, tuple[int, int]]:
-        """Desglose modelo -> (input, output)."""
+    def tokens_by_phase(self) -> dict[str, tuple[int, int]]:
+        """Desglose fase -> (input, output)."""
         result: dict[str, list[int]] = {}
         for key, value in self.tokens.items():
-            model, _, kind = key.rpartition(TOKEN_KEY_SEP)
-            entry = result.setdefault(model, [0, 0])
+            phase, _, _, kind = _parse_token_key(key)
+            entry = result.setdefault(phase, [0, 0])
             if kind == "input":
                 entry[0] += value
             elif kind == "output":
                 entry[1] += value
-        return {model: (pair[0], pair[1]) for model, pair in result.items()}
+        return {phase: (pair[0], pair[1]) for phase, pair in result.items()}
+
+    def tokens_by_cli_model(self) -> dict[str, tuple[int, int]]:
+        """Desglose etiqueta ``cli/modelo`` -> (input, output)."""
+        result: dict[str, list[int]] = {}
+        for key, value in self.tokens.items():
+            _, cli, model, kind = _parse_token_key(key)
+            label = cli_model_label(cli, model)
+            entry = result.setdefault(label, [0, 0])
+            if kind == "input":
+                entry[0] += value
+            elif kind == "output":
+                entry[1] += value
+        return {label: (pair[0], pair[1]) for label, pair in result.items()}
 
     # ------------------------------------------------------------------ #
     def to_dict(self) -> dict[str, Any]:

@@ -274,6 +274,9 @@ class TaskDetailScreen(Screen[None]):
                         yield Markdown("", id="final-view")
             with TabPane(t("det.tab.log"), id="tab-log"):
                 yield RichLog(id="live-log", highlight=False, markup=False, wrap=True)
+            with TabPane(t("det.tab.tokens"), id="tab-tokens"):
+                with VerticalScroll(id="tokens-scroll"):
+                    yield Static("", id="tokens-view")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -289,11 +292,12 @@ class TaskDetailScreen(Screen[None]):
                 runtime._cb_info(t("det.log.branch", branch=self.current_task.branch))
         self._replay_log()
         self._render_activity()
+        self._render_tokens()
         # Reloj de 1s: el tick en pantalla demuestra que la UI no está congelada.
         self.set_interval(1.0, self._tick)
         self._maybe_plan_confirm()
         # Visores Markdown enfocables: el teclado (flechas, Re Pág...) hace scroll.
-        for scroll_id in ("#desc-scroll", "#plan-scroll", "#review-scroll", "#final-scroll"):
+        for scroll_id in ("#desc-scroll", "#plan-scroll", "#review-scroll", "#final-scroll", "#tokens-scroll"):
             self.query_one(scroll_id, VerticalScroll).can_focus = True
         self.query_one("#desc-view", Static).update(
             self.current_task.description or t("det.desc.empty")
@@ -333,6 +337,7 @@ class TaskDetailScreen(Screen[None]):
         if self.runtime.running:
             self._spinner_index += 1
             self._render_activity()
+            self._render_tokens()
 
     def _total_seconds(self) -> float:
         total = float(sum(self.current_task.durations.values()))
@@ -386,9 +391,39 @@ class TaskDetailScreen(Screen[None]):
             )
         bar.update(line)
 
-    # ------------------------------------------------------------------ #
-    # Utilidades de UI
-    # ------------------------------------------------------------------ #
+    def _render_tokens(self) -> None:
+        """Pinta total, desglose por fase y por CLI+modelo en la pestaña Tokens."""
+        view = self.query_one("#tokens-view", Static)
+        task = self.current_task
+        total_in, total_out = task.token_totals()
+        if not total_in and not total_out:
+            view.update(t("det.tokens.empty"))
+            return
+        lines: list[str] = [
+            t("det.tokens.total", input=format_tokens(total_in), output=format_tokens(total_out)),
+            "",
+            f"[b]{t('det.tokens.by_phase')}[/b]",
+        ]
+        by_phase = task.tokens_by_phase()
+        ordered = sorted(
+            by_phase.items(),
+            key=lambda item: (
+                models.TOKEN_PHASES.index(item[0])
+                if item[0] in models.TOKEN_PHASES
+                else len(models.TOKEN_PHASES)
+            ),
+        )
+        for phase, (pair_in, pair_out) in ordered:
+            label = t(f"phase.{phase}") if phase != models.LEGACY_PHASE else t("phase.legacy")
+            lines.append(f"  {label}: ↑{format_tokens(pair_in)} ↓{format_tokens(pair_out)}")
+        lines.append("")
+        lines.append(f"[b]{t('det.tokens.by_agent')}[/b]")
+        by_agent = task.tokens_by_cli_model()
+        for label, (pair_in, pair_out) in sorted(
+            by_agent.items(), key=lambda item: (-(item[1][0] + item[1][1]), item[0])
+        ):
+            lines.append(f"  {label}: ↑{format_tokens(pair_in)} ↓{format_tokens(pair_out)}")
+        view.update("\n".join(lines))
     def _log(self) -> RichLog:
         return self.query_one("#live-log", RichLog)
 
@@ -397,6 +432,7 @@ class TaskDetailScreen(Screen[None]):
         self.query_one(PhaseBar).set_state(task.state, task.iteration)
         self._render_title()
         self._reload_files()  # los artefactos aparecen al terminar cada fase
+        self._render_tokens()
 
     def _render_title(self) -> None:
         cycle = f"  [b]·[/b]  {t('det.cycle', n=self.current_task.cycle)}" if self.current_task.cycle > 1 else ""

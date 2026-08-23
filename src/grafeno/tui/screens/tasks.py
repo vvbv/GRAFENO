@@ -194,20 +194,20 @@ class TaskListScreen(Screen[None]):
         return f"↑{format_tokens(total_in)} ↓{format_tokens(total_out)}"
 
     def _render_token_summary(self) -> None:
-        """Resumen global de tokens por modelo (todas las tareas)."""
+        """Resumen global de tokens por CLI+modelo (todas las tareas)."""
         summary = self.query_one("#token-summary", Static)
         totals: dict[str, list[int]] = {}
         for task in self._tasks:
-            for model, (model_in, model_out) in task.tokens_by_model().items():
-                entry = totals.setdefault(model, [0, 0])
-                entry[0] += model_in
-                entry[1] += model_out
+            for label, (label_in, label_out) in task.tokens_by_cli_model().items():
+                entry = totals.setdefault(label, [0, 0])
+                entry[0] += label_in
+                entry[1] += label_out
         if not totals:
             summary.update(t("tasks.tokens.empty"))
             return
         parts = [
-            f"{model}: ↑{format_tokens(pair[0])} ↓{format_tokens(pair[1])}"
-            for model, pair in sorted(
+            f"{label}: ↑{format_tokens(pair[0])} ↓{format_tokens(pair[1])}"
+            for label, pair in sorted(
                 totals.items(),
                 key=lambda item: (-(item[1][0] + item[1][1]), item[0]),
             )
