@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from grafeno import models
+import tomllib
+
+from grafeno import _toml, models, paths
 from grafeno.config import Config
 from grafeno.models import Task, TaskState
 
@@ -16,11 +18,13 @@ def test_slugify():
 def test_task_create_snapshots_config(tmp_path):
     cfg = Config()
     cfg.planner.model = "p-model"
+    cfg.final.model = "f-model"
     cfg.automode.enabled = True
     cfg.automode.test_command = "make test"
     cfg.automode.confirm_plan = True
     task = Task.create("Demo", "desc", str(tmp_path), cfg)
     assert task.planner.model == "p-model"
+    assert task.final.model == "f-model"
     assert task.automode is True
     assert task.test_command == "make test"
     assert task.confirm_plan is True
@@ -32,6 +36,20 @@ def test_task_confirm_plan_override(tmp_path):
     assert task.confirm_plan is True
     models.save(task)
     assert models.load(task.id).confirm_plan is True
+
+
+def test_task_create_branch_override(tmp_path):
+    task = Task.create("Demo", "desc", str(tmp_path), Config(), create_branch=False)
+    assert task.create_branch is False
+    models.save(task)
+    assert models.load(task.id).create_branch is False
+
+
+def test_task_create_branch_default_from_config(tmp_path):
+    cfg = Config()
+    cfg.automode.create_branch = False
+    task = Task.create("Demo", "desc", str(tmp_path), cfg)
+    assert task.create_branch is False
 
 
 def test_cycles_roundtrip(tmp_path):
@@ -65,3 +83,25 @@ def test_task_roundtrip(tmp_path):
 
     listed = models.list_all()
     assert [t.id for t in listed] == [task.id]
+
+
+def test_task_final_role_roundtrip_and_legacy(tmp_path):
+    """El rol final persiste; las tareas antiguas sin sección [final] cargan por defecto."""
+    task = Task.create("Demo", "desc", str(tmp_path), Config())
+    task.final.cli = "kimi"
+    task.final.model = "kimi-code/k3"
+    models.save(task)
+
+    loaded = models.load(task.id)
+    assert loaded.final.cli == "kimi"
+    assert loaded.final.model == "kimi-code/k3"
+
+    # Simula una tarea antigua: task.toml sin sección [final].
+    meta = paths.task_meta_path(task.id)
+    with meta.open("rb") as handle:
+        data = tomllib.load(handle)
+    data.pop("final", None)
+    meta.write_text(_toml.dumps(data), encoding="utf-8")
+    legacy = models.load(task.id)
+    assert legacy.final.cli == "opencode"  # default_cli de from_dict
+    assert legacy.final.model == ""

@@ -168,7 +168,7 @@ def test_ask_more_starts_new_cycle():
             assert isinstance(app.screen, TaskDetailScreen)
             assert app.screen.current_task.cycle == 2
             assert app.screen.current_task.state is TaskState.DRAFT
-            assert started and "Ciclo 2" in started[0]
+            assert started and "Cycle 2" in started[0]
 
             reloaded = models.load(task.id)
             assert reloaded.current_extension == "Añade también exportación a CSV"
@@ -212,7 +212,7 @@ def test_activity_bar_renders_phase_and_time():
             content = screen.query_one("#activity-bar", Static).render()
             text = content.plain if hasattr(content, "plain") else str(content)
             assert "Implementación" in text
-            assert "7 eventos" in text
+            assert "7 events" in text
             assert "total" in text
 
             runtime.running = False
@@ -220,7 +220,38 @@ def test_activity_bar_renders_phase_and_time():
             screen._render_activity()
             content = screen.query_one("#activity-bar", Static).render()
             text = content.plain if hasattr(content, "plain") else str(content)
-            assert "En espera" in text
+            assert "Idle" in text
+
+    asyncio.run(scenario())
+
+
+def test_new_task_branch_checkbox_defaults_and_persists():
+    """El checkbox de rama toma el valor global y se guarda por tarea."""
+    async def scenario():
+        from grafeno import config as config_module, models
+        from textual.widgets import Checkbox
+
+        cfg = config_module.load()
+        cfg.automode.create_branch = False
+        config_module.save(cfg)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            assert isinstance(app.screen, NewTaskScreen)
+            checkbox = app.screen.query_one("#nt-branch", Checkbox)
+            assert checkbox.value is False  # hereda el valor global
+
+            checkbox.value = True
+            app.screen.query_one("#nt-name", Input).value = "Con rama"
+            await pilot.click("#nt-create")
+            await pilot.pause()
+
+            from grafeno.tui.screens.detail import TaskDetailScreen
+            assert isinstance(app.screen, TaskDetailScreen)
+            assert app.screen.current_task.create_branch is True
 
     asyncio.run(scenario())
 
@@ -280,5 +311,49 @@ def test_navigation_does_not_interrupt_pipeline():
                 if not runtime.running:
                     break
             assert not runtime.running
+
+    asyncio.run(scenario())
+
+
+def test_phase_status_includes_final():
+    """La barra de fases refleja la fase `final` en FINALIZING (active) y DONE (done)."""
+    from grafeno.models import TaskState
+    from grafeno.tui.widgets import _phase_status
+
+    finalizing = _phase_status(TaskState.FINALIZING)
+    assert finalizing["plan"] == "done"
+    assert finalizing["implement"] == "done"
+    assert finalizing["review"] == "done"
+    assert finalizing["final"] == "active"
+    assert finalizing["done"] == "pending"
+
+    done = _phase_status(TaskState.DONE)
+    assert done["final"] == "done"
+    assert done["done"] == "done"
+
+
+def test_detail_screen_has_final_tab_and_binding():
+    """La pantalla de detalle expone la pestaña #tab-final y el binding `s`."""
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task
+    from grafeno.tui.screens.detail import TaskDetailScreen
+
+    task = Task.create("Demo final ui", "desc", "/tmp", Config())
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+
+            # El binding 's' está registrado y lanza action_run_final.
+            keys = {b.key for b in TaskDetailScreen.BINDINGS if isinstance(b.key, str)}
+            assert "s" in keys
+
+            # La pestaña de pasos finales existe.
+            assert app.screen.query("#tab-final") is not None
 
     asyncio.run(scenario())

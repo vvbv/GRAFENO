@@ -175,6 +175,36 @@ def test_registry():
 
 
 # ---------------------------------------------------------------------- #
+# AGENTS.md
+# ---------------------------------------------------------------------- #
+def test_agents_md_prompt_opencode():
+    driver = OpenCodeDriver()
+    assert driver.init_command == "/init"
+    prompt = driver.build_agents_md_prompt()
+    assert "AGENTS.md" in prompt
+    assert "/init" in prompt
+
+
+def test_agents_md_prompt_kimi():
+    """kimi no expone init nativo: el prompt no menciona `/init` propio."""
+    driver = KimiDriver()
+    assert driver.init_command == ""
+    prompt = driver.build_agents_md_prompt()
+    assert "AGENTS.md" in prompt
+
+
+def test_agents_md_prompt_generic_sin_init_command():
+    class BareDriver(CLIDriver):
+        name = "bare"
+
+    driver = BareDriver()
+    assert driver.init_command == ""
+    prompt = driver.build_agents_md_prompt()
+    assert "AGENTS.md" in prompt
+    assert "`/init`" not in prompt.split("convenciones habituales")[0]
+
+
+# ---------------------------------------------------------------------- #
 # read_lines (stream reading without line-length limit)
 # ---------------------------------------------------------------------- #
 async def _collect(*chunks: bytes) -> list[str]:
@@ -238,3 +268,74 @@ def test_run_with_cli_line_beyond_64k(tmp_path):
     result = asyncio.run(driver.run(request))
     assert result.ok, result.error
     assert result.text == "x" * 200_000
+
+
+# ---------------------------------------------------------------------- #
+# Listado asíncrono de modelos
+# ---------------------------------------------------------------------- #
+def test_list_models_async_success(monkeypatch):
+    class _Proc:
+        returncode = 0
+
+        async def communicate(self):
+            return (b"opencode-go/kimi-k3\nopencode/big-pickle\n", b"")
+
+    async def _fake_exec(*cmd, **kwargs):
+        return _Proc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+    models = asyncio.run(OpenCodeDriver().list_models_async())
+    assert models == ["opencode-go/kimi-k3", "opencode/big-pickle"]
+
+
+def test_list_models_async_spawn_error(monkeypatch):
+    async def _fake_exec(*cmd, **kwargs):
+        raise OSError("no existe")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+    assert asyncio.run(KimiDriver().list_models_async()) == []
+
+
+def test_list_models_async_cancel_kills_process(monkeypatch):
+    killed = False
+
+    class _Proc:
+        returncode = None
+
+        async def communicate(self):
+            await asyncio.sleep(60)
+
+        def kill(self):
+            nonlocal killed
+            killed = True
+
+        async def wait(self):
+            return -9
+
+    async def _fake_exec(*cmd, **kwargs):
+        return _Proc()
+
+    async def scenario():
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        task = asyncio.ensure_future(OpenCodeDriver().list_models_async(timeout=60))
+        await asyncio.sleep(0)
+        task.cancel()
+        try:
+            await task
+            raise AssertionError("debió lanzar CancelledError")
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(scenario())
+    assert killed
+
+
+def test_fetch_all_models(monkeypatch):
+    from grafeno import drivers
+
+    async def _fake(self, timeout=30.0):
+        return [f"{self.name}/m1"]
+
+    monkeypatch.setattr(CLIDriver, "list_models_async", _fake)
+    result = asyncio.run(drivers.fetch_all_models(["opencode", "kimi"]))
+    assert result == {"opencode": ["opencode/m1"], "kimi": ["kimi/m1"]}

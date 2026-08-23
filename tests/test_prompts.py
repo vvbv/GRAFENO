@@ -94,3 +94,16 @@ def test_suggestions_for_complex_methods(tmp_path):
     assert "SUGERENCIAS" in review
     assert "complejos" in review
     assert "Sugerencias de mejora" in review
+
+
+def test_final_prompt_contract(tmp_path):
+    """El prompt de pasos finales apunta al informe, exige reglas y menciona tests."""
+    task = _task(tmp_path, test_command="pytest -q")
+    prompt = prompts.final_prompt(task)
+    assert str(paths.final_dir(task.id)) in prompt
+    assert "01-final.md" in prompt
+    assert task.workdir in prompt
+    assert "pytest -q" in prompt
+    assert "emotes" in prompt
+    assert "INGLÉS" in prompt
+    assert "AGENTE DE PASOS FINALES" in prompt

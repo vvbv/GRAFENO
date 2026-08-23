@@ -51,6 +51,7 @@ def _make_task(tmp_path, **overrides) -> Task:
     task.planner.cli = "fake-planner"
     task.implementer.cli = "fake-impl"
     task.reviewer.cli = "fake-rev"
+    task.final.cli = "fake-final"
     for key, value in overrides.items():
         setattr(task, key, value)
     return task
@@ -63,9 +64,10 @@ def _run(coro):
 def test_automode_happy_path(tmp_path):
     task = _make_task(tmp_path)
     drivers = {
-        "fake-planner": FakeDriver("fake-planner", [_ok("contenido del plan")]),
+        "fake-planner": FakeDriver("fake-planner", [_ok("init"), _ok("contenido del plan")]),
         "fake-impl": FakeDriver("fake-impl", [_ok("implementado")]),
         "fake-rev": FakeDriver("fake-rev", [_ok("Todo bien.\nVERDICT: APPROVED")]),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
     }
     orch = Orchestrator(task, drivers=drivers)
     _run(orch.run_automode())
@@ -90,6 +92,7 @@ def test_automode_fix_loop_until_approved(tmp_path):
             "fake-rev",
             [_ok("Faltan cosas.\nVERDICT: CHANGES_REQUESTED"), _ok("Ahora sí.\nVERDICT: APPROVED")],
         ),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
     }
     orch = Orchestrator(task, drivers=drivers)
     _run(orch.run_automode())
@@ -106,6 +109,7 @@ def test_automode_max_iterations_exhausted(tmp_path):
         "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
         "fake-impl": FakeDriver("fake-impl", []),  # siempre ok
         "fake-rev": FakeDriver("fake-rev", []),    # sin veredicto -> CHANGES_REQUESTED
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
     }
     orch = Orchestrator(task, drivers=drivers)
     _run(orch.run_automode())
@@ -120,6 +124,7 @@ def test_phase_failure_marks_failed(tmp_path):
         "fake-planner": FakeDriver("fake-planner", [RunResult(ok=False, error="boom")]),
         "fake-impl": FakeDriver("fake-impl", []),
         "fake-rev": FakeDriver("fake-rev", []),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
     }
     orch = Orchestrator(task, drivers=drivers)
     _run(orch.run_automode())
@@ -156,6 +161,7 @@ def test_approved_but_failing_tests_requests_changes(tmp_path):
         "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
         "fake-impl": FakeDriver("fake-impl", [_ok("v1"), _ok("v2")]),
         "fake-rev": FakeDriver("fake-rev", [_ok("bien\nVERDICT: APPROVED"), _ok("bien\nVERDICT: APPROVED")]),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
     }
     orch = Orchestrator(task, drivers=drivers)
     _run(orch.run_automode())
@@ -180,6 +186,7 @@ def test_session_ids_are_reused(tmp_path):
             "fake-rev",
             [_ok("no\nVERDICT: CHANGES_REQUESTED"), _ok("sí\nVERDICT: APPROVED")],
         ),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
     }
     orch = Orchestrator(task, drivers=drivers)
     _run(orch.run_automode())
@@ -193,6 +200,7 @@ def test_automode_split_plan_and_continue(tmp_path):
         "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
         "fake-impl": FakeDriver("fake-impl", [_ok("v1")]),
         "fake-rev": FakeDriver("fake-rev", [_ok("bien\nVERDICT: APPROVED")]),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
     }
     orch = Orchestrator(task, drivers=drivers)
 
@@ -226,6 +234,7 @@ def test_second_cycle_uses_cycle_dirs(tmp_path):
         "fake-rev": FakeDriver(
             "fake-rev", [_ok("ok\nVERDICT: APPROVED"), _ok("ok\nVERDICT: APPROVED")]
         ),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre"), _ok("cierre 2")]),
     }
     orch = Orchestrator(task, drivers=drivers)
     _run(orch.run_automode())
@@ -251,6 +260,53 @@ def test_second_cycle_uses_cycle_dirs(tmp_path):
     assert "Ampliación" in planner.prompts[-1]
     # El ciclo 1 sigue intacto.
     assert list(paths.plan_dir(task.id, 1).glob("*.md"))
+    cycle2_final = list(paths.final_dir(task.id, 2).glob("*.md"))
+    assert cycle2_final and "ciclo-02" in str(cycle2_final[0])
+
+
+def test_agents_md_se_genera_antes_del_plan(tmp_path):
+    """Sin AGENTS.md en el proyecto, el planner lo genera antes de planificar."""
+    task = _make_task(tmp_path)
+    planner = FakeDriver("fake-planner", [_ok("init hecho"), _ok("plan")])
+    drivers = {
+        "fake-planner": planner,
+        "fake-impl": FakeDriver("fake-impl", []),
+        "fake-rev": FakeDriver("fake-rev", []),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_plan())
+
+    assert task.state is TaskState.PLANNED
+    assert len(planner.prompts) == 2
+    assert "AGENTS.md" in planner.prompts[0]   # primero el init
+    assert "PLANIFICADOR" in planner.prompts[1]  # después el plan
+
+
+def test_agents_md_se_omite_si_ya_existe(tmp_path):
+    (tmp_path / "AGENTS.md").write_text("# Agentes\n", encoding="utf-8")
+    task = _make_task(tmp_path)
+    planner = FakeDriver("fake-planner", [_ok("plan")])
+    drivers = {"fake-planner": planner}
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_plan())
+
+    assert task.state is TaskState.PLANNED
+    assert len(planner.prompts) == 1  # solo el prompt de plan
+
+
+def test_agents_md_fallo_no_falla_la_tarea(tmp_path):
+    """Si la generación de AGENTS.md falla, el plan sigue adelante."""
+    task = _make_task(tmp_path)
+    planner = FakeDriver(
+        "fake-planner", [RunResult(ok=False, error="boom"), _ok("plan")]
+    )
+    drivers = {"fake-planner": planner}
+    infos: list[str] = []
+    orch = Orchestrator(task, drivers=drivers, on_info=infos.append)
+    _run(orch.run_plan())
+
+    assert task.state is TaskState.PLANNED
+    assert any("AGENTS.md" in message for message in infos)
 
 
 def test_durations_are_recorded_and_persisted(tmp_path):
@@ -262,6 +318,7 @@ def test_durations_are_recorded_and_persisted(tmp_path):
             "fake-rev",
             [_ok("no\nVERDICT: CHANGES_REQUESTED"), _ok("sí\nVERDICT: APPROVED")],
         ),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
     }
     activities: list[str] = []
     orch = Orchestrator(task, drivers=drivers, on_activity=lambda phase: activities.append(phase))
@@ -269,7 +326,7 @@ def test_durations_are_recorded_and_persisted(tmp_path):
 
     assert task.state is TaskState.DONE
     # Cada fase por la que pasó tiene duración registrada.
-    for phase in ("plan", "implement", "review", "fix"):
+    for phase in ("plan", "implement", "review", "fix", "final"):
         assert phase in task.durations
         assert task.durations[phase] >= 0
     # El callback de actividad se propaga.
@@ -279,3 +336,40 @@ def test_durations_are_recorded_and_persisted(tmp_path):
 
     reloaded = models.load(task.id)
     assert reloaded.durations == task.durations
+
+
+def test_automode_runs_final_steps_after_approval(tmp_path):
+    """Tras la aprobación, el automode ejecuta los pasos finales y escribe el informe."""
+    task = _make_task(tmp_path)
+    final = FakeDriver("fake-final", [_ok("informe de cierre")])
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", [_ok("v1")]),
+        "fake-rev": FakeDriver("fake-rev", [_ok("bien\nVERDICT: APPROVED")]),
+        "fake-final": final,
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_automode())
+
+    assert task.state is TaskState.DONE
+    assert len(final.prompts) == 1
+    # El prompt de cierre apunta al directorio final del ciclo.
+    assert str(paths.final_dir(task.id)) in final.prompts[0]
+    # Respaldo: la salida se materializó como 01-final.md.
+    report = paths.final_dir(task.id) / "01-final.md"
+    assert report.exists()
+    assert "informe de cierre" in report.read_text(encoding="utf-8")
+    assert "final" in task.durations
+
+
+def test_final_steps_failure_marks_failed(tmp_path):
+    task = _make_task(tmp_path)
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", [_ok("v1")]),
+        "fake-rev": FakeDriver("fake-rev", [_ok("bien\nVERDICT: APPROVED")]),
+        "fake-final": FakeDriver("fake-final", [RunResult(ok=False, error="boom")]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_automode())
+    assert task.state is TaskState.FAILED
