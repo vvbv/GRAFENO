@@ -55,3 +55,42 @@ def test_fix_prompt_references_review_file(tmp_path):
     prompt = prompts.fix_prompt(task, 3)
     assert "03-review.md" in prompt
     assert str(paths.plan_dir(task.id)) in prompt
+
+
+def test_plan_prompt_cycle_includes_extension(tmp_path):
+    task = _task(tmp_path)
+    task.start_new_cycle("añade caché también a los precios")
+    prompt = prompts.plan_prompt(task)
+    assert "Ampliación" in prompt
+    assert "añade caché también a los precios" in prompt
+    assert str(paths.plan_dir(task.id, 2)) in prompt
+    # La revisión del ciclo 2 va a su propio directorio.
+    assert "ciclo-02" in prompts.review_prompt(task, 1)
+
+
+def test_code_rules_in_prompts(tmp_path):
+    """Rol senior, sin emotes y documentación en inglés (o estilo del proyecto)."""
+    task = _task(tmp_path)
+    plan = prompts.plan_prompt(task)
+    assert "INGENIERO DE SOFTWARE SENIOR" in plan
+    assert "emotes" in plan
+    assert "INGLÉS" in plan
+    assert "estilo de codificación" in plan
+    # Las reglas llegan también a quien escribe el código.
+    assert "emotes" in prompts.implement_prompt(task)
+    assert "INGLÉS" in prompts.fix_prompt(task, 1)
+
+
+def test_suggestions_for_complex_methods(tmp_path):
+    """El planificador sugiere ante métodos complejos y el revisor también."""
+    task = _task(tmp_path)
+    plan = prompts.plan_prompt(task)
+    assert "COMPLEJO" in plan
+    assert "Sugerencias" in plan
+    assert "descomposición" in plan
+    assert "pseudocódigo" in plan
+
+    review = prompts.review_prompt(task, 1)
+    assert "SUGERENCIAS" in review
+    assert "complejos" in review
+    assert "Sugerencias de mejora" in review

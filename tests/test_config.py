@@ -25,6 +25,7 @@ def test_roundtrip():
     cfg.automode.max_iterations = 3
     cfg.automode.test_command = "pytest -q"
     cfg.automode.create_branch = False
+    cfg.automode.confirm_plan = True
     config.save(cfg)
 
     loaded = config.load()
@@ -36,3 +37,4 @@ def test_roundtrip():
     assert loaded.automode.max_iterations == 3
     assert loaded.automode.test_command == "pytest -q"
     assert loaded.automode.create_branch is False
+    assert loaded.automode.confirm_plan is True

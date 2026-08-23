@@ -6,7 +6,7 @@ import asyncio
 from collections import deque
 from pathlib import Path
 
-from grafeno import paths
+from grafeno import models, paths
 from grafeno.config import Config
 from grafeno.drivers.base import CLIDriver, RunResult
 from grafeno.models import Task, TaskState
@@ -33,8 +33,10 @@ class FakeDriver(CLIDriver):
     def list_models(self):
         return []
 
-    async def run(self, request, on_event=None):
+    async def run(self, request, on_event=None, on_activity=None):
         self.prompts.append(request.prompt)
+        if on_activity:
+            on_activity()
         if self._results:
             return self._results.popleft()
         return RunResult(ok=True, text="ok")
@@ -182,3 +184,98 @@ def test_session_ids_are_reused(tmp_path):
     orch = Orchestrator(task, drivers=drivers)
     _run(orch.run_automode())
     assert task.sessions.get("implementer") == "ses-impl"
+
+
+def test_automode_split_plan_and_continue(tmp_path):
+    """Automode con punto de confirmación: plan -> (pausa) -> continuar."""
+    task = _make_task(tmp_path)
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", [_ok("v1")]),
+        "fake-rev": FakeDriver("fake-rev", [_ok("bien\nVERDICT: APPROVED")]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+
+    _run(orch.run_automode_plan())
+    assert task.state is TaskState.PLANNED
+    assert list(paths.plan_dir(task.id).glob("*.md"))
+    # Aún no se ha implementado nada.
+    assert drivers["fake-impl"].prompts == []
+
+    _run(orch.run_automode_continue())
+    assert task.state is TaskState.DONE
+    assert len(drivers["fake-impl"].prompts) == 1
+
+
+def test_automode_continue_requires_plan(tmp_path):
+    task = _make_task(tmp_path)
+    infos: list[str] = []
+    orch = Orchestrator(task, drivers={}, on_info=infos.append)
+    _run(orch.run_automode_continue())
+    assert task.state is TaskState.DRAFT
+    assert any("plan" in message.lower() for message in infos)
+
+
+def test_second_cycle_uses_cycle_dirs(tmp_path):
+    """'Pedir más': un ciclo nuevo planifica en plan/ciclo-02 y conserva el 1."""
+    task = _make_task(tmp_path)
+    planner = FakeDriver("fake-planner", [_ok("plan ciclo 1"), _ok("plan ciclo 2")])
+    drivers = {
+        "fake-planner": planner,
+        "fake-impl": FakeDriver("fake-impl", [_ok("impl 1"), _ok("impl 2")]),
+        "fake-rev": FakeDriver(
+            "fake-rev", [_ok("ok\nVERDICT: APPROVED"), _ok("ok\nVERDICT: APPROVED")]
+        ),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_automode())
+    assert task.state is TaskState.DONE
+    assert list(paths.plan_dir(task.id, 1).glob("*.md"))
+
+    task.start_new_cycle("añade más cosas")
+    models.save(task)
+    assert task.cycle == 2
+    assert task.iteration == 0
+    assert task.state is TaskState.DRAFT
+    assert task.current_extension == "añade más cosas"
+
+    orch2 = Orchestrator(task, drivers=drivers)
+    _run(orch2.run_automode())
+    assert task.state is TaskState.DONE
+
+    cycle2_plans = list(paths.plan_dir(task.id, 2).glob("*.md"))
+    assert cycle2_plans and "ciclo-02" in str(cycle2_plans[0])
+    assert list(paths.review_dir(task.id, 2).glob("*.md"))
+    # El prompt del ciclo 2 incluye la petición de ampliación.
+    assert "añade más cosas" in planner.prompts[-1]
+    assert "Ampliación" in planner.prompts[-1]
+    # El ciclo 1 sigue intacto.
+    assert list(paths.plan_dir(task.id, 1).glob("*.md"))
+
+
+def test_durations_are_recorded_and_persisted(tmp_path):
+    task = _make_task(tmp_path)
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", [_ok("v1"), _ok("v2")]),
+        "fake-rev": FakeDriver(
+            "fake-rev",
+            [_ok("no\nVERDICT: CHANGES_REQUESTED"), _ok("sí\nVERDICT: APPROVED")],
+        ),
+    }
+    activities: list[str] = []
+    orch = Orchestrator(task, drivers=drivers, on_activity=lambda phase: activities.append(phase))
+    _run(orch.run_automode())
+
+    assert task.state is TaskState.DONE
+    # Cada fase por la que pasó tiene duración registrada.
+    for phase in ("plan", "implement", "review", "fix"):
+        assert phase in task.durations
+        assert task.durations[phase] >= 0
+    # El callback de actividad se propaga.
+    assert activities
+    # Persisten en task.toml.
+    from grafeno import models
+
+    reloaded = models.load(task.id)
+    assert reloaded.durations == task.durations

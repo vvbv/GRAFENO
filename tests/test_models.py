@@ -18,11 +18,34 @@ def test_task_create_snapshots_config(tmp_path):
     cfg.planner.model = "p-model"
     cfg.automode.enabled = True
     cfg.automode.test_command = "make test"
+    cfg.automode.confirm_plan = True
     task = Task.create("Demo", "desc", str(tmp_path), cfg)
     assert task.planner.model == "p-model"
     assert task.automode is True
     assert task.test_command == "make test"
+    assert task.confirm_plan is True
     assert task.state is TaskState.DRAFT
+
+
+def test_task_confirm_plan_override(tmp_path):
+    task = Task.create("Demo", "desc", str(tmp_path), Config(), confirm_plan=True)
+    assert task.confirm_plan is True
+    models.save(task)
+    assert models.load(task.id).confirm_plan is True
+
+
+def test_cycles_roundtrip(tmp_path):
+    task = Task.create("Demo", "desc", str(tmp_path), Config())
+    assert task.cycle == 1
+    assert task.current_extension == ""
+    task.start_new_cycle("primera ampliación\ncon detalle")
+    models.save(task)
+
+    loaded = models.load(task.id)
+    assert loaded.cycle == 2
+    assert loaded.current_extension == "primera ampliación\ncon detalle"
+    assert loaded.state is TaskState.DRAFT
+    assert loaded.iteration == 0
 
 
 def test_task_roundtrip(tmp_path):

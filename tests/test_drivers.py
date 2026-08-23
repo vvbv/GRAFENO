@@ -83,7 +83,9 @@ def test_kimi_command_full():
     cmd = driver.build_command(_request(model="kimi-code/k3", session_id="s1"))
     assert cmd[0] == "kimi"
     assert cmd[cmd.index("-p") + 1] == "hola"
-    assert "--auto" in cmd
+    # kimi -p no admite --auto ni -y (verificado contra kimi 0.37)
+    assert "--auto" not in cmd
+    assert "-y" not in cmd
     assert cmd[cmd.index("--output-format") + 1] == "stream-json"
     assert cmd[cmd.index("-m") + 1] == "kimi-code/k3"
     assert cmd[cmd.index("-S") + 1] == "s1"
@@ -93,6 +95,35 @@ def test_kimi_command_minimal():
     cmd = KimiDriver().build_command(_request())
     assert "-m" not in cmd
     assert "-S" not in cmd
+
+
+def test_kimi_decode_real_event_shapes():
+    """Eventos reales capturados de kimi 0.37 --output-format stream-json."""
+    driver = KimiDriver()
+
+    event, _ = driver.decode_line('{"role":"assistant","content":"ok"}')
+    assert event.kind is EventKind.TEXT
+    assert event.text == "ok"
+
+    event, _ = driver.decode_line(
+        '{"role":"assistant","tool_calls":[{"type":"function","id":"t1",'
+        '"function":{"name":"Write","arguments":"{}"}}]}'
+    )
+    assert event.kind is EventKind.TOOL
+    assert "Write" in event.text
+
+    event, _ = driver.decode_line('{"role":"tool","content":"Wrote 4 bytes to /tmp/x"}')
+    assert event.kind is EventKind.TOOL
+    assert "Wrote 4 bytes" in event.text
+
+    event, session = driver.decode_line(
+        '{"role":"meta","type":"session.resume_hint","session_id":"session_abc","command":"kimi -r session_abc"}'
+    )
+    assert event is None
+    assert session == "session_abc"
+
+    event, _ = driver.decode_line('{"role":"meta","type":"system.version","version":"0.37.2"}')
+    assert event is None
 
 
 def test_kimi_decode_assistant_message():
