@@ -1,12 +1,19 @@
 """Driver para Kimi Code CLI (https://moonshotai.github.io/kimi-code/).
 
 Modo no-interactivo:
-    kimi -p "<prompt>" -m <alias> --auto --output-format stream-json
+    kimi -p "<prompt>" -m <alias> --output-format stream-json
 
-Con ``stream-json`` emite eventos JSONL. No tiene flag de directorio, así
-que el workdir se pasa como ``cwd`` del subproceso. La continuación de
-sesión usa ``-S <id>`` (mejor esfuerzo). Los modelos se obtienen de
-``kimi provider list --json``.
+Notas verificadas contra kimi 0.37:
+- ``-p/--prompt`` NO admite ``--auto`` ni ``-y``; en modo prompt las
+  herramientas se auto-aprueban (no hay interacción posible).
+- No tiene flag de directorio: el workdir se pasa como ``cwd`` del subproceso.
+- Eventos stream-json reales:
+  ``{"role":"assistant","content":"..."}``,
+  ``{"role":"assistant","tool_calls":[...]}``,
+  ``{"role":"tool","content":"..."}``,
+  ``{"role":"meta","type":"session.resume_hint","session_id":"..."}``.
+- Continuación de sesión con ``-S <id>`` (mejor esfuerzo).
+- Los modelos se obtienen de ``kimi provider list --json``.
 """
 
 from __future__ import annotations
@@ -23,14 +30,7 @@ class KimiDriver(CLIDriver):
     executable = "kimi"
 
     def build_command(self, request: RunRequest) -> list[str]:
-        command = [
-            "kimi",
-            "-p",
-            request.prompt,
-            "--auto",
-            "--output-format",
-            "stream-json",
-        ]
+        command = ["kimi", "-p", request.prompt, "--output-format", "stream-json"]
         if request.model:
             command += ["-m", request.model]
         if request.session_id:
@@ -54,28 +54,39 @@ class KimiDriver(CLIDriver):
             or payload.get("sessionId")
             or payload.get("sessionID")
         )
+        role = str(payload.get("role", ""))
         event_type = str(payload.get("type", ""))
 
-        # Formato habitual: {"type":"assistant","message":{"content":[{"type":"text",...}]}}
+        if role == "assistant":
+            tool_calls = payload.get("tool_calls") or []
+            if tool_calls:
+                names = [
+                    str((call.get("function") or {}).get("name", "tool"))
+                    for call in tool_calls
+                ]
+                return RunEvent(EventKind.TOOL, ", ".join(names)[:200]), session_id
+            text = self._extract_text(payload.get("content"))
+            return (RunEvent(EventKind.TEXT, text) if text else None), session_id
+
+        if role == "tool":
+            content = payload.get("content")
+            summary = str(content).strip().splitlines()[0] if content else "tool"
+            return RunEvent(EventKind.TOOL, summary[:200]), session_id
+
+        if role in {"meta", "system"} or event_type in {"init", "system"}:
+            return None, session_id  # versiones, resume hints…: solo al log crudo
+
+        if event_type == "error" or payload.get("error"):
+            message_text = payload.get("error") or payload.get("message") or str(payload)
+            return RunEvent(EventKind.ERROR, str(message_text)[:500]), session_id
+
+        # Formato alternativo {"type":"assistant","message":{"content":[...]}}
         message = payload.get("message") or {}
         content = message.get("content", payload.get("content"))
         if event_type in {"assistant", "text", "message"} or content:
             text = self._extract_text(content)
             if text:
                 return RunEvent(EventKind.TEXT, text), session_id
-
-        if event_type in {"tool_use", "tool_call"}:
-            tool = payload.get("name") or payload.get("tool") or "tool"
-            return RunEvent(EventKind.TOOL, str(tool)[:200]), session_id
-
-        if event_type == "error" or payload.get("error"):
-            message_text = payload.get("error") or payload.get("message") or str(payload)
-            return RunEvent(EventKind.ERROR, str(message_text)[:500]), session_id
-
-        if event_type in {"init", "system", "result", "done"}:
-            if isinstance(payload.get("result"), str) and payload["result"].strip():
-                return RunEvent(EventKind.TEXT, payload["result"].strip()), session_id
-            return None, session_id
 
         return None, session_id
 

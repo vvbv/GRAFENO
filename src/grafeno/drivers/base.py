@@ -99,6 +99,7 @@ class CLIDriver:
         self,
         request: RunRequest,
         on_event: EventCallback | None = None,
+        on_activity: Callable[[], None] | None = None,
     ) -> RunResult:
         command = self.build_command(request)
         log_handle = request.log_path.open("a", encoding="utf-8") if request.log_path else None
@@ -129,6 +130,8 @@ class CLIDriver:
                 if log_handle:
                     log_handle.write(line + "\n")
                     log_handle.flush()
+                if on_activity:
+                    on_activity()  # latido: el CLI sigue emitiendo salida
                 event, found_session = self.decode_line(line)
                 if found_session:
                     session_id = found_session
