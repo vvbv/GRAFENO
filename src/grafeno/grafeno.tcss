@@ -161,9 +161,13 @@ FileList:focus {
     border-right: solid #7ee787;
 }
 
+#plan-scroll, #review-scroll, #final-scroll {
+    width: 1fr;
+    height: 1fr;
+}
+
 Markdown {
     padding: 0 2;
-    width: 1fr;
 }
 
 #live-log {

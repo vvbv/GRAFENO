@@ -392,3 +392,47 @@ def test_detail_screen_has_final_tab_and_binding():
             assert app.screen.query("#tab-final") is not None
 
     asyncio.run(scenario())
+
+
+def test_markdown_views_are_scrollable():
+    """Regresión: un plan largo debe poder hacer scroll en el visor Markdown."""
+    async def scenario():
+        from grafeno import models, paths
+        from grafeno.config import Config
+        from grafeno.models import Task
+        from grafeno.tui.screens.detail import TaskDetailScreen
+        from textual.containers import VerticalScroll
+        from textual.widgets import ListView
+
+        task = Task.create("Demo scroll", "desc", "/tmp", Config())
+        models.save(task)
+        long_md = "\n\n".join(f"## Seccion {i}\n\nparrafo {i}" for i in range(80))
+        (paths.plan_dir(task.id) / "01-largo.md").write_text(long_md, encoding="utf-8")
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 30)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+
+            # Seleccionar el archivo en la lista de planes.
+            plan_list = app.screen.query_one("#plan-files", ListView)
+            plan_list.focus()
+            plan_list.index = 0
+            await pilot.pause()
+            await pilot.press("enter")
+            for _ in range(20):
+                await pilot.pause(0.05)
+                scroll = app.screen.query_one("#plan-scroll", VerticalScroll)
+                if scroll.max_scroll_y > 0:
+                    break
+
+            # Hay contenido desbordado y, con foco, el teclado hace scroll.
+            assert scroll.max_scroll_y > 0
+            assert scroll.can_focus
+            scroll.focus()
+            await pilot.pause()
+            await pilot.press("pagedown")
+            await pilot.pause()
+            assert scroll.scroll_y > 0
+
+    asyncio.run(scenario())

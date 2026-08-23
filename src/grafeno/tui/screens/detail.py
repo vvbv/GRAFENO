@@ -9,7 +9,7 @@ from typing import Awaitable, Callable
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button,
@@ -229,15 +229,18 @@ class TaskDetailScreen(Screen[None]):
             with TabPane(t("det.tab.plan"), id="tab-plan"):
                 with Horizontal():
                     yield FileList(id="plan-files")
-                    yield Markdown("", id="plan-view")
+                    with VerticalScroll(id="plan-scroll"):
+                        yield Markdown("", id="plan-view")
             with TabPane(t("det.tab.review"), id="tab-review"):
                 with Horizontal():
                     yield FileList(id="review-files")
-                    yield Markdown("", id="review-view")
+                    with VerticalScroll(id="review-scroll"):
+                        yield Markdown("", id="review-view")
             with TabPane(t("det.tab.final"), id="tab-final"):
                 with Horizontal():
                     yield FileList(id="final-files")
-                    yield Markdown("", id="final-view")
+                    with VerticalScroll(id="final-scroll"):
+                        yield Markdown("", id="final-view")
             with TabPane(t("det.tab.log"), id="tab-log"):
                 yield RichLog(id="live-log", highlight=False, markup=False, wrap=True)
         yield Footer()
@@ -258,6 +261,9 @@ class TaskDetailScreen(Screen[None]):
         # Reloj de 1s: el tick en pantalla demuestra que la UI no está congelada.
         self.set_interval(1.0, self._tick)
         self._maybe_plan_confirm()
+        # Visores Markdown enfocables: el teclado (flechas, Re Pág...) hace scroll.
+        for scroll_id in ("#plan-scroll", "#review-scroll", "#final-scroll"):
+            self.query_one(scroll_id, VerticalScroll).can_focus = True
 
     def on_screen_suspend(self) -> None:
         self.runtime.remove_listener(self._on_runtime)
