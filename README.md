@@ -32,6 +32,8 @@ Cada tarea sigue un pipeline con cuatro roles configurables (CLI + modelo para c
 **Hooks de completado**: puedes configurar un comando shell que se ejecute al terminar etapas del pipeline. Hay un hook global (configuración, tecla `c`) y uno opcional por tarea (al crearla): el de tarea sustituye al global, o se suma a él si activas «ejecutar también el hook global». En ambos casos eliges en qué etapas se dispara (plan, implementación, revisión, corrección, pasos finales y tests, incluidas las repeticiones de cada una). Los hooks reciben el contexto por variables de entorno `GRAFENO_*` (id y nombre de tarea, workdir, fase, resultado, estado, iteración y ciclo), se ejecutan en mejor esfuerzo (con timeout de 120 s) y nunca interrumpen el pipeline: su salida se registra en el log de la tarea.
 Si el hook es una URL `http(s)`, GRAFENO no ejecuta ningún comando: envía un GET con un mensaje (nombre de tarea, etapa, resultado y estado) insertado en el placeholder `{message}` de la URL o, si no hay placeholder, en el parámetro de query `text` (p. ej. Telegram `.../sendMessage?chat_id=...&text={message}`). La query no se registra en los logs.
 
+**Control manual del estado**: desde la pantalla de detalle puedes forzar el cierre de una tarea con la tecla `d` (la marca como `done` sin más revisión; aún permite lanzar los pasos finales después) o descartarla con `D` (estado terminal `discarded` que bloquea el resto de acciones del pipeline). Ambas piden confirmación antes de persistir.
+
 **Idioma de la interfaz**: la GUI puede mostrarse en inglés (defecto) o español; se elige en la pantalla de configuración (`c`) y se persiste en `config.toml`. Al cambiarlo, las pantallas nuevas lo aplican de inmediato y el pie de atajos se actualiza al reiniciar la app.
 
 ## Instalación
@@ -78,6 +80,8 @@ publica el GitHub Release con el tag `vX.Y.Z` y los artefactos adjuntos.
 | `a` | Detalle | Automode |
 | `m` | Detalle | Pedir más (nuevo ciclo de ampliación) |
 | `e` | Detalle | Cambiar CLI y modelo de cada agente de la tarea |
+| `d` | Detalle | Forzar cierre (marca la tarea como `done`, con confirmación) |
+| `D` | Detalle | Descartar tarea (estado terminal `discarded`, con confirmación) |
 | `x` | Detalle | Cancelar ejecución |
 | `Esc` | Detalle/Config | Volver |
 | `Ctrl+Q` | Global | Salir |

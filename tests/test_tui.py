@@ -525,3 +525,82 @@ def test_token_summary_sorted_by_usage_desc():
             assert text.index("prov/zzz") < text.index("prov/aaa")
 
     asyncio.run(scenario())
+
+
+def test_mark_done_forced():
+    """La tecla 'd' pide confirmación y fuerza el estado done."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task, TaskState
+        from grafeno.tui.screens.detail import StatusConfirmScreen, TaskDetailScreen
+
+        task = Task.create("Forzar done", "desc", "/tmp", Config())
+        models.save(task)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+            await pilot.press("d")
+            await pilot.pause()
+            assert isinstance(app.screen, StatusConfirmScreen)
+            app.screen.query_one("#pc-accept").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#pc-accept")
+            await pilot.pause()
+            assert models.load(task.id).state is TaskState.DONE
+
+    asyncio.run(scenario())
+
+
+def test_mark_discarded():
+    """La tecla 'D' pide confirmación y marca la tarea como descartada."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task, TaskState
+        from grafeno.tui.screens.detail import StatusConfirmScreen, TaskDetailScreen
+
+        task = Task.create("Descartar", "desc", "/tmp", Config())
+        models.save(task)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+            await pilot.press("D")
+            await pilot.pause()
+            assert isinstance(app.screen, StatusConfirmScreen)
+            app.screen.query_one("#pc-accept").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#pc-accept")
+            await pilot.pause()
+            assert models.load(task.id).state is TaskState.DISCARDED
+
+    asyncio.run(scenario())
+
+
+def test_discarded_blocks_pipeline_actions():
+    """Una tarea descartada no abre el modal de confirmación de fases."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task, TaskState
+        from grafeno.tui.screens.detail import PhaseConfirmScreen, TaskDetailScreen
+
+        task = Task.create("Bloqueada", "desc", "/tmp", Config())
+        task.state = TaskState.DISCARDED
+        models.save(task)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+            await pilot.press("p")
+            await pilot.pause()
+            assert not isinstance(app.screen, PhaseConfirmScreen)
+
+    asyncio.run(scenario())

@@ -6,7 +6,7 @@ import tomllib
 
 from grafeno import _toml, models, paths
 from grafeno.config import Config
-from grafeno.models import Task, TaskState
+from grafeno.models import Task, TaskState, state_label
 
 
 def test_slugify():
@@ -146,3 +146,13 @@ def test_task_tokens_roundtrip(tmp_path):
         "prov/Model-X": (150, 50),
         "default": (5, 2),
     }
+
+
+def test_discarded_state_roundtrip():
+    """El estado DISCARDED se persiste y se lee correctamente."""
+    task = Task.create("Descartable", "desc", "/tmp", Config())
+    task.state = TaskState.DISCARDED
+    models.save(task)
+    loaded = models.load(task.id)
+    assert loaded.state is TaskState.DISCARDED
+    assert state_label(loaded.state) == "Discarded"
