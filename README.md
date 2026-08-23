@@ -1,56 +1,56 @@
 # GRAFENO
 
-Orquestador TUI multi-CLI para tareas de programación: **plan → implementación → revisión ⇄ corrección → pasos finales**, usando CLIs de agentes ya instalados en tu sistema.
+Multi-CLI TUI orchestrator for programming tasks: **plan -> implementation -> review <=> fix -> final steps**, using agent CLIs already installed on your system.
 
-- **CLIs soportados hoy**: [OpenCode](https://opencode.ai) (`opencode`) y [Kimi Code](https://moonshotai.github.io/kimi-code/) (`kimi`).
-- **Arquitectura preparada para**: Codex CLI (`codex`) y Claude Code (`claude`) — añadir uno es crear un archivo en `src/grafeno/drivers/` y registrarlo.
-- **Multiplataforma**: Linux, macOS y Windows (Python 3.11+).
+- **CLIs supported today**: [OpenCode](https://opencode.ai) (`opencode`) and [Kimi Code](https://moonshotai.github.io/kimi-code/) (`kimi`).
+- **Architecture ready for**: Codex CLI (`codex`) and Claude Code (`claude`) — adding one is just creating a file under `src/grafeno/drivers/` and registering it.
+- **Cross-platform**: Linux, macOS and Windows (Python 3.11+).
 
-## Cómo funciona
+## How it works
 
-Cada tarea sigue un pipeline con cuatro roles configurables (CLI + modelo para cada uno):
+Every task follows a pipeline with four configurable roles (CLI + model for each):
 
-1. **Planificador** — explora el proyecto y escribe uno o varios planes en Markdown (`~/.grafeno/tasks/<tarea>/plan/`).
-   Cada plan incluye una cabecera `GRAFENO-EXECUTOR` que declara **qué modelo y qué CLI lo implementará**, y el prompt exige optimizar el contenido para ese ejecutor (pasos explícitos, rutas exactas, comandos concretos). Así, aunque el planificador viva en OpenCode y el ejecutor en Kimi, el plan llega íntegro por archivos.
-   Antes de planificar, si el proyecto no tiene un `AGENTS.md` en su raíz, GRAFENO lo genera con el propio planificador invocando el comando nativo del CLI correspondiente (p.ej. `/init` en OpenCode) o, si el CLI no expone uno (como kimi), mediante un prompt genérico equivalente; es una operación de mejor esfuerzo: si falla, la tarea continúa sin él y la salida cruda queda en `logs/agents-md.jsonl`.
-2. **Implementador** — lee los planes y los ejecuta en el directorio del proyecto (opcionalmente en una rama `grafeno/<tarea>`; se decide por tarea en el formulario de creación, con el valor global de la configuración como defecto).
-3. **Revisor** — verifica los criterios de aceptación, escribe la revisión en `review/NN-review.md` y emite un veredicto estructurado (`VERDICT: APPROVED` / `VERDICT: CHANGES_REQUESTED`). Si pide cambios, el implementador corrige y se vuelve a revisar.
-4. **Pasos finales** — tras la aprobación, un último agente cierra la tarea: actualiza la
-   documentación afectada, hace limpieza final y escribe un informe en `final/01-final.md`.
-   También tiene CLI y modelo configurables (rol `final`). Puedes añadirle un bloque de
-   instrucciones extra en `config.toml` (`final_prompt`) o sobrescribirlo por tarea al
-   crearla; si está vacío el cierre se ejecuta como siempre.
+1. **Planner** — explores the project and writes one or several Markdown plans (`~/.grafeno/tasks/<task>/plan/`).
+   Each plan includes a `GRAFENO-EXECUTOR` header declaring **which model and which CLI will implement it**, and the prompt requires optimizing the content for that executor (explicit steps, exact paths, concrete commands). That way, even if the planner lives in OpenCode and the executor in Kimi, the plan arrives intact via files.
+   Before planning, if the project does not have an `AGENTS.md` at its root, GRAFENO generates one with the planner itself by invoking the native command of the corresponding CLI (e.g. `/init` in OpenCode) or, when the CLI does not expose one (like kimi), through an equivalent generic prompt; this is a best-effort operation: if it fails, the task continues without it and the raw output is left under `logs/agents-md.jsonl`.
+2. **Implementer** — reads the plans and executes them in the project directory (optionally on a `grafeno/<task>` branch; it is decided per task in the creation form, with the global configuration value as the default).
+3. **Reviewer** — verifies the acceptance criteria, writes the review under `review/NN-review.md` and issues a structured verdict (`VERDICT: APPROVED` / `VERDICT: CHANGES_REQUESTED`). If changes are requested, the implementer fixes them and the review runs again.
+4. **Final steps** — once approved, a last agent closes the task: updates the affected
+   documentation, performs a final cleanup and writes a report under `final/01-final.md`.
+   It also has a configurable CLI and model (role `final`). You can add an extra block
+   of instructions in `config.toml` (`final_prompt`) or override it per task when
+   creating it; if empty, the closeout runs as usual.
 
-**Automode**: encadena todo el ciclo sin intervención hasta que la tarea queda aprobada **y** los tests (si se definieron) pasan, y termina con los pasos finales, o hasta agotar las iteraciones máximas. Con la opción `confirm_plan` (global o por tarea), el automode se pausa tras el plan para que confirmes antes de implementar.
+**Automode**: chains the whole cycle without intervention until the task is approved **and** the tests (if defined) pass, ending with the final steps, or until the maximum iterations are exhausted. With the `confirm_plan` option (global or per task), automode pauses after the plan so you can confirm before implementing.
 
-**Ciclos («Pedir más»)**: una vez completada la tarea (o en cualquier pausa), la tecla `m` permite pedir ampliaciones sobre el mismo proyecto. Cada ampliación arranca un ciclo nuevo con la misma lógica (plan → aprobación opcional → implementación → revisión), conservando el historial en `plan/ciclo-NN/` y `review/ciclo-NN/`.
+**Cycles ("Ask for more")**: once the task is completed (or at any pause), the `m` key lets you request extensions on the same project. Each extension starts a new cycle with the same logic (plan -> optional approval -> implementation -> review), keeping the history under `plan/ciclo-NN/` and `review/ciclo-NN/`.
 
-**Seguridad de ejecución**: ninguna fase arranca con una sola tecla — cada acción abre un modal que explica qué va a ocurrir (agente, CLI, modelo, directorio) y pide confirmación. Mientras una fase corre, una barra de actividad muestra spinner, tiempos por fase, nº de eventos y watchdog de salida del CLI.
+**Execution safety**: no phase starts with a single key — every action opens a modal that explains what is about to happen (agent, CLI, model, directory) and asks for confirmation. While a phase runs, an activity bar shows a spinner, per-phase timings, event counts and a CLI output watchdog.
 
-**Conteo de tokens**: cada ejecución acumula los tokens consumidos en `task.toml`, desglosados por modelo. La lista de tareas muestra una columna «Tokens (in/out)» con el total por tarea, una línea inferior agrega el resumen global por modelo, y el detalle incluye los totales en la barra de actividad.
+**Token counting**: each run accumulates the consumed tokens in `task.toml`, broken down by model. The tasks list shows a "Tokens (in/out)" column with the total per task, a footer line aggregates the global summary by model, and the detail view includes the totals in the activity bar.
 
-**Hooks de completado**: puedes configurar un comando shell que se ejecute al terminar etapas del pipeline. Hay un hook global (configuración, tecla `c`) y uno opcional por tarea (al crearla): el de tarea sustituye al global, o se suma a él si activas «ejecutar también el hook global». En ambos casos eliges en qué etapas se dispara (plan, implementación, revisión, corrección, pasos finales y tests, incluidas las repeticiones de cada una). Los hooks reciben el contexto por variables de entorno `GRAFENO_*` (id y nombre de tarea, workdir, fase, resultado, estado, iteración y ciclo), se ejecutan en mejor esfuerzo (con timeout de 120 s) y nunca interrumpen el pipeline: su salida se registra en el log de la tarea.
-Si el hook es una URL `http(s)`, GRAFENO no ejecuta ningún comando: envía un GET con un mensaje (nombre de tarea, etapa, resultado y estado) insertado en el placeholder `{message}` de la URL o, si no hay placeholder, en el parámetro de query `text` (p. ej. Telegram `.../sendMessage?chat_id=...&text={message}`). La query no se registra en los logs.
+**Completion hooks**: you can configure a shell command that runs when pipeline stages finish. There is a global hook (configuration, `c` key) and an optional per-task hook (when creating it): the task-level hook replaces the global one, or is added to it if you enable "also run the global hook". In both cases you choose which stages it triggers on (plan, implementation, review, fix, final steps and tests, including repeats of each one). Hooks receive context via `GRAFENO_*` environment variables (task id and name, workdir, phase, result, status, iteration and cycle), run on a best-effort basis (with a 120 s timeout) and never interrupt the pipeline: their output is recorded in the task log.
+If the hook is an `http(s)` URL, GRAFENO does not execute any command: it sends a GET with a message (task name, stage, result and status) inserted into the `{message}` placeholder of the URL, or, if there is no placeholder, into the `text` query parameter (e.g. Telegram `.../sendMessage?chat_id=...&text={message}`). The query string is not recorded in the logs.
 
-**Control manual del estado**: desde la pantalla de detalle puedes forzar el cierre de una tarea con la tecla `d` (la marca como `done` sin más revisión; aún permite lanzar los pasos finales después) o descartarla con `D` (estado terminal `discarded` que bloquea el resto de acciones del pipeline). Ambas piden confirmación antes de persistir.
+**Manual state control**: from the detail screen you can force-close a task with the `d` key (it marks it as `done` without further review; it still allows launching the final steps afterwards) or discard it with `D` (terminal state `discarded` that blocks the remaining pipeline actions). Both ask for confirmation before persisting.
 
-**Idioma de la interfaz**: la GUI puede mostrarse en inglés (defecto) o español; se elige en la pantalla de configuración (`c`) y se persiste en `config.toml`. Al cambiarlo, las pantallas nuevas lo aplican de inmediato y el pie de atajos se actualiza al reiniciar la app.
+**Interface language**: the GUI can be displayed in English (default) or Spanish; it is chosen in the configuration screen (`c`) and persisted in `config.toml`. When changing it, new screens apply it immediately and the shortcuts footer updates on app restart.
 
-## Instalación
+## Installation
 
 ```bash
-pipx install .          # o: pip install .
+pipx install .          # or: pip install .
 grafeno
 ```
 
-Instalación guiada (verifica Python 3.11+, instala pipx si falta y deja `grafeno` en el PATH):
+Guided installation (verifies Python 3.11+, installs pipx if missing and leaves `grafeno` on the PATH):
 
 ```bash
-./install.sh        # Linux y macOS
+./install.sh        # Linux and macOS
 .\install.ps1       # Windows (PowerShell)
 ```
 
-Desarrollo:
+Development:
 
 ```bash
 python3 -m venv .venv
@@ -60,46 +60,46 @@ python3 -m venv .venv
 
 ## Releases
 
-Cada release se genera automáticamente al hacer push a `main` subiendo la
-versión (`src/grafeno/__init__.py` y `pyproject.toml`, siempre
-sincronizados): el workflow `.github/workflows/release.yml` detecta el
-incremento, valida que ambos archivos coinciden, construye el paquete y
-publica el GitHub Release con el tag `vX.Y.Z` y los artefactos adjuntos.
+Each release is generated automatically on push to `main` by bumping the
+version (`src/grafeno/__init__.py` and `pyproject.toml`, always kept in
+sync): the workflow `.github/workflows/release.yml` detects the bump,
+validates that both files match, builds the package and publishes the
+GitHub Release with the `vX.Y.Z` tag and attached artifacts.
 
-## Uso
+## Usage
 
-| Tecla | Pantalla | Acción |
+| Key | Screen | Action |
 |---|---|---|
-| `n` | Lista | Nueva tarea |
-| (formulario) | Nueva tarea | El campo «Directorio del proyecto» autocompleta rutas con un desplegable (flechas/Enter o ratón) |
-| `c` | Lista | Configuración global |
-| `Enter` | Lista | Abrir tarea |
-| `p` / `i` / `r` / `f` | Detalle | Planificar / Implementar / Revisar / Corregir (con confirmación) |
-| `s` | Detalle | Pasos finales (con confirmación) |
-| `t` | Detalle | Ejecutar tests |
-| `a` | Detalle | Automode |
-| `m` | Detalle | Pedir más (nuevo ciclo de ampliación) |
-| `e` | Detalle | Cambiar CLI y modelo de cada agente de la tarea |
-| `d` | Detalle | Forzar cierre (marca la tarea como `done`, con confirmación) |
-| `D` | Detalle | Descartar tarea (estado terminal `discarded`, con confirmación) |
-| `x` | Detalle | Cancelar ejecución |
-| `Esc` | Detalle/Config | Volver |
-| `Ctrl+Q` | Global | Salir |
+| `n` | List | New task |
+| (form) | New task | The "Project directory" field autocompletes paths with a dropdown (arrows/Enter or mouse) |
+| `c` | List | Global configuration |
+| `Enter` | List | Open task |
+| `p` / `i` / `r` / `f` | Detail | Plan / Implement / Review / Fix (with confirmation) |
+| `s` | Detail | Final steps (with confirmation) |
+| `t` | Detail | Run tests |
+| `a` | Detail | Automode |
+| `m` | Detail | Ask for more (new extension cycle) |
+| `e` | Detail | Change CLI and model of each task agent |
+| `d` | Detail | Force-close (marks the task as `done`, with confirmation) |
+| `D` | Detail | Discard task (terminal state `discarded`, with confirmation) |
+| `x` | Detail | Cancel execution |
+| `Esc` | Detail/Config | Back |
+| `Ctrl+Q` | Global | Quit |
 
-## Datos
+## Data
 
 ```
 ~/.grafeno/
-├── config.toml              # idioma (en/es), roles (cli+modelo), automode, tests, git, prompt de pasos finales, hook global
-└── tasks/<fecha>-<slug>/
-    ├── task.toml            # estado, iteraciones, sesiones, workdir, rama
-    ├── plan/*.md            # planes con cabecera GRAFENO-EXECUTOR
-    ├── review/*.md          # revisiones numeradas por iteración
-    ├── final/*.md           # informes de pasos finales por ciclo
-    └── logs/*.jsonl         # salida cruda de cada invocación de CLI
+├── config.toml              # language (en/es), roles (cli+model), automode, tests, git, final-steps prompt, global hook
+└── tasks/<date>-<slug>/
+    ├── task.toml            # state, iterations, sessions, workdir, branch
+    ├── plan/*.md            # plans with GRAFENO-EXECUTOR header
+    ├── review/*.md          # reviews numbered by iteration
+    ├── final/*.md           # final-step reports per cycle
+    └── logs/*.jsonl         # raw output from each CLI invocation
 ```
 
-El directorio base puede cambiarse con la variable de entorno `GRAFENO_HOME`.
+The base directory can be changed with the `GRAFENO_HOME` environment variable.
 
 ## Tests
 
@@ -107,5 +107,5 @@ El directorio base puede cambiarse con la variable de entorno `GRAFENO_HOME`.
 .venv/bin/python -m pytest
 ```
 
-Incluye tests unitarios (config, prompts, veredicto, drivers, orquestador con
-drivers falsos) y smoke tests de la TUI en modo headless.
+Includes unit tests (config, prompts, verdict, drivers, orchestrator with
+fake drivers) and TUI smoke tests in headless mode.

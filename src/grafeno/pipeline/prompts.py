@@ -25,6 +25,10 @@ Reglas de esta ejecución (modo automático, no interactivo):
 - NO hagas preguntas: decide con criterio y actúa.
 - Trabaja siempre dentro del directorio del proyecto indicado.
 - Responde de forma breve; los artefactos importantes van en los archivos.
+- Si la tarea requiere operaciones de git (commit, push, tags, etc.), usa el
+  autor y correo ya configurados en el sistema donde se ejecuta
+  (`git config user.name` / `git config user.email`): bajo ningún concepto los
+  modifiques, salvo que la tarea lo solicite explícitamente.
 """.strip()
 
 _CODE_RULES = """

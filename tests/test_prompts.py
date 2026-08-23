@@ -128,3 +128,17 @@ def test_final_prompt_without_custom_instructions_unchanged(tmp_path):
     assert "Instrucciones adicionales" not in prompt_blank
     # El resto del contrato sigue intacto.
     assert "AGENTE DE PASOS FINALES" in prompt_blank
+
+
+def test_common_rules_include_git_author_rule(tmp_path):
+    """Todos los prompts exigen respetar el autor git configurado en el sistema."""
+    task = _task(tmp_path)
+    for prompt in (
+        prompts.plan_prompt(task),
+        prompts.implement_prompt(task),
+        prompts.review_prompt(task, 1),
+        prompts.fix_prompt(task, 1),
+        prompts.final_prompt(task),
+    ):
+        assert "git config user.name" in prompt
+        assert "bajo ningún concepto" in prompt
