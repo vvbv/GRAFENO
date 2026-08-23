@@ -34,6 +34,13 @@ pipx install .          # o: pip install .
 grafeno
 ```
 
+Instalación guiada (verifica Python 3.11+, instala pipx si falta y deja `grafeno` en el PATH):
+
+```bash
+./scripts/install.sh      # Linux y macOS
+scripts\install.ps1       # Windows (PowerShell)
+```
+
 Desarrollo:
 
 ```bash
