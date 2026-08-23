@@ -44,8 +44,8 @@ grafeno
 Instalación guiada (verifica Python 3.11+, instala pipx si falta y deja `grafeno` en el PATH):
 
 ```bash
-./scripts/install.sh      # Linux y macOS
-scripts\install.ps1       # Windows (PowerShell)
+./install.sh        # Linux y macOS
+.\install.ps1       # Windows (PowerShell)
 ```
 
 Desarrollo:
@@ -55,6 +55,12 @@ python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 .venv/bin/grafeno
 ```
+
+## Releases
+
+Cada release se publica en GitHub al crear el tag `vX.Y.Z` correspondiente:
+el workflow `.github/workflows/release.yml` valida la versión, construye el
+paquete y adjunta los artefactos al release.
 
 ## Uso
 

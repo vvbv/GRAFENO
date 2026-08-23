@@ -7,11 +7,11 @@
   Nota: este script es ASCII puro a proposito, para que Windows PowerShell 5.1
   lo lea correctamente sin importar la codificacion de la consola.
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+  powershell -ExecutionPolicy Bypass -File .\install.ps1
 #>
 $ErrorActionPreference = 'Stop'
 $MinVersion = [version]'3.11'
-$RepoRoot = Split-Path -Parent $PSScriptRoot
+$RepoRoot = $PSScriptRoot
 
 function Write-Info { param([string]$Msg) Write-Host "[i] $Msg" -ForegroundColor Cyan }
 function Write-Ok   { param([string]$Msg) Write-Host "[+] $Msg" -ForegroundColor Green }

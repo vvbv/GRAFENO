@@ -40,7 +40,7 @@ src/grafeno/
     ├── widgets.py          # Widgets comunes (barra de actividad, confirmaciones)
     └── screens/            # tasks (lista), detail (detalle+acciones), config, roles
 tests/                      # pytest; conftest aísla GRAFENO_HOME e idioma por test
-scripts/                    # install.sh (Linux/macOS) e install.ps1 (Windows), vía pipx
+install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), vía pipx
 ```
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
@@ -55,7 +55,7 @@ python3 -m venv .venv
 .venv/bin/python -m pytest     # tests (testpaths = tests)
 ```
 
-Instalación de usuario: `pipx install .` o `scripts/install.sh` / `install.ps1`.
+Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
 
 ## Convenciones
 
@@ -82,3 +82,22 @@ Instalación de usuario: `pipx install .` o `scripts/install.sh` / `install.ps1`
   que describe el cambio funcional, a veces con detalle entre paréntesis
   (p.ej. `test: ciclos, paralelismo, confirmaciones, config y prompts (56 tests)`).
 - **Sin emojis** en código, docs ni UI.
+
+## Versionado y releases
+
+- La versión se declara en DOS sitios que deben quedar SIEMPRE
+  sincronizados: `pyproject.toml` (`[project].version`) y
+  `src/grafeno/__init__.py` (`__version__`). Cualquier cambio de versión
+  actualiza ambos en el mismo commit.
+- Toda modificación del proyecto (feature, fix, refactor, docs relevantes)
+  incrementa la versión siguiendo semver:
+  - **patch** (X.Y.Z+1): correcciones y cambios menores sin cambio de
+    comportamiento visible.
+  - **minor** (X.Y+1.0): funcionalidades nuevas retrocompatibles.
+  - **major** (X+1.0.0): cambios que rompen compatibilidad.
+- El commit que sube la versión sigue el formato
+  `chore(release): bump a X.Y.Z`.
+- Releases: se publican con un tag anotado `vX.Y.Z` sobre el commit del
+  bump. El workflow `.github/workflows/release.yml` valida que el tag
+  coincida con la versión del proyecto, construye el paquete y crea el
+  GitHub Release automáticamente. Si el tag no coincide, el workflow falla.

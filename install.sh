@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Instalador de GRAFENO para Linux y macOS.
 # Instala GRAFENO con pipx (entorno aislado). Requiere Python 3.11+.
-# Uso: ./scripts/install.sh
+# Uso: ./install.sh
 set -euo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd)"
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 MIN_VERSION="3.11"
 
 info() { printf '\033[1;34m[i]\033[0m %s\n' "$*"; }
