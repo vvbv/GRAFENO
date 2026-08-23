@@ -53,7 +53,8 @@ class ConfigScreen(Screen[None]):
             yield Static(t("cfg.hook"), classes="section-title")
             with Horizontal(classes="automode-row"):
                 yield Label(t("cfg.hook.command"))
-                yield Input(id="hook-command", placeholder="p. ej. ./notify.sh")
+                yield Input(id="hook-command", placeholder=t("hook.placeholder"))
+            yield Static(t("hook.help"))
             yield Label(t("cfg.hook.stages"))
             with Horizontal(classes="automode-row", id="hook-stages"):
                 for stage in HOOK_STAGES:

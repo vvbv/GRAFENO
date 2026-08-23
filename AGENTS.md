@@ -29,7 +29,7 @@ src/grafeno/
 │   └── __init__.py         #   Registro: get_driver(), available_clis(), fetch_all_models()
 ├── pipeline/
 │   ├── orchestrator.py     # Orquestador de fases (plan/implementar/revisar/final, automode, ciclos)
-│   ├── hooks.py            # Hooks de completado por etapa (global + por tarea, mejor esfuerzo)
+│   ├── hooks.py            # Hooks de completado por etapa (comando shell o webhook URL; global + por tarea, mejor esfuerzo)
 │   ├── prompts.py          # Prompts por fase, cabecera GRAFENO-EXECUTOR e instrucciones finales personalizables
 │   ├── verdict.py          # Parseo del veredicto del revisor (VERDICT: APPROVED / CHANGES_REQUESTED)
 │   └── gitops.py           # Rama opcional grafeno/<tarea>

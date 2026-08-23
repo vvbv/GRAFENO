@@ -84,3 +84,89 @@ def test_run_stage_hooks_never_raises_on_failure(tmp_path):
         on_info=infos.append,
     ))  # no lanza aunque el hook falle
     assert any("{code}" not in m and "3" in m for m in infos)
+
+
+def test_is_url():
+    assert hooks.is_url("https://api.telegram.org/bot1/sendMessage")
+    assert hooks.is_url("http://localhost:8080/hook")
+    assert not hooks.is_url("echo hola")
+    assert not hooks.is_url("./notify.sh --flag")
+
+
+def test_build_webhook_url_placeholder():
+    url = "https://h.test/send?chat_id=1&text={message}&x=1"
+    built = hooks.build_webhook_url(url, "hola mundo")
+    assert built == "https://h.test/send?chat_id=1&text=hola%20mundo&x=1"
+
+
+def test_build_webhook_url_default_text_param():
+    url = "https://api.telegram.org/botT/sendMessage?chat_id=-100&text=PENE"
+    built = hooks.build_webhook_url(url, "tarea lista")
+    assert "chat_id=-100" in built
+    assert "PENE" not in built
+    assert "text=tarea+lista" in built or "text=tarea%20lista" in built
+
+
+def test_build_message_contains_context(tmp_path):
+    task = _make_task(tmp_path)
+    message = hooks.build_message(task, "plan", "ok")
+    assert task.name in message
+    assert "ok" in message
+
+
+def test_run_stage_hooks_webhook_sends_message(tmp_path, monkeypatch):
+    sent: list[str] = []
+
+    async def fake_send(url: str) -> int:
+        sent.append(url)
+        return 200
+
+    monkeypatch.setattr(hooks, "_send_webhook", fake_send)
+    _save_global()
+    task = _make_task(
+        tmp_path,
+        hook_command="https://h.test/sendMessage?chat_id=1&text={message}",
+        hook_stages="plan",
+    )
+    infos: list[str] = []
+    _run(hooks.run_stage_hooks(
+        task, "plan", "ok",
+        on_event=lambda phase, event: None,
+        on_info=infos.append,
+    ))
+    assert len(sent) == 1
+    assert "chat_id=1" in sent[0]
+    assert "{message}" not in sent[0]
+    assert "?" in sent[0] and "text=" in sent[0]
+
+
+def test_run_stage_hooks_webhook_never_raises(tmp_path, monkeypatch):
+    async def failing_send(url: str) -> int:
+        raise OSError("sin red")
+
+    monkeypatch.setattr(hooks, "_send_webhook", failing_send)
+    _save_global(command="https://h.test/x?text={message}", stages="plan")
+    task = _make_task(tmp_path)
+    infos: list[str] = []
+    _run(hooks.run_stage_hooks(
+        task, "plan", "ok",
+        on_event=lambda phase, event: None,
+        on_info=infos.append,
+    ))  # no lanza aunque el webhook falle
+    assert any("sin red" in m for m in infos)
+
+
+def test_run_stage_hooks_webhook_does_not_log_query(tmp_path, monkeypatch):
+    async def fake_send(url: str) -> int:
+        return 200
+
+    monkeypatch.setattr(hooks, "_send_webhook", fake_send)
+    _save_global(command="https://h.test/x?token=SECRETO&text={message}", stages="plan")
+    task = _make_task(tmp_path)
+    infos: list[str] = []
+    _run(hooks.run_stage_hooks(
+        task, "plan", "ok",
+        on_event=lambda phase, event: None,
+        on_info=infos.append,
+    ))
+    assert all("SECRETO" not in m for m in infos)
