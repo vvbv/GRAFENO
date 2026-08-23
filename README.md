@@ -58,9 +58,11 @@ python3 -m venv .venv
 
 ## Releases
 
-Cada release se publica en GitHub al crear el tag `vX.Y.Z` correspondiente:
-el workflow `.github/workflows/release.yml` valida la versión, construye el
-paquete y adjunta los artefactos al release.
+Cada release se genera automáticamente al hacer push a `main` subiendo la
+versión (`src/grafeno/__init__.py` y `pyproject.toml`, siempre
+sincronizados): el workflow `.github/workflows/release.yml` detecta el
+incremento, valida que ambos archivos coinciden, construye el paquete y
+publica el GitHub Release con el tag `vX.Y.Z` y los artefactos adjuntos.
 
 ## Uso
 

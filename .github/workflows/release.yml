@@ -2,8 +2,11 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches:
+      - main
+    paths:
+      - "src/grafeno/__init__.py"
+      - "pyproject.toml"
 
 permissions:
   contents: write
@@ -14,28 +17,44 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Verify tag matches project version
+      - name: Detect version bump
+        id: version
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          PROJECT_VERSION="$(python -c "import sys; sys.path.insert(0, 'src'); from grafeno import __version__; print(__version__)")"
-          echo "Tag: $TAG_VERSION - Proyecto: $PROJECT_VERSION"
-          if [ "$TAG_VERSION" != "$PROJECT_VERSION" ]; then
-            echo "::error::El tag ($TAG_VERSION) no coincide con la version del proyecto ($PROJECT_VERSION)"
+          NEW_VERSION="$(python -c "import sys; sys.path.insert(0, 'src'); from grafeno import __version__; print(__version__)")"
+          OLD_VERSION="$(git show HEAD~1:src/grafeno/__init__.py | sed -n 's/^__version__ = \"\(.*\)\"/\1/p')"
+          echo "Version anterior: ${OLD_VERSION:-<ninguna>} - Nueva: $NEW_VERSION"
+          if [ -z "$OLD_VERSION" ] || [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "value=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify pyproject matches
+        if: steps.version.outputs.changed == 'true'
+        run: |
+          PYPROJECT_VERSION="$(sed -n 's/^version = \"\(.*\)\"/\1/p' pyproject.toml | head -1)"
+          if [ "$PYPROJECT_VERSION" != "${{ steps.version.outputs.value }}" ]; then
+            echo "::error::pyproject.toml ($PYPROJECT_VERSION) no coincide con __init__.py (${{ steps.version.outputs.value }})"
             exit 1
           fi
 
       - name: Build package
+        if: steps.version.outputs.changed == 'true'
         run: |
           python -m pip install --upgrade pip build
           python -m build
 
       - name: Create GitHub Release
+        if: steps.version.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "v${{ steps.version.outputs.value }}" dist/* --title "v${{ steps.version.outputs.value }}" --generate-notes

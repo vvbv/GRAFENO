@@ -97,7 +97,11 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   - **major** (X+1.0.0): cambios que rompen compatibilidad.
 - El commit que sube la versión sigue el formato
   `chore(release): bump a X.Y.Z`.
-- Releases: se publican con un tag anotado `vX.Y.Z` sobre el commit del
-  bump. El workflow `.github/workflows/release.yml` valida que el tag
-  coincida con la versión del proyecto, construye el paquete y crea el
-  GitHub Release automáticamente. Si el tag no coincide, el workflow falla.
+- Releases: se generan automáticamente al hacer push a `main` con el bump
+  de versión (commit `chore(release): bump a X.Y.Z`). El workflow
+  `.github/workflows/release.yml` se dispara cuando cambian
+  `src/grafeno/__init__.py` o `pyproject.toml`, detecta si la versión se
+  incrementó respecto al commit anterior, valida que ambos archivos
+  coinciden, construye el paquete y crea el GitHub Release con el tag
+  `vX.Y.Z`. Si la versión no cambió, no publica nada. No hace falta crear
+  tags a mano.
