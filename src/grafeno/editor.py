@@ -214,7 +214,8 @@ def build_launch_command(
     if not editor_cfg.enabled or editor_cfg.mode == "none":
         return None
 
-    name = editor_cfg.editor or (available_editors()[0] if available_editors() else "")
+    installed = available_editors()
+    name = editor_cfg.editor or (installed[0] if installed else "")
     if not name:
         return None
 
