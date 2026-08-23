@@ -10,13 +10,41 @@ registrarlo en ``drivers/__init__.py``.
 from __future__ import annotations
 
 import asyncio
+import codecs
 import json
 import shutil
 import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable
+from typing import AsyncIterator, Callable
+
+
+_READ_CHUNK = 65536  # bytes read per stream.read() call
+
+
+async def read_lines(stream: asyncio.StreamReader) -> AsyncIterator[str]:
+    """Yield decoded text lines from a stream without any line-length limit.
+
+    Uses chunked ``stream.read()`` calls plus an incremental UTF-8 decoder
+    rather than the stream's built-in line helper, which raises
+    ``ValueError`` ("Separator is found, but chunk is longer than limit")
+    when a single line exceeds the asyncio stream limit (64 KiB by default).
+    Agent CLIs can emit JSONL events well above that size.
+    """
+    buffer = ""
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    while True:
+        chunk = await stream.read(_READ_CHUNK)
+        if not chunk:
+            break
+        buffer += decoder.decode(chunk)
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            yield line
+    buffer += decoder.decode(b"", final=True)
+    if buffer:
+        yield buffer
 
 
 class EventKind(Enum):
@@ -122,11 +150,8 @@ class CLIDriver:
         async def pump_stdout() -> None:
             nonlocal session_id
             assert process.stdout is not None
-            while True:
-                raw = await process.stdout.readline()
-                if not raw:
-                    break
-                line = raw.decode("utf-8", errors="replace").rstrip("\n")
+            async for line in read_lines(process.stdout):
+                line = line.rstrip("\r")
                 if log_handle:
                     log_handle.write(line + "\n")
                     log_handle.flush()
@@ -144,11 +169,8 @@ class CLIDriver:
 
         async def pump_stderr() -> None:
             assert process.stderr is not None
-            while True:
-                raw = await process.stderr.readline()
-                if not raw:
-                    break
-                stderr_parts.append(raw.decode("utf-8", errors="replace").rstrip("\n"))
+            async for line in read_lines(process.stderr):
+                stderr_parts.append(line.rstrip("\r"))
 
         try:
             await asyncio.gather(pump_stdout(), pump_stderr())

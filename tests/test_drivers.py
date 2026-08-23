@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
 from grafeno.drivers import available_clis, get_driver
-from grafeno.drivers.base import EventKind, RunRequest
+from grafeno.drivers.base import CLIDriver, EventKind, RunRequest, read_lines
 from grafeno.drivers.kimi import KimiDriver
 from grafeno.drivers.opencode import OpenCodeDriver
 
@@ -171,3 +172,69 @@ def test_registry():
     except KeyError:
         pass
     assert isinstance(available_clis(), list)
+
+
+# ---------------------------------------------------------------------- #
+# read_lines (stream reading without line-length limit)
+# ---------------------------------------------------------------------- #
+async def _collect(*chunks: bytes) -> list[str]:
+    # The reader is created inside the event loop on purpose: building an
+    # asyncio.StreamReader outside a running loop leaves it bound to the
+    # loop later closed by asyncio.run(), which makes subsequent reads fail.
+    reader = asyncio.StreamReader()
+    for chunk in chunks:
+        reader.feed_data(chunk)
+    reader.feed_eof()
+    return [line async for line in read_lines(reader)]
+
+
+def test_read_lines_long_line_beyond_asyncio_limit():
+    """A single line longer than the 64 KiB asyncio limit must not fail."""
+    long_line = "x" * 200_000
+    payload = (long_line + "\ncorta\n").encode()
+    lines = asyncio.run(_collect(payload))
+    assert lines == [long_line, "corta"]
+
+
+def test_read_lines_multibyte_split_across_chunks():
+    """A multi-byte UTF-8 char split across reads must decode correctly."""
+    payload = "áé\nfin".encode()  # á and é are 2 bytes each in UTF-8
+    pieces = [payload[i : i + 1] for i in range(len(payload))]  # 1-byte chunks
+    lines = asyncio.run(_collect(*pieces))
+    assert lines == ["áé", "fin"]
+
+
+def test_read_lines_no_trailing_newline_and_empty():
+    lines = asyncio.run(_collect(b"sin salto final"))
+    assert lines == ["sin salto final"]
+    assert asyncio.run(_collect(b"")) == []
+
+
+def test_run_with_cli_line_beyond_64k(tmp_path):
+    """End-to-end: a CLI printing a >64 KiB line must complete without error.
+
+    Reproduces the original bug: readline() raised ValueError("Separator is
+    found, but chunk is longer than limit") for lines above the asyncio
+    stream limit.
+    """
+    import sys
+
+    class EchoDriver(CLIDriver):
+        name = "echo"
+        display_name = "Echo"
+        executable = sys.executable
+
+        def build_command(self, request: RunRequest) -> list[str]:
+            return [sys.executable, "-c", "print('x' * 200000)"]
+
+        def decode_event(self, payload):  # no se usa: la salida no es JSON
+            raise NotImplementedError
+
+        def list_models(self) -> list[str]:
+            return []
+
+    driver = EchoDriver()
+    request = _request(workdir=tmp_path)
+    result = asyncio.run(driver.run(request))
+    assert result.ok, result.error
+    assert result.text == "x" * 200_000
