@@ -81,8 +81,8 @@ class HookConfig:
 class EditorConfig:
     """Editor que se abre automáticamente al lanzar GRAFENO."""
 
-    enabled: bool = True
-    editor: str = ""        # vacío = autodetectar (code, zed, sublime...)
+    enabled: bool = False
+    editor: str = ""        # vacío = ninguno (por defecto solo se abre grafeno)
     mode: str = "window"    # window | split | none (solo editores de consola)
     side: str = "left"      # left = editor a la izquierda, grafeno a la derecha
 
@@ -97,7 +97,7 @@ class EditorConfig:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "EditorConfig":
         return cls(
-            enabled=bool(data.get("enabled", True)),
+            enabled=bool(data.get("enabled", False)),
             editor=str(data.get("editor", "")),
             mode=str(data.get("mode", "window")),
             side=str(data.get("side", "left")),

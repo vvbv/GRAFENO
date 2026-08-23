@@ -77,7 +77,8 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
 - **Editor**: la apertura automática usa `editor.py` (mejor esfuerzo,
   nunca bloquea la TUI). Config global en `[editor]`, sobreescritura
   por proyecto en `<proyecto>/.grafeno.toml`; el flag `--noeditor`
-  la desactiva.
+  la desactiva. Por defecto desactivado: sin editor configurado solo
+  se abre la TUI.
 - **Tests**: un archivo `test_<modulo>.py` por módulo; fixtures autouse en
   `conftest.py` ya aíslan `GRAFENO_HOME` y fijan idioma inglés; drivers falsos
   para el orquestador; smoke tests TUI con el modo headless de Textual

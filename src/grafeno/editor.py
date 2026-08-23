@@ -214,10 +214,9 @@ def build_launch_command(
     if not editor_cfg.enabled or editor_cfg.mode == "none":
         return None
 
-    installed = available_editors()
-    name = editor_cfg.editor or (installed[0] if installed else "")
+    name = editor_cfg.editor
     if not name:
-        return None
+        return None  # sin editor configurado: solo grafeno
 
     binary = editor_binary(name)
     if binary is None:

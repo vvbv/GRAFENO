@@ -60,14 +60,14 @@ def test_available_editors(fake_which):
 
 def test_build_command_gui(fake_which, monkeypatch):
     fake_which({"code"})
-    cfg = EditorConfig(editor="vscode", mode="window")
+    cfg = EditorConfig(enabled=True, editor="vscode", mode="window")
     cmd = editor.build_launch_command(cfg, editor.detect_terminal({}), "/tmp/work")
     assert cmd == ["/usr/bin/code", "/tmp/work"]
 
 
 def test_build_command_console_split_ghostty(fake_which):
     fake_which({"ghostty", "tode"})
-    cfg = EditorConfig(editor="tode", mode="split", side="right")
+    cfg = EditorConfig(enabled=True, editor="tode", mode="split", side="right")
     terminal = editor.detect_terminal({"TERM_PROGRAM": "ghostty"})
     assert terminal.name == "ghostty"
     cmd = editor.build_launch_command(cfg, terminal, "/tmp/work")
@@ -76,7 +76,7 @@ def test_build_command_console_split_ghostty(fake_which):
 
 def test_build_command_console_window_fallback(fake_which):
     fake_which({"tode"})
-    cfg = EditorConfig(editor="tode", mode="split", side="left")
+    cfg = EditorConfig(enabled=True, editor="tode", mode="split", side="left")
     cmd = editor.build_launch_command(cfg, editor.detect_terminal({}), "/tmp/work")
     # Terminal unknown: ni split ni window -> None
     assert cmd is None
@@ -87,20 +87,16 @@ def test_build_command_disabled(fake_which):
     cfg = EditorConfig(enabled=False, editor="vscode")
     assert editor.build_launch_command(cfg, editor.detect_terminal({}), "/tmp/work") is None
 
-    cfg = EditorConfig(editor="vscode", mode="none")
+    cfg = EditorConfig(enabled=True, editor="vscode", mode="none")
     assert editor.build_launch_command(cfg, editor.detect_terminal({}), "/tmp/work") is None
 
 
-def test_build_command_autodetect(monkeypatch):
+def test_build_command_no_editor_configured(monkeypatch):
+    """Sin editor configurado no se abre nada (aunque haya editores instalados)."""
     monkeypatch.setattr(editor, "available_editors", lambda: ["zed"])
     cfg = EditorConfig(editor="", mode="window")
-
-    def fake_which(name: str) -> str | None:
-        return "/usr/bin/" + name if name == "zed" else None
-
-    monkeypatch.setattr(editor.shutil, "which", fake_which)
     cmd = editor.build_launch_command(cfg, editor.detect_terminal({}), "/tmp/work")
-    assert cmd == ["/usr/bin/zed", "/tmp/work"]
+    assert cmd is None
 
 
 def test_launch_editor_oserror(monkeypatch):
@@ -133,5 +129,5 @@ def test_launch_editor_success(monkeypatch):
 
 def test_maybe_open_editor_returns_false_when_no_command(monkeypatch):
     monkeypatch.setattr(editor, "available_editors", lambda: [])
-    cfg = EditorConfig(editor="nonexistent", mode="window")
+    cfg = EditorConfig(enabled=True, editor="nonexistent", mode="window")
     assert editor.maybe_open_editor(cfg, "/tmp/work") is False

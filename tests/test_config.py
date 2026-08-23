@@ -68,7 +68,7 @@ def test_hook_roundtrip():
 
 def test_editor_defaults():
     cfg = config.load()
-    assert cfg.editor.enabled is True
+    assert cfg.editor.enabled is False
     assert cfg.editor.editor == ""
     assert cfg.editor.mode == "window"
     assert cfg.editor.side == "left"
@@ -76,12 +76,14 @@ def test_editor_defaults():
 
 def test_editor_roundtrip():
     cfg = Config()
+    cfg.editor.enabled = True
     cfg.editor.editor = "zed"
     cfg.editor.mode = "split"
     cfg.editor.side = "right"
     config.save(cfg)
 
     loaded = config.load()
+    assert loaded.editor.enabled is True
     assert loaded.editor.editor == "zed"
     assert loaded.editor.mode == "split"
     assert loaded.editor.side == "right"
