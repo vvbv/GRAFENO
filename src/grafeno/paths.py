@@ -56,6 +56,14 @@ def review_dir(task_id: str, cycle: int = 1) -> Path:
     return path
 
 
+def final_dir(task_id: str, cycle: int = 1) -> Path:
+    path = task_dir(task_id) / "final"
+    if cycle > 1:
+        path = path / f"ciclo-{cycle:02d}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def logs_dir(task_id: str) -> Path:
     path = task_dir(task_id) / "logs"
     path.mkdir(parents=True, exist_ok=True)

@@ -6,16 +6,15 @@ from textual.app import App
 from textual.binding import Binding
 
 from . import __version__
+from .i18n import t
 from .models import Task
 from .tui.runtime import TaskRuntime
-from .tui.screens.tasks import TaskListScreen
 
 
 class GrafenoApp(App):
     TITLE = "GRAFENO"
-    SUB_TITLE = f"v{__version__} · orquestador multi-CLI"
     CSS_PATH = "grafeno.tcss"
-    BINDINGS = [Binding("ctrl+q", "quit", "Salir", show=False)]
+    BINDINGS = [Binding("ctrl+q", "quit", t("common.quit"), show=False)]
 
     def __init__(self):
         super().__init__()
@@ -23,6 +22,9 @@ class GrafenoApp(App):
         self.runtimes: dict[str, TaskRuntime] = {}
 
     def on_mount(self) -> None:
+        self.sub_title = t("app.subtitle", version=__version__)
+        from .tui.screens.tasks import TaskListScreen
+
         self.push_screen(TaskListScreen())
 
     def runtime_for(self, task: Task) -> TaskRuntime:
@@ -37,6 +39,10 @@ class GrafenoApp(App):
 
 
 def main() -> None:
+    from . import config as config_module
+    from .i18n import set_language
+
+    set_language(config_module.load().language)
     GrafenoApp().run()
 
 

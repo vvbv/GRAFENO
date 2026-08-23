@@ -23,36 +23,40 @@ from textual.widgets import (
 
 from ... import config as config_module
 from ... import models
-from ...models import STATE_LABELS, Task
+from ...i18n import t
+from ...models import Task, state_label
+from ..dirpicker import DirectoryPicker
 
 
 class NewTaskScreen(ModalScreen[Task | None]):
     """Formulario modal para crear una tarea."""
 
-    BINDINGS = [Binding("escape", "cancel", "Cancelar")]
+    BINDINGS = [Binding("escape", "cancel", t("common.cancel"))]
 
     def compose(self) -> ComposeResult:
         with Vertical(id="new-task-dialog"):
-            yield Label("Nueva tarea", id="new-task-title")
-            yield Label("Nombre")
-            yield Input(placeholder="p. ej. Añadir endpoint /health", id="nt-name")
-            yield Label("Descripción")
+            yield Label(t("nt.title"), id="new-task-title")
+            yield Label(t("nt.name"))
+            yield Input(placeholder=t("nt.name.placeholder"), id="nt-name")
+            yield Label(t("nt.description"))
             yield TextArea(id="nt-description")
-            yield Label("Directorio del proyecto")
-            yield Input(value=os.getcwd(), id="nt-workdir")
-            yield Label("Comando de tests (opcional)")
-            yield Input(placeholder="p. ej. pytest -q", id="nt-tests")
-            yield Checkbox("Automode (plan → ejecución → revisión ⇄ corrección)", id="nt-automode")
-            yield Checkbox("Automode: preguntar si el plan está bien antes de implementar", id="nt-confirm-plan")
+            yield Label(t("nt.workdir"))
+            yield DirectoryPicker(os.getcwd(), input_id="nt-workdir")
+            yield Label(t("nt.tests"))
+            yield Input(placeholder=t("nt.tests.placeholder"), id="nt-tests")
+            yield Checkbox(t("nt.automode"), id="nt-automode")
+            yield Checkbox(t("nt.confirm_plan"), id="nt-confirm-plan")
+            yield Checkbox(t("nt.branch"), id="nt-branch")
             with Horizontal(id="nt-buttons"):
-                yield Button("Crear", variant="primary", id="nt-create")
-                yield Button("Cancelar", id="nt-cancel")
+                yield Button(t("common.create"), variant="primary", id="nt-create")
+                yield Button(t("common.cancel"), id="nt-cancel")
 
     def on_mount(self) -> None:
         cfg = config_module.load()
         self.query_one("#nt-tests", Input).value = cfg.automode.test_command
         self.query_one("#nt-automode", Checkbox).value = cfg.automode.enabled
         self.query_one("#nt-confirm-plan", Checkbox).value = cfg.automode.confirm_plan
+        self.query_one("#nt-branch", Checkbox).value = cfg.automode.create_branch
         self.query_one("#nt-name", Input).focus()
 
     def action_cancel(self) -> None:
@@ -71,11 +75,11 @@ class NewTaskScreen(ModalScreen[Task | None]):
     def _create(self) -> None:
         name = self.query_one("#nt-name", Input).value.strip()
         if not name:
-            self.notify("El nombre es obligatorio.", severity="error")
+            self.notify(t("nt.error.name_required"), severity="error")
             return
         workdir = Path(self.query_one("#nt-workdir", Input).value.strip() or ".").expanduser()
         if not workdir.is_dir():
-            self.notify(f"El directorio no existe: {workdir}", severity="error")
+            self.notify(t("nt.error.bad_dir", path=workdir), severity="error")
             return
         cfg = config_module.load()
         task = models.Task.create(
@@ -85,6 +89,7 @@ class NewTaskScreen(ModalScreen[Task | None]):
             config=cfg,
             automode=self.query_one("#nt-automode", Checkbox).value,
             test_command=self.query_one("#nt-tests", Input).value.strip(),
+            create_branch=self.query_one("#nt-branch", Checkbox).value,
             confirm_plan=self.query_one("#nt-confirm-plan", Checkbox).value,
         )
         models.save(task)
@@ -95,17 +100,17 @@ class TaskListScreen(Screen[None]):
     """Listado principal de tareas."""
 
     BINDINGS = [
-        Binding("n", "new_task", "Nueva"),
-        Binding("c", "config", "Configuración"),
-        Binding("enter", "open_task", "Abrir"),
-        Binding("r", "reload", "Recargar"),
-        Binding("q", "quit", "Salir"),
+        Binding("n", "new_task", t("tasks.bind.new")),
+        Binding("c", "config", t("tasks.bind.config")),
+        Binding("enter", "open_task", t("tasks.bind.open")),
+        Binding("r", "reload", t("tasks.bind.reload")),
+        Binding("q", "quit", t("common.quit")),
     ]
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(
-            "Orquestador de tareas · plan → implementación → revisión",
+            t("tasks.subtitle"),
             id="subtitle",
         )
         yield DataTable(id="tasks-table", cursor_type="row", zebra_stripes=True)
@@ -114,7 +119,13 @@ class TaskListScreen(Screen[None]):
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        table.add_columns("Tarea", "Estado", "Iter.", "Actualizada", "Directorio")
+        table.add_columns(
+            t("tasks.col.task"),
+            t("tasks.col.state"),
+            t("tasks.col.iter"),
+            t("tasks.col.updated"),
+            t("tasks.col.workdir"),
+        )
         self._reload()
         table.focus()
         # Refresco periódico: muestra el progreso de tareas en segundo plano.
@@ -138,10 +149,9 @@ class TaskListScreen(Screen[None]):
             runtime = runtimes.get(task.id)
             running = runtime is not None and runtime.running
             name = f"▶ {task.name}" if running else task.name
-            state_label = STATE_LABELS.get(task.state, task.state.value)
             table.add_row(
                 name,
-                state_label,
+                state_label(task.state),
                 str(task.iteration),
                 task.updated_at.replace("T", " "),
                 task.workdir,
@@ -150,7 +160,7 @@ class TaskListScreen(Screen[None]):
             if selected == task.id:
                 table.move_cursor(row=index)
         hint = self.query_one("#empty-hint", Static)
-        hint.update("" if self._tasks else "No hay tareas. Pulsa [n] para crear la primera.")
+        hint.update("" if self._tasks else t("tasks.empty_hint"))
 
     def _selected_task_id(self) -> str | None:
         table = self.query_one(DataTable)
@@ -189,6 +199,6 @@ class TaskListScreen(Screen[None]):
         try:
             task = models.load(task_id)
         except Exception as exc:
-            self.notify(f"No se pudo cargar la tarea: {exc}", severity="error")
+            self.notify(t("tasks.error.load", error=exc), severity="error")
             return
         self.app.push_screen(TaskDetailScreen(task))

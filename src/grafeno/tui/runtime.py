@@ -17,6 +17,7 @@ from textual.worker import Worker
 
 from .. import models
 from ..drivers.base import EventKind, RunEvent
+from ..i18n import t
 from ..models import Task, TaskState
 from ..pipeline.orchestrator import Orchestrator
 
@@ -137,11 +138,11 @@ class TaskRuntime:
         try:
             await runner(orchestrator)
         except asyncio.CancelledError:
-            self._cb_info("Ejecución cancelada por el usuario.")
+            self._cb_info(t("rt.cancelled"))
             self.task.state = TaskState.PAUSED
             models.save(self.task)
         except Exception as exc:  # noqa: BLE001 — última línea de defensa
-            self._cb_info(f"Error inesperado: {exc}")
+            self._cb_info(t("rt.unexpected", error=exc))
         finally:
             self.running = False
             self.phase_started_at = None

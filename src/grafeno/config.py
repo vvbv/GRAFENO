@@ -59,9 +59,11 @@ class AutomodeConfig:
 
 @dataclass
 class Config:
+    language: str = "en"
     planner: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
     implementer: RoleConfig = field(default_factory=lambda: RoleConfig(cli="kimi"))
     reviewer: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
+    final: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
     automode: AutomodeConfig = field(default_factory=AutomodeConfig)
 
     def role(self, name: str) -> RoleConfig:
@@ -69,18 +71,22 @@ class Config:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "language": self.language,
             "planner": self.planner.to_dict(),
             "implementer": self.implementer.to_dict(),
             "reviewer": self.reviewer.to_dict(),
+            "final": self.final.to_dict(),
             "automode": self.automode.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Config":
         return cls(
+            language=str(data.get("language", "en")),
             planner=RoleConfig.from_dict(data.get("planner", {}), default_cli="opencode"),
             implementer=RoleConfig.from_dict(data.get("implementer", {}), default_cli="kimi"),
             reviewer=RoleConfig.from_dict(data.get("reviewer", {}), default_cli="opencode"),
+            final=RoleConfig.from_dict(data.get("final", {}), default_cli="opencode"),
             automode=AutomodeConfig.from_dict(data.get("automode", {})),
         )
 

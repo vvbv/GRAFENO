@@ -28,6 +28,8 @@ class KimiDriver(CLIDriver):
     name = "kimi"
     display_name = "Kimi Code CLI"
     executable = "kimi"
+    # kimi no expone comando init en modo no-interactivo: prompt genérico.
+    init_command = ""
 
     def build_command(self, request: RunRequest) -> list[str]:
         command = ["kimi", "-p", request.prompt, "--output-format", "stream-json"]
@@ -37,10 +39,10 @@ class KimiDriver(CLIDriver):
             command += ["-S", request.session_id]
         return command
 
-    def list_models(self) -> list[str]:
-        output = self._run_sync(["kimi", "provider", "list", "--json"])
-        if not output:
-            return []
+    def models_command(self) -> list[str]:
+        return ["kimi", "provider", "list", "--json"]
+
+    def parse_models(self, output: str) -> list[str]:
         try:
             data = json.loads(output)
         except json.JSONDecodeError:

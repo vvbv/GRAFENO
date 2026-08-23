@@ -191,6 +191,12 @@ Markdown {
     margin-top: 1;
 }
 
+#roles-status {
+    color: #8b949e;
+    text-style: italic;
+    margin-top: 1;
+}
+
 .automode-row {
     height: auto;
     margin-top: 1;

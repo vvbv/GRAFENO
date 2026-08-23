@@ -1,4 +1,4 @@
-"""Orquestador del pipeline: plan -> implementación -> revisión ⇄ corrección.
+"""Orquestador del pipeline: plan -> implementación -> revisión ⇄ corrección -> pasos finales.
 
 Es independiente de la TUI: recibe callbacks y puede usarse en modo headless,
 lo que lo hace testeable y reutilizable. Los drivers se inyectan para poder
@@ -15,19 +15,16 @@ from typing import Callable
 from .. import models, paths
 from ..drivers import RunEvent, RunRequest, get_driver
 from ..drivers.base import CLIDriver, EventKind, RunResult
+from ..i18n import t
 from ..models import Task, TaskState
 from ..timefmt import format_duration
 from . import gitops, prompts
 from .verdict import Verdict, parse_verdict
 
-PHASE_LABELS = {
-    "plan": "Plan",
-    "implement": "Implementación",
-    "review": "Revisión",
-    "fix": "Corrección",
-    "tests": "Tests",
-    "grafeno": "Grafeno",
-}
+
+def phase_label(phase: str) -> str:
+    """Etiqueta localizada de una fase del pipeline."""
+    return t(f"phase.{phase}")
 
 
 class PhaseError(Exception):
@@ -58,7 +55,7 @@ class Orchestrator:
     def _driver(self, cli_name: str) -> CLIDriver:
         if self._drivers is not None:
             if cli_name not in self._drivers:
-                raise PhaseError(f"CLI desconocido: '{cli_name}'.")
+                raise PhaseError(t("orch.unknown_cli", cli=cli_name))
             return self._drivers[cli_name]
         try:
             return get_driver(cli_name)
@@ -96,11 +93,11 @@ class Orchestrator:
         if not driver.is_available():
             self._set_state(TaskState.FAILED)
             raise PhaseError(
-                f"El CLI '{role.cli}' ({driver.display_name}) no está instalado o no está en el PATH."
+                t("orch.cli_missing", cli=role.cli, name=driver.display_name)
             )
 
         self._set_state(running_state)
-        self._info(f"[{PHASE_LABELS[phase]}] {driver.display_name} · modelo: {role.model or 'default'}")
+        self._info(t("orch.phase_start", phase=phase_label(phase), driver=driver.display_name, model=role.model or "default"))
         request = RunRequest(
             prompt=prompt,
             model=role.model,
@@ -120,11 +117,10 @@ class Orchestrator:
             task.sessions[role_name] = result.session_id
         if not result.ok:
             self._set_state(TaskState.FAILED)
-            raise PhaseError(result.error or f"La fase {PHASE_LABELS[phase]} ha fallado.")
+            raise PhaseError(result.error or t("orch.phase_failed", phase=phase_label(phase)))
         self._set_state(done_state)
         self._info(
-            f"✓ {PHASE_LABELS[phase]} completado en "
-            f"{format_duration(time.monotonic() - started_at)}."
+            t("orch.phase_done", phase=phase_label(phase), duration=format_duration(time.monotonic() - started_at))
         )
         return result
 
@@ -136,7 +132,47 @@ class Orchestrator:
     # ------------------------------------------------------------------ #
     # Fases
     # ------------------------------------------------------------------ #
+    async def ensure_agents_md(self) -> None:
+        """Genera AGENTS.md en el proyecto si no existe (mejor esfuerzo).
+
+        Usa el rol planner (su CLI y modelo). Un fallo aquí NO falla la tarea:
+        solo se informa y se continúa; los problemas reales del CLI del
+        planner ya los gestiona la fase de plan con su manejo habitual.
+        """
+        workdir = Path(self.task.workdir)
+        if (workdir / "AGENTS.md").exists():
+            return
+        role = self.task.role("planner")
+        try:
+            driver = self._driver(role.cli)
+        except PhaseError:
+            return
+        if not driver.is_available():
+            return
+        self._info(
+            t("orch.agents_md.generating", driver=driver.display_name, model=role.model or "default")
+        )
+        request = RunRequest(
+            prompt=driver.build_agents_md_prompt(),
+            model=role.model,
+            workdir=workdir,
+            log_path=paths.logs_dir(self.task.id) / "agents-md.jsonl",
+            title=f"grafeno:{self.task.id}:agents-md",
+        )
+        result = await driver.run(
+            request,
+            on_event=lambda event: self._on_event("plan", event),
+            on_activity=lambda: self._on_activity("plan"),
+        )
+        if result.ok and (workdir / "AGENTS.md").exists():
+            self._info(t("orch.agents_md.done"))
+        elif result.ok:
+            self._info(t("orch.agents_md.no_file"))
+        else:
+            self._info(t("orch.agents_md.failed", error=result.error or "?"))
+
     async def run_plan(self) -> None:
+        await self.ensure_agents_md()
         result = await self._execute(
             "planner",
             "plan",
@@ -149,14 +185,14 @@ class Orchestrator:
             # Respaldo: el planificador no escribió archivos; materializamos su salida.
             if not result.text.strip():
                 self._set_state(TaskState.FAILED)
-                raise PhaseError("El planificador no generó archivos de plan ni salida de texto.")
+                raise PhaseError(t("orch.no_plan_output"))
             plan_path = paths.plan_dir(self.task.id, self.task.cycle) / "01-plan.md"
             plan_path.write_text(
                 f"{prompts.executor_header(self.task)}\n{prompts.executor_notice(self.task)}\n\n"
                 f"# Plan: {self.task.name}\n\n{result.text.strip()}\n",
                 encoding="utf-8",
             )
-            self._info("El planificador no escribió archivos; se guardó su salida como 01-plan.md.")
+            self._info(t("orch.plan_fallback"))
 
     async def run_implement(self) -> None:
         self._ensure_branch()
@@ -186,16 +222,16 @@ class Orchestrator:
 
         verdict = parse_verdict(result.text)
         if verdict is None:
-            self._info("No se encontró veredicto; se asume CHANGES_REQUESTED.")
+            self._info(t("orch.no_verdict"))
             verdict = Verdict.CHANGES_REQUESTED
         elif verdict is Verdict.APPROVED:
             tests_ok = await self.run_tests()
             if tests_ok:
                 self._set_state(TaskState.DONE)
-                self._info("Revisión aprobada y tests en verde. Tarea completada.")
+                self._info(t("orch.approved"))
             else:
                 verdict = Verdict.CHANGES_REQUESTED
-                self._info("Revisión aprobada pero los tests fallan; se pedirán correcciones.")
+                self._info(t("orch.approved_tests_fail"))
         return verdict
 
     async def run_fix(self) -> None:
@@ -209,11 +245,25 @@ class Orchestrator:
             TaskState.IMPLEMENTED,
         )
 
+    async def run_final(self) -> None:
+        result = await self._execute(
+            "final",
+            "final",
+            prompts.final_prompt(self.task),
+            "final.jsonl",
+            TaskState.FINALIZING,
+            TaskState.DONE,
+        )
+        final_path = paths.final_dir(self.task.id, self.task.cycle) / "01-final.md"
+        if not final_path.exists() and result.text.strip():
+            # Respaldo: el agente no escribió el informe; guardamos su salida.
+            final_path.write_text(result.text.strip() + "\n", encoding="utf-8")
+
     async def run_tests(self) -> bool:
         command = self.task.test_command.strip()
         if not command:
             return True
-        self._info(f"[Tests] Ejecutando: {command}")
+        self._info(t("orch.tests.run", command=command))
         started_at = time.monotonic()
         try:
             process = await asyncio.create_subprocess_shell(
@@ -223,7 +273,7 @@ class Orchestrator:
                 stderr=asyncio.subprocess.STDOUT,
             )
         except OSError as exc:
-            self._info(f"[Tests] No se pudo ejecutar: {exc}")
+            self._info(t("orch.tests.exec_error", error=exc))
             return False
         assert process.stdout is not None
         while True:
@@ -237,8 +287,7 @@ class Orchestrator:
         returncode = await process.wait()
         self._record_duration("tests", time.monotonic() - started_at)
         self._info(
-            f"[Tests] Código de salida: {returncode} "
-            f"({format_duration(time.monotonic() - started_at)})"
+            t("orch.tests.exit", code=returncode, duration=format_duration(time.monotonic() - started_at))
         )
         return returncode == 0
 
@@ -260,7 +309,7 @@ class Orchestrator:
             if not self._plan_files():
                 await self.run_plan()
             else:
-                self._info("Plan ya existente; se reutiliza.")
+                self._info(t("orch.plan_reused"))
                 if self.task.state is TaskState.DRAFT:
                     self._set_state(TaskState.PLANNED)
         except PhaseError as exc:
@@ -271,7 +320,7 @@ class Orchestrator:
         self.task.automode = True
         models.save(self.task)
         if not self._plan_files():
-            self._info("No hay archivos de plan; genera el plan primero ([p]).")
+            self._info(t("orch.no_plan_files"))
             return
         try:
             await self.run_implement()
@@ -284,11 +333,12 @@ class Orchestrator:
                 if self.task.iteration >= self.task.max_iterations:
                     self._set_state(TaskState.FAILED)
                     self._info(
-                        f"Se alcanzó el máximo de iteraciones ({self.task.max_iterations}). "
-                        "Revisa los archivos de revisión."
+                        t("orch.max_iterations", max=self.task.max_iterations)
                     )
                     return
                 await self.run_fix()
+            if self.task.state is TaskState.DONE:
+                await self.run_final()
         except PhaseError as exc:
             self._info(str(exc))
 
@@ -299,7 +349,7 @@ class Orchestrator:
             return
         workdir = Path(task.workdir)
         if not gitops.is_git_repo(workdir):
-            self._info("El directorio no es un repositorio git; se trabaja sin rama dedicada.")
+            self._info(t("orch.not_git"))
             return
         branch = f"grafeno/{models.slugify(task.name)}"
         ok, message = gitops.create_branch(workdir, branch)

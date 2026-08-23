@@ -20,6 +20,7 @@ class OpenCodeDriver(CLIDriver):
     name = "opencode"
     display_name = "OpenCode CLI"
     executable = "opencode"
+    init_command = "/init"
 
     def build_command(self, request: RunRequest) -> list[str]:
         command = ["opencode", "run", request.prompt, "--format", "json", "--auto"]
@@ -32,10 +33,10 @@ class OpenCodeDriver(CLIDriver):
             command += ["--title", request.title]
         return command
 
-    def list_models(self) -> list[str]:
-        output = self._run_sync(["opencode", "models"])
-        if not output:
-            return []
+    def models_command(self) -> list[str]:
+        return ["opencode", "models"]
+
+    def parse_models(self, output: str) -> list[str]:
         return sorted(
             line.strip()
             for line in output.splitlines()

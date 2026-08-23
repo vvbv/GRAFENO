@@ -12,6 +12,7 @@ from typing import Any
 
 from . import _toml, paths
 from .config import Config, RoleConfig
+from .i18n import t
 
 
 class TaskState(str, Enum):
@@ -22,26 +23,19 @@ class TaskState(str, Enum):
     IMPLEMENTED = "implemented"
     REVIEWING = "reviewing"
     FIXING = "fixing"
+    FINALIZING = "finalizing"
     DONE = "done"
     FAILED = "failed"
     PAUSED = "paused"
 
 
-STATE_LABELS = {
-    TaskState.DRAFT: "Borrador",
-    TaskState.PLANNING: "Planificando…",
-    TaskState.PLANNED: "Plan listo",
-    TaskState.IMPLEMENTING: "Implementando…",
-    TaskState.IMPLEMENTED: "Implementado",
-    TaskState.REVIEWING: "Revisando…",
-    TaskState.FIXING: "Corrigiendo…",
-    TaskState.DONE: "Completada",
-    TaskState.FAILED: "Fallida",
-    TaskState.PAUSED: "Pausada",
-}
+def state_label(state: "TaskState") -> str:
+    """Etiqueta localizada de un estado de tarea."""
+    return t(f"state.{state.value}")
+
 
 # Fases visibles en la barra de progreso del detalle.
-PHASES = ("plan", "implement", "review", "done")
+PHASES = ("plan", "implement", "review", "final", "done")
 
 
 def slugify(text: str, *, max_length: int = 40) -> str:
@@ -65,6 +59,7 @@ class Task:
     planner: RoleConfig = field(default_factory=RoleConfig)
     implementer: RoleConfig = field(default_factory=RoleConfig)
     reviewer: RoleConfig = field(default_factory=RoleConfig)
+    final: RoleConfig = field(default_factory=RoleConfig)
     automode: bool = False
     max_iterations: int = 5
     test_command: str = ""
@@ -90,6 +85,7 @@ class Task:
         *,
         automode: bool | None = None,
         test_command: str | None = None,
+        create_branch: bool | None = None,
         confirm_plan: bool | None = None,
     ) -> "Task":
         now = datetime.now().isoformat(timespec="seconds")
@@ -101,10 +97,11 @@ class Task:
             planner=RoleConfig(config.planner.cli, config.planner.model),
             implementer=RoleConfig(config.implementer.cli, config.implementer.model),
             reviewer=RoleConfig(config.reviewer.cli, config.reviewer.model),
+            final=RoleConfig(config.final.cli, config.final.model),
             automode=config.automode.enabled if automode is None else automode,
             max_iterations=config.automode.max_iterations,
             test_command=config.automode.test_command if test_command is None else test_command,
-            create_branch=config.automode.create_branch,
+            create_branch=config.automode.create_branch if create_branch is None else create_branch,
             confirm_plan=config.automode.confirm_plan if confirm_plan is None else confirm_plan,
             created_at=now,
             updated_at=now,
@@ -148,6 +145,7 @@ class Task:
             "planner": self.planner.to_dict(),
             "implementer": self.implementer.to_dict(),
             "reviewer": self.reviewer.to_dict(),
+            "final": self.final.to_dict(),
             "sessions": dict(self.sessions),
             "durations": dict(self.durations),
             "extensions": dict(self.extensions),
@@ -165,6 +163,7 @@ class Task:
             planner=RoleConfig.from_dict(data.get("planner", {}), default_cli="opencode"),
             implementer=RoleConfig.from_dict(data.get("implementer", {}), default_cli="kimi"),
             reviewer=RoleConfig.from_dict(data.get("reviewer", {}), default_cli="opencode"),
+            final=RoleConfig.from_dict(data.get("final", {}), default_cli="opencode"),
             automode=bool(raw.get("automode", False)),
             max_iterations=int(raw.get("max_iterations", 5)),
             test_command=str(raw.get("test_command", "")),
@@ -188,6 +187,7 @@ def save(task: Task) -> None:
     base.mkdir(parents=True, exist_ok=True)
     paths.plan_dir(task.id)
     paths.review_dir(task.id)
+    paths.final_dir(task.id)
     paths.logs_dir(task.id)
     paths.task_meta_path(task.id).write_text(_toml.dumps(task.to_dict()), encoding="utf-8")
 

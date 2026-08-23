@@ -5,6 +5,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from ..i18n import t
+
 
 def _git(workdir: Path, *args: str) -> tuple[bool, str]:
     try:
@@ -30,9 +32,9 @@ def create_branch(workdir: Path, branch: str) -> tuple[bool, str]:
     """Crea (o cambia a) la rama de la tarea. Devuelve (éxito, mensaje)."""
     ok, output = _git(workdir, "checkout", "-b", branch)
     if ok:
-        return True, f"Rama '{branch}' creada."
+        return True, t("git.branch_created", branch=branch)
     if "already exists" in output:
         ok, output = _git(workdir, "checkout", branch)
         if ok:
-            return True, f"Rama '{branch}' ya existía; se ha seleccionado."
-    return False, output or f"No se pudo crear la rama '{branch}'."
+            return True, t("git.branch_exists", branch=branch)
+    return False, output or t("git.branch_failed", branch=branch)

@@ -211,3 +211,41 @@ Termina tu respuesta con un resumen de las correcciones aplicadas.
 
 {_COMMON_RULES}
 """.strip()
+
+
+def final_prompt(task: Task) -> str:
+    plan_dir = paths.plan_dir(task.id, task.cycle)
+    review_dir = paths.review_dir(task.id, task.cycle)
+    final_dir = paths.final_dir(task.id, task.cycle)
+    tests = (
+        f"\n- Ejecuta el comando de tests `{task.test_command}` al final y exige que pase."
+        if task.test_command
+        else ""
+    )
+    return f"""Eres el AGENTE DE PASOS FINALES de una tarea orquestada por GRAFENO.
+La tarea ya fue implementada y APROBADA por el revisor. Tu trabajo es el cierre.
+
+# Contexto
+- Tarea: {task.name}
+- Descripción: {task.description or "(sin descripción)"}
+- Proyecto (directorio de trabajo): {task.workdir}
+- Plan implementado: {plan_dir}
+- Revisiones del ciclo: {review_dir} (la última aprobó el trabajo)
+
+# Tu entrega
+1. Inspecciona el estado final del proyecto (git status / git diff).
+2. Actualiza la documentación afectada por los cambios (README, AGENTS.md u otros
+   documentos del proyecto) si la implementación modificó comportamiento, comandos
+   o estructura. Si no hay nada que actualizar, indícalo en el informe.
+3. Limpieza final: elimina código muerto, archivos temporales o restos de depuración
+   introducidos durante la implementación, SIN alterar el comportamiento aprobado.{tests}
+4. Escribe tu informe en el archivo:
+   {final_dir / "01-final.md"}
+   con secciones: Resumen, Acciones realizadas, Documentación actualizada, Observaciones.
+
+{_CODE_RULES}
+
+Termina tu respuesta con un resumen de las acciones de cierre realizadas.
+
+{_COMMON_RULES}
+""".strip()

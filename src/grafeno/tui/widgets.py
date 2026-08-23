@@ -6,22 +6,24 @@ import inspect
 from rich.text import Text
 from textual.widgets import Markdown, Static
 
-from ..models import STATE_LABELS, TaskState
+from ..i18n import t
+from ..models import TaskState, state_label
 from ..timefmt import format_duration
 
 __all__ = ["PhaseBar", "markdown_set", "format_duration"]
 
 _PHASE_ORDER = (
-    ("plan", "Plan"),
-    ("implement", "Implementación"),
-    ("review", "Revisión"),
-    ("done", "Fin"),
+    ("plan", "phase.plan"),
+    ("implement", "phase.implement"),
+    ("review", "phase.review"),
+    ("final", "phase.final"),
+    ("done", "phase.end"),
 )
 
 
 def _phase_status(state: TaskState) -> dict[str, str]:
     """Estado visual de cada fase: pending | active | done."""
-    status = {"plan": "pending", "implement": "pending", "review": "pending", "done": "pending"}
+    status = {"plan": "pending", "implement": "pending", "review": "pending", "final": "pending", "done": "pending"}
     mapping = {
         TaskState.DRAFT: {},
         TaskState.PLANNING: {"plan": "active"},
@@ -30,7 +32,8 @@ def _phase_status(state: TaskState) -> dict[str, str]:
         TaskState.IMPLEMENTED: {"plan": "done", "implement": "done"},
         TaskState.REVIEWING: {"plan": "done", "implement": "done", "review": "active"},
         TaskState.FIXING: {"plan": "done", "implement": "active", "review": "done"},
-        TaskState.DONE: {"plan": "done", "implement": "done", "review": "done", "done": "done"},
+        TaskState.FINALIZING: {"plan": "done", "implement": "done", "review": "done", "final": "active"},
+        TaskState.DONE: {"plan": "done", "implement": "done", "review": "done", "final": "done", "done": "done"},
         TaskState.FAILED: {},
         TaskState.PAUSED: {},
     }
@@ -44,7 +47,7 @@ def _phase_status(state: TaskState) -> dict[str, str]:
 
 
 class PhaseBar(Static):
-    """Barra de progreso del pipeline: Plan → Implementación → Revisión → Fin."""
+    """Barra de progreso del pipeline: Plan → Implementación → Revisión → Pasos finales → Fin."""
 
     def __init__(self, state: TaskState = TaskState.DRAFT, iteration: int = 0, **kwargs):
         super().__init__(**kwargs)
@@ -62,7 +65,8 @@ class PhaseBar(Static):
     def _render_bar(self) -> None:
         status = _phase_status(self._state)
         line = Text()
-        for index, (key, label) in enumerate(_PHASE_ORDER):
+        for index, (key, label_key) in enumerate(_PHASE_ORDER):
+            label = t(label_key)
             value = status[key]
             icon, style = {"pending": ("○", "dim"), "active": ("◉", "bold yellow"), "done": ("●", "green")}[value]
             if key == "review" and self._iteration > 0:
@@ -71,7 +75,7 @@ class PhaseBar(Static):
             line.append(label, style=style if value != "pending" else "dim")
             if index < len(_PHASE_ORDER) - 1:
                 line.append(" ─── ", style="dim")
-        line.append(f"\n Estado: {STATE_LABELS.get(self._state, self._state.value)}", style="italic dim")
+        line.append(t("phasebar.state", label=state_label(self._state)), style="italic dim")
         self.update(line)
 
 

@@ -1,10 +1,11 @@
 """Abstracción de CLIs de agentes de programación.
 
 Un ``CLIDriver`` sabe construir el comando no-interactivo de su CLI,
-interpretar sus eventos de salida (JSONL) y listar sus modelos. El
-orquestador solo habla con esta interfaz, por lo que añadir un CLI nuevo
-(Codex, Claude Code, …) implica crear un único archivo en ``drivers/`` y
-registrarlo en ``drivers/__init__.py``.
+interpretar sus eventos de salida (JSONL), listar sus modelos y construir
+el prompt de generación de AGENTS.md. El orquestador solo habla con esta
+interfaz, por lo que añadir un CLI nuevo (Codex, Claude Code, …) implica
+crear un único archivo en ``drivers/`` y registrarlo en
+``drivers/__init__.py``.
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import AsyncIterator, Callable
+
+from ..i18n import t
 
 
 _READ_CHUNK = 65536  # bytes read per stream.read() call
@@ -88,6 +91,9 @@ class CLIDriver:
     name: str = ""
     display_name: str = ""
     executable: str = ""
+    # Comando nativo del CLI para generar AGENTS.md (p.ej. "/init").
+    # Vacío si el CLI no tiene uno: se usa el prompt genérico.
+    init_command: str = ""
 
     # ------------------------------------------------------------ #
     def is_available(self) -> bool:
@@ -96,8 +102,78 @@ class CLIDriver:
     def build_command(self, request: RunRequest) -> list[str]:
         raise NotImplementedError
 
-    def list_models(self) -> list[str]:
+    def models_command(self) -> list[str]:
+        """Comando del CLI que lista los modelos disponibles."""
         raise NotImplementedError
+
+    def parse_models(self, output: str) -> list[str]:
+        """Interpreta la salida de ``models_command`` y devuelve los modelos."""
+        raise NotImplementedError
+
+    def list_models(self) -> list[str]:
+        """Versión síncrona (bloqueante): para uso fuera de la TUI."""
+        output = self._run_sync(self.models_command())
+        return self.parse_models(output) if output else []
+
+    async def list_models_async(self, timeout: float = 30.0) -> list[str]:
+        """Versión asíncrona y cancelable: al cancelar se mata el subproceso."""
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *self.models_command(),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except OSError:
+            return []
+        try:
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            return []
+        except asyncio.CancelledError:
+            process.kill()
+            await process.wait()
+            raise
+        if process.returncode != 0:
+            return []
+        return self.parse_models(stdout.decode("utf-8", errors="replace"))
+
+    def build_agents_md_prompt(self) -> str:
+        """Construye el prompt para generar el AGENTS.md del proyecto.
+
+        Si el CLI tiene un comando nativo de inicialización (``init_command``),
+        el prompt pide ejecutar su equivalente; si no, pide el análisis manual.
+        """
+        if self.init_command:
+            instruccion = (
+                f"Este CLI dispone del comando `{self.init_command}` exactamente "
+                "para esto: ejecútalo si está disponible en este modo; si no lo "
+                "está, realiza tú mismo el mismo análisis y escribe el archivo "
+                "siguiendo las convenciones habituales de ese comando."
+            )
+        else:
+            instruccion = (
+                "Realiza un análisis del repositorio y escribe el archivo "
+                "siguiendo las convenciones habituales de los comandos `/init` "
+                "de los agentes de programación."
+            )
+        return f"""Analiza este repositorio y crea un archivo AGENTS.md en su raíz.
+
+{instruccion}
+
+El AGENTS.md debe ser conciso y útil para un agente de programación:
+- estructura del proyecto y propósito de cada parte;
+- stack y dependencias;
+- cómo compilar/ejecutar y cómo lanzar los tests;
+- convenciones de estilo y de commits que ya se observen en el código.
+
+Reglas:
+- Escribe SOLO el archivo AGENTS.md en la raíz del repositorio; no modifiques
+  ningún otro archivo.
+- Nada de emojis.
+- Termina tu respuesta con una línea que indique la ruta del archivo creado.
+"""
 
     def decode_line(self, line: str) -> tuple[RunEvent | None, str | None]:
         """Interpreta una línea de salida. Devuelve (evento, session_id|None)."""
@@ -145,7 +221,7 @@ class CLIDriver:
         except OSError as exc:
             if log_handle:
                 log_handle.close()
-            return RunResult(ok=False, error=f"No se pudo ejecutar {command[0]}: {exc}")
+            return RunResult(ok=False, error=t("drv.exec_error", command=command[0], error=exc))
 
         async def pump_stdout() -> None:
             nonlocal session_id
@@ -187,7 +263,7 @@ class CLIDriver:
         error = ""
         if not ok:
             tail = "\n".join(stderr_parts[-10:]).strip()
-            error = f"{self.display_name} terminó con código {returncode}."
+            error = t("drv.exit_error", name=self.display_name, code=returncode)
             if tail:
                 error += f"\n{tail}"
         return RunResult(

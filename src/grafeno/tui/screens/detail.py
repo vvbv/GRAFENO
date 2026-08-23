@@ -27,8 +27,9 @@ from textual.widgets import (
 )
 
 from ... import models, paths
+from ...i18n import t
 from ...models import Task, TaskState
-from ...pipeline.orchestrator import PHASE_LABELS, Orchestrator
+from ...pipeline.orchestrator import Orchestrator, phase_label
 from ...timefmt import format_duration
 from ..widgets import PhaseBar, markdown_set
 
@@ -58,7 +59,7 @@ class FileList(ListView):
 class PlanConfirmScreen(ModalScreen[bool]):
     """Punto de confirmación del automode: ¿el plan es correcto e implementamos?"""
 
-    BINDINGS = [Binding("escape", "reject", "Revisar después")]
+    BINDINGS = [Binding("escape", "reject", t("pc.later"))]
 
     def __init__(self, plan_count: int):
         super().__init__()
@@ -66,15 +67,13 @@ class PlanConfirmScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="plan-confirm-dialog"):
-            yield Label("Plan listo", id="plan-confirm-title")
+            yield Label(t("pc.title"), id="plan-confirm-title")
             yield Static(
-                f"El planificador generó {self._plan_count} archivo(s) de plan.\n"
-                "Revísalos en la pestaña [b]Plan[/b].\n\n"
-                "¿Continuar con la implementación?"
+                t("pc.body", count=self._plan_count)
             )
             with Horizontal(id="pc-buttons"):
-                yield Button("Implementar", variant="primary", id="pc-accept")
-                yield Button("Revisar después", id="pc-reject")
+                yield Button(t("pc.implement"), variant="primary", id="pc-accept")
+                yield Button(t("pc.later"), id="pc-reject")
 
     def action_reject(self) -> None:
         self.dismiss(False)
@@ -85,48 +84,20 @@ class PlanConfirmScreen(ModalScreen[bool]):
 
 # Descripción de cada fase para el modal de confirmación.
 _PHASE_INFO = {
-    "plan": {
-        "title": "Planificar",
-        "role": "planner",
-        "what": "El planificador explorará el proyecto y escribirá uno o varios\n"
-        "archivos de plan en la carpeta de la tarea (pestaña Plan).",
-    },
-    "implement": {
-        "title": "Implementar",
-        "role": "implementer",
-        "what": "El implementador leerá el plan y aplicará los cambios en el\n"
-        "proyecto (creará la rama git de la tarea si procede).",
-    },
-    "review": {
-        "title": "Revisar",
-        "role": "reviewer",
-        "what": "El revisor comprobará que los cambios cumplen el plan y\n"
-        "emitirá un veredicto (APPROVED / CHANGES_REQUESTED).",
-    },
-    "fix": {
-        "title": "Corregir",
-        "role": "implementer",
-        "what": "El implementador aplicará las correcciones pedidas en la\n"
-        "última revisión, sin desviarse del plan.",
-    },
-    "tests": {
-        "title": "Ejecutar tests",
-        "role": None,
-        "what": "Se ejecutará localmente el comando de tests de la tarea.",
-    },
-    "automode": {
-        "title": "Automode",
-        "role": None,
-        "what": "Se encadenará todo el pipeline: plan → implementación →\n"
-        "revisión ⇄ corrección, hasta aprobar y pasar los tests.",
-    },
+    "plan": {"role": "planner"},
+    "implement": {"role": "implementer"},
+    "review": {"role": "reviewer"},
+    "fix": {"role": "implementer"},
+    "final": {"role": "final"},
+    "tests": {"role": None},
+    "automode": {"role": None},
 }
 
 
 class PhaseConfirmScreen(ModalScreen[bool]):
     """Confirmación antes de lanzar una fase: explica qué va a ocurrir."""
 
-    BINDINGS = [Binding("escape", "cancel", "Cancelar")]
+    BINDINGS = [Binding("escape", "cancel", t("common.cancel"))]
 
     def __init__(self, task: Task, phase: str):
         super().__init__()
@@ -135,36 +106,42 @@ class PhaseConfirmScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         info = _PHASE_INFO[self._phase]
+        title = t(f"phaseinfo.{self._phase}.title")
+        what = t(f"phaseinfo.{self._phase}.what")
         with Vertical(id="plan-confirm-dialog"):
-            yield Label(f"¿{info['title']}?", id="plan-confirm-title")
-            yield Static(info["what"])
+            yield Label(t("pconf.question", title=title), id="plan-confirm-title")
+            yield Static(what)
             if info["role"]:
                 role = self._gtask.role(info["role"])
                 yield Static(
-                    f"[b]Agente:[/b] {role.cli} · modelo: {role.model or 'default'}",
+                    t("pconf.agent", cli=role.cli, model=role.model or "default"),
                     classes="pc-detail",
                 )
             else:
                 roles = (
-                    f"[b]Planificador:[/b] {self._gtask.planner.cli} ({self._gtask.planner.model or 'default'})\n"
-                    f"[b]Implementador:[/b] {self._gtask.implementer.cli} ({self._gtask.implementer.model or 'default'})\n"
-                    f"[b]Revisor:[/b] {self._gtask.reviewer.cli} ({self._gtask.reviewer.model or 'default'})"
+                    t("pconf.role.planner", cli=self._gtask.planner.cli, model=self._gtask.planner.model or "default")
+                    + "\n"
+                    + t("pconf.role.implementer", cli=self._gtask.implementer.cli, model=self._gtask.implementer.model or "default")
+                    + "\n"
+                    + t("pconf.role.reviewer", cli=self._gtask.reviewer.cli, model=self._gtask.reviewer.model or "default")
+                    + "\n"
+                    + t("pconf.role.final", cli=self._gtask.final.cli, model=self._gtask.final.model or "default")
                 )
                 if self._phase == "automode":
                     yield Static(roles, classes="pc-detail")
-            yield Static(f"[b]Proyecto:[/b] {self._gtask.workdir}", classes="pc-detail")
+            yield Static(t("pconf.project", workdir=self._gtask.workdir), classes="pc-detail")
             if self._phase == "automode" and self._gtask.confirm_plan:
                 yield Static(
-                    "Se pausará tras el plan para pedirte confirmación.",
+                    t("pconf.pause_notice"),
                     classes="pc-detail",
                 )
             if self._phase == "tests":
                 yield Static(
-                    f"[b]Comando:[/b] {self._gtask.test_command}", classes="pc-detail"
+                    t("pconf.command", command=self._gtask.test_command), classes="pc-detail"
                 )
             with Horizontal(id="pc-buttons"):
-                yield Button("Ejecutar", variant="primary", id="pc-accept")
-                yield Button("Cancelar", id="pc-reject")
+                yield Button(t("pconf.run"), variant="primary", id="pc-accept")
+                yield Button(t("common.cancel"), id="pc-reject")
 
     def action_cancel(self) -> None:
         self.dismiss(False)
@@ -176,7 +153,7 @@ class PhaseConfirmScreen(ModalScreen[bool]):
 class RequestMoreScreen(ModalScreen[str | None]):
     """Pedir una ampliación: arranca un ciclo nuevo con la misma lógica."""
 
-    BINDINGS = [Binding("escape", "cancel", "Cancelar")]
+    BINDINGS = [Binding("escape", "cancel", t("common.cancel"))]
 
     def __init__(self, task: Task):
         super().__init__()
@@ -184,19 +161,20 @@ class RequestMoreScreen(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="new-task-dialog"):
-            yield Label(f"Pedir más · ciclo {self._gtask.cycle + 1}", id="new-task-title")
-            yield Label("¿Qué más necesitas sobre este proyecto?")
+            yield Label(t("rm.title", cycle=self._gtask.cycle + 1), id="new-task-title")
+            yield Label(t("rm.prompt"))
             yield TextArea(id="rm-text")
-            yield Static(
-                f"Misma lógica: se planifica ({self._gtask.planner.cli}), "
-                + ("tú apruebas, " if self._gtask.confirm_plan else "")
-                + f"se implementa ({self._gtask.implementer.cli}) y se revisa "
-                f"({self._gtask.reviewer.cli}).",
-                classes="pc-detail",
+            body = t(
+                "rm.body",
+                planner=self._gtask.planner.cli,
+                approval=t("rm.approval") if self._gtask.confirm_plan else "",
+                implementer=self._gtask.implementer.cli,
+                reviewer=self._gtask.reviewer.cli,
             )
+            yield Static(body, classes="pc-detail")
             with Horizontal(id="nt-buttons"):
-                yield Button("Comenzar ciclo", variant="primary", id="rm-accept")
-                yield Button("Cancelar", id="rm-cancel")
+                yield Button(t("rm.accept"), variant="primary", id="rm-accept")
+                yield Button(t("common.cancel"), id="rm-cancel")
 
     def on_mount(self) -> None:
         self.query_one("#rm-text", TextArea).focus()
@@ -210,22 +188,24 @@ class RequestMoreScreen(ModalScreen[str | None]):
             return
         request = self.query_one("#rm-text", TextArea).text.strip()
         if not request:
-            self.notify("Describe qué necesitas.", severity="error")
+            self.notify(t("rm.error.empty"), severity="error")
             return
         self.dismiss(request)
 
 
 class TaskDetailScreen(Screen[None]):
     BINDINGS = [
-        Binding("p", "run_plan", "Planificar"),
-        Binding("i", "run_implement", "Implementar"),
-        Binding("r", "run_review", "Revisar"),
-        Binding("f", "run_fix", "Corregir"),
-        Binding("t", "run_tests", "Tests"),
-        Binding("a", "run_automode", "Automode"),
-        Binding("m", "ask_more", "Pedir más"),
-        Binding("x", "cancel", "Cancelar"),
-        Binding("escape", "back", "Volver"),
+        Binding("p", "run_plan", t("det.bind.plan")),
+        Binding("i", "run_implement", t("det.bind.implement")),
+        Binding("r", "run_review", t("det.bind.review")),
+        Binding("f", "run_fix", t("det.bind.fix")),
+        Binding("s", "run_final", t("det.bind.final")),
+        Binding("t", "run_tests", t("det.bind.tests")),
+        Binding("a", "run_automode", t("det.bind.automode")),
+        Binding("m", "ask_more", t("det.bind.more")),
+        Binding("e", "edit_roles", t("det.bind.agents")),
+        Binding("x", "cancel", t("det.bind.cancel")),
+        Binding("escape", "back", t("common.back")),
     ]
 
     def __init__(self, task: Task):
@@ -246,15 +226,19 @@ class TaskDetailScreen(Screen[None]):
         yield PhaseBar(self.current_task.state, self.current_task.iteration, id="phase-bar")
         yield Static("", id="activity-bar")
         with TabbedContent(id="tabs"):
-            with TabPane("Plan", id="tab-plan"):
+            with TabPane(t("det.tab.plan"), id="tab-plan"):
                 with Horizontal():
                     yield FileList(id="plan-files")
                     yield Markdown("", id="plan-view")
-            with TabPane("Revisiones", id="tab-review"):
+            with TabPane(t("det.tab.review"), id="tab-review"):
                 with Horizontal():
                     yield FileList(id="review-files")
                     yield Markdown("", id="review-view")
-            with TabPane("Registro", id="tab-log"):
+            with TabPane(t("det.tab.final"), id="tab-final"):
+                with Horizontal():
+                    yield FileList(id="final-files")
+                    yield Markdown("", id="final-view")
+            with TabPane(t("det.tab.log"), id="tab-log"):
                 yield RichLog(id="live-log", highlight=False, markup=False, wrap=True)
         yield Footer()
 
@@ -265,11 +249,10 @@ class TaskDetailScreen(Screen[None]):
         runtime.add_listener(self._on_runtime)
         if not runtime.log:
             runtime._cb_info(
-                f"Tarea {self.current_task.id} · implementador: {self.current_task.implementer.cli}"
-                f" ({self.current_task.implementer.model or 'default'})"
+                t("det.log.header", id=self.current_task.id, cli=self.current_task.implementer.cli, model=self.current_task.implementer.model or "default")
             )
             if self.current_task.branch:
-                runtime._cb_info(f"Rama git: {self.current_task.branch}")
+                runtime._cb_info(t("det.log.branch", branch=self.current_task.branch))
         self._replay_log()
         self._render_activity()
         # Reloj de 1s: el tick en pantalla demuestra que la UI no está congelada.
@@ -324,9 +307,9 @@ class TaskDetailScreen(Screen[None]):
         runtime = self.runtime
         if not runtime.running or runtime.phase_started_at is None:
             if self.current_task.durations:
-                bar.update(Text(f"■ En espera · tiempo total acumulado {total}", style="dim"))
+                bar.update(Text(t("act.idle_total", total=total), style="dim"))
             else:
-                bar.update(Text("■ En espera", style="dim"))
+                bar.update(Text(t("act.idle"), style="dim"))
             return
 
         elapsed = time.monotonic() - runtime.phase_started_at
@@ -336,20 +319,20 @@ class TaskDetailScreen(Screen[None]):
         line.append(f"{spinner} ", style="bold green")
         line.append(f"{runtime.phase_label}", style="bold")
         line.append(f" · {format_duration(elapsed)}", style="green")
-        line.append(f" · {runtime.event_count} eventos", style="dim")
+        line.append(f" · {t('act.events', count=runtime.event_count)}", style="dim")
         if silence >= _STALL_AFTER_S:
             line.append(
-                f" · ⚠ sin salida hace {format_duration(silence)}: posible bloqueo; pulsa [x] para cancelar",
+                f" · {t('act.stall', duration=format_duration(silence))}",
                 style="bold red",
             )
         elif silence >= _WARN_AFTER_S:
             line.append(
-                f" · sin salida hace {format_duration(silence)} (puede estar razonando)",
+                f" · {t('act.warn', duration=format_duration(silence))}",
                 style="yellow",
             )
         else:
-            line.append(f" · última salida hace {format_duration(silence)}", style="dim")
-        line.append(f" · total {total}", style="dim")
+            line.append(f" · {t('act.last', duration=format_duration(silence))}", style="dim")
+        line.append(f" · {t('act.total', total=total)}", style="dim")
         bar.update(line)
 
     # ------------------------------------------------------------------ #
@@ -364,7 +347,7 @@ class TaskDetailScreen(Screen[None]):
         self._reload_files()  # los artefactos aparecen al terminar cada fase
 
     def _render_title(self) -> None:
-        cycle = f"  [b]·[/b]  ciclo {self.current_task.cycle}" if self.current_task.cycle > 1 else ""
+        cycle = f"  [b]·[/b]  {t('det.cycle', n=self.current_task.cycle)}" if self.current_task.cycle > 1 else ""
         self.query_one("#task-title", Static).update(
             f"[b]{self.current_task.name}[/b]{cycle}  [b]·[/b]  {self.current_task.workdir}"
         )
@@ -372,17 +355,19 @@ class TaskDetailScreen(Screen[None]):
     def _reload_files(self) -> None:
         self.query_one("#plan-files", FileList).load_dir(paths.plan_dir(self.current_task.id))
         self.query_one("#review-files", FileList).load_dir(paths.review_dir(self.current_task.id))
+        self.query_one("#final-files", FileList).load_dir(paths.final_dir(self.current_task.id))
 
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         list_id = event.list_view.id
-        if list_id not in {"plan-files", "review-files"} or not isinstance(event.item, FileItem):
+        views = {"plan-files": "#plan-view", "review-files": "#review-view", "final-files": "#final-view"}
+        if list_id not in views or not isinstance(event.item, FileItem):
             return
         target = event.item.file_path
-        view_id = "#plan-view" if list_id == "plan-files" else "#review-view"
+        view_id = views[list_id]
         try:
             text = target.read_text(encoding="utf-8")
         except OSError as exc:
-            self.notify(f"No se pudo leer {target.name}: {exc}", severity="error")
+            self.notify(t("det.error.read", name=target.name, error=exc), severity="error")
             return
         await markdown_set(self.query_one(view_id, Markdown), text)
 
@@ -396,7 +381,7 @@ class TaskDetailScreen(Screen[None]):
         plan_then_ask: bool = False,
     ) -> None:
         if not self.runtime.start(self.app, runner, label, plan_then_ask=plan_then_ask):
-            self.notify("Ya hay una fase en ejecución (pulsa [x] para cancelar).", severity="warning")
+            self.notify(t("det.warn.running"), severity="warning")
 
     # ------------------------------------------------------------------ #
     # Acciones (todas pasan por el modal de confirmación)
@@ -409,7 +394,7 @@ class TaskDetailScreen(Screen[None]):
         plan_then_ask: bool = False,
     ) -> None:
         if self.runtime.running:
-            self.notify("Ya hay una fase en ejecución (pulsa [x] para cancelar).", severity="warning")
+            self.notify(t("det.warn.running"), severity="warning")
             return
 
         def decide(accepted: bool) -> None:
@@ -419,44 +404,49 @@ class TaskDetailScreen(Screen[None]):
         self.app.push_screen(PhaseConfirmScreen(self.current_task, phase), decide)
 
     def action_run_plan(self) -> None:
-        self._confirm("plan", lambda orch: orch.run_plan(), PHASE_LABELS["plan"])
+        self._confirm("plan", lambda orch: orch.run_plan(), phase_label("plan"))
 
     def action_run_implement(self) -> None:
         if not list(paths.plan_dir(self.current_task.id, self.current_task.cycle).glob("*.md")):
-            self.notify("Primero genera el plan ([p]).", severity="warning")
+            self.notify(t("det.warn.need_plan"), severity="warning")
             return
-        self._confirm("implement", lambda orch: orch.run_implement(), PHASE_LABELS["implement"])
+        self._confirm("implement", lambda orch: orch.run_implement(), phase_label("implement"))
 
     def action_run_review(self) -> None:
         if self.current_task.state not in {TaskState.IMPLEMENTED, TaskState.PAUSED, TaskState.FAILED}:
-            self.notify("La revisión requiere una implementación previa ([i]).", severity="warning")
+            self.notify(t("det.warn.need_impl"), severity="warning")
             return
-        self._confirm("review", lambda orch: orch.run_review(), PHASE_LABELS["review"])
+        self._confirm("review", lambda orch: orch.run_review(), phase_label("review"))
 
     def action_run_fix(self) -> None:
         if self.current_task.iteration == 0 and not list(paths.review_dir(self.current_task.id, self.current_task.cycle).glob("*.md")):
-            self.notify("Aún no hay revisión que corregir ([r]).", severity="warning")
+            self.notify(t("det.warn.need_review"), severity="warning")
             return
-        self._confirm("fix", lambda orch: orch.run_fix(), PHASE_LABELS["fix"])
+        self._confirm("fix", lambda orch: orch.run_fix(), phase_label("fix"))
+
+    def action_run_final(self) -> None:
+        if self.current_task.state is not TaskState.DONE:
+            self.notify(t("det.warn.need_done"), severity="warning")
+            return
+        self._confirm("final", lambda orch: orch.run_final(), phase_label("final"))
 
     def action_run_tests(self) -> None:
         if not self.current_task.test_command.strip():
-            self.notify("Esta tarea no define comando de tests.", severity="warning")
+            self.notify(t("det.warn.no_tests"), severity="warning")
             return
 
         async def _tests(orch: Orchestrator) -> None:
             ok = await orch.run_tests()
-            self.runtime._cb_info("Tests en verde." if ok else "Los tests han fallado.")
+            self.runtime._cb_info(t("det.tests.ok") if ok else t("det.tests.fail"))
 
-        self._confirm("tests", _tests, PHASE_LABELS["tests"])
+        self._confirm("tests", _tests, phase_label("tests"))
 
     def _pipeline_runner(self) -> tuple[Callable[[Orchestrator], Awaitable[None]], str, bool]:
         """Runner del pipeline completo respetando confirm_plan (misma lógica
         para el primer ciclo y para las ampliaciones)."""
-        label = f"Ciclo {self.current_task.cycle}"
         if self.current_task.confirm_plan:
-            return (lambda orch: orch.run_automode_plan()), f"{label} · Plan", True
-        return (lambda orch: orch.run_automode()), f"{label} · Automode", False
+            return (lambda orch: orch.run_automode_plan()), t("det.cycle_plan", n=self.current_task.cycle), True
+        return (lambda orch: orch.run_automode()), t("det.cycle_auto", n=self.current_task.cycle), False
 
     def action_run_automode(self) -> None:
         runner, label, plan_then_ask = self._pipeline_runner()
@@ -464,7 +454,7 @@ class TaskDetailScreen(Screen[None]):
 
     def action_ask_more(self) -> None:
         if self.runtime.running:
-            self.notify("Ya hay una fase en ejecución (pulsa [x] para cancelar).", severity="warning")
+            self.notify(t("det.warn.running"), severity="warning")
             return
 
         def accepted(request: str | None) -> None:
@@ -474,7 +464,7 @@ class TaskDetailScreen(Screen[None]):
             models.save(self.current_task)
             self.runtime.task = self.current_task
             self._state_changed(self.current_task)
-            self.runtime._cb_info(f"▶ Ciclo {self.current_task.cycle}: {request}")
+            self.runtime._cb_info(t("det.cycle_started", n=self.current_task.cycle, request=request))
             runner, label, plan_then_ask = self._pipeline_runner()
             self._start(runner, label, plan_then_ask)
 
@@ -498,11 +488,11 @@ class TaskDetailScreen(Screen[None]):
             if accepted:
                 self._start(
                     lambda orch: orch.run_automode_continue(),
-                    "Automode · Implementación",
+                    t("det.automode_impl"),
                 )
             else:
                 self.runtime._cb_info(
-                    "Automode en pausa: revisa el plan y pulsa [a] para continuar o [i] para implementar."
+                    t("det.paused_hint")
                 )
 
         self.app.push_screen(PlanConfirmScreen(plan_count), answered)
@@ -510,7 +500,35 @@ class TaskDetailScreen(Screen[None]):
     def action_cancel(self) -> None:
         if self.runtime.running:
             self.runtime.cancel()
-            self.notify("Cancelando la ejecución…")
+            self.notify(t("det.cancel"))
+
+    def action_edit_roles(self) -> None:
+        if self.runtime.running:
+            self.notify(t("det.warn.running"), severity="warning")
+            return
+
+        def closed(saved: bool) -> None:
+            if not saved:
+                return
+            # El runtime usa la copia en memoria: hay que refrescarla para
+            # que la siguiente fase use los nuevos CLI/modelo.
+            self.runtime.task = self.current_task
+            self._render_title()
+            self.runtime._cb_info(
+                t(
+                    "det.agents_updated",
+                    planner_cli=self.current_task.planner.cli,
+                    planner_model=self.current_task.planner.model or "default",
+                    implementer_cli=self.current_task.implementer.cli,
+                    implementer_model=self.current_task.implementer.model or "default",
+                    reviewer_cli=self.current_task.reviewer.cli,
+                    reviewer_model=self.current_task.reviewer.model or "default",
+                )
+            )
+
+        from .roles import TaskRolesScreen
+
+        self.app.push_screen(TaskRolesScreen(self.current_task), closed)
 
     def action_back(self) -> None:
         # Volver nunca interrumpe: el pipeline sigue en segundo plano.
