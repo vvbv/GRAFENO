@@ -83,7 +83,8 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `conftest.py` ya aíslan `GRAFENO_HOME` y fijan idioma inglés; drivers falsos
   para el orquestador; smoke tests TUI con el modo headless de Textual
   (`run_test`).
-- **Commits**: Conventional Commits en español o inglés mezclados
+- **Commits**: Conventional Commits en inglés por defecto (los prompts de
+  los agentes lo imponen salvo indicación contraria en AGENTS.md o la tarea)
   (`feat:`, `fix(drivers):`, `test:`, `docs:`), mensaje corto en minúsculas
   que describe el cambio funcional, a veces con detalle entre paréntesis
   (p.ej. `test: ciclos, paralelismo, confirmaciones, config y prompts (56 tests)`).
