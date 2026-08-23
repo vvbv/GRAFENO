@@ -377,7 +377,7 @@ def test_final_steps_failure_marks_failed(tmp_path):
     assert task.state is TaskState.FAILED
 
 
-def test_tokens_recorded_per_model(tmp_path):
+def test_tokens_recorded_per_phase_and_cli_model(tmp_path):
     task = _make_task(tmp_path)
     task.implementer.model = "prov/Impl-Model"
     drivers = {
@@ -392,10 +392,37 @@ def test_tokens_recorded_per_model(tmp_path):
     _run(orch.run_automode())
 
     assert task.state is TaskState.DONE
-    by_model = task.tokens_by_model()
-    assert by_model["prov/Impl-Model"] == (1000, 200)
+    assert task.tokens_by_phase()["implement"] == (1000, 200)
+    assert task.tokens_by_cli_model()["fake-impl/prov/Impl-Model"] == (1000, 200)
+    assert task.token_totals() == (1000, 200)
     # Persistido: se recarga de task.toml sin pérdida.
     assert models.load(task.id).tokens == task.tokens
+
+
+def test_tokens_accumulate_per_phase(tmp_path):
+    task = _make_task(tmp_path)
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [
+            RunResult(ok=True, text="plan", tokens=TokenUsage(input=100, output=10)),
+        ]),
+        "fake-impl": FakeDriver("fake-impl", [
+            RunResult(ok=True, text="impl", tokens=TokenUsage(input=1000, output=200)),
+        ]),
+        "fake-rev": FakeDriver("fake-rev", [
+            RunResult(ok=True, text="VERDICT: APPROVED", tokens=TokenUsage(input=50, output=5)),
+        ]),
+        "fake-final": FakeDriver("fake-final", [
+            RunResult(ok=True, text="cierre", tokens=TokenUsage(input=30, output=3)),
+        ]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_automode())
+
+    by_phase = task.tokens_by_phase()
+    assert by_phase["plan"] == (100, 10)
+    assert by_phase["implement"] == (1000, 200)
+    assert by_phase["review"] == (50, 5)
+    assert by_phase["final"] == (30, 3)
 
 
 def test_hooks_fire_per_phase_and_on_each_iteration(tmp_path):

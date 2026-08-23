@@ -484,7 +484,7 @@ def test_task_list_shows_global_token_summary():
     from textual.widgets import Static as StaticWidget
 
     task = Task.create("Demo tokens", "desc", "/tmp", Config())
-    task.record_tokens("prov/M", TokenUsage(input=1500, output=600))
+    task.record_tokens("opencode", "prov/M", "implement", TokenUsage(input=1500, output=600))
     models.save(task)
 
     async def scenario():
@@ -510,8 +510,8 @@ def test_token_summary_sorted_by_usage_desc():
     from textual.widgets import Static as StaticWidget
 
     task = Task.create("Demo orden tokens", "desc", "/tmp", Config())
-    task.record_tokens("prov/zzz", TokenUsage(input=9000, output=1000))
-    task.record_tokens("prov/aaa", TokenUsage(input=100, output=50))
+    task.record_tokens("opencode", "prov/zzz", "implement", TokenUsage(input=9000, output=1000))
+    task.record_tokens("opencode", "prov/aaa", "implement", TokenUsage(input=100, output=50))
     models.save(task)
 
     async def scenario():
@@ -523,6 +523,35 @@ def test_token_summary_sorted_by_usage_desc():
             rendered = widget.render()
             text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
             assert text.index("prov/zzz") < text.index("prov/aaa")
+
+    asyncio.run(scenario())
+
+
+def test_detail_tokens_tab_shows_breakdown():
+    """La pestaña Tokens del detalle muestra total, fase y CLI+modelo."""
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.drivers.base import TokenUsage
+    from grafeno.models import Task
+    from grafeno.tui.screens.detail import TaskDetailScreen
+    from textual.widgets import Static
+
+    task = Task.create("Tokens detail", "desc", "/tmp", Config())
+    task.record_tokens("opencode", "prov/M", "implement", TokenUsage(input=1500, output=600))
+    task.record_tokens("kimi", "k", "review", TokenUsage(input=100, output=50))
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+            widget = app.screen.query_one("#tokens-view", Static)
+            rendered = widget.render()
+            text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
+            assert "1.5k" in text                       # total
+            assert "Implementation" in text             # por fase
+            assert "opencode/prov/M" in text            # por CLI+modelo
 
     asyncio.run(scenario())
 

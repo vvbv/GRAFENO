@@ -134,18 +134,45 @@ def test_task_tokens_roundtrip(tmp_path):
     from grafeno.drivers.base import TokenUsage
 
     task = models.Task.create("Demo", "desc", str(tmp_path), Config())
-    task.record_tokens("prov/Model-X", TokenUsage(input=100, output=40))
-    task.record_tokens("prov/Model-X", TokenUsage(input=50, output=10))
-    task.record_tokens("", TokenUsage(input=5, output=2))  # modelo por defecto
+    task.record_tokens("opencode", "prov/Model-X", "implement", TokenUsage(input=100, output=40))
+    task.record_tokens("opencode", "prov/Model-X", "review", TokenUsage(input=50, output=10))
+    task.record_tokens("kimi", "", "plan", TokenUsage(input=5, output=2))
     models.save(task)
 
     loaded = models.load(task.id)
     assert loaded.tokens == task.tokens
     assert loaded.token_totals() == (155, 52)
-    assert loaded.tokens_by_model() == {
-        "prov/Model-X": (150, 50),
-        "default": (5, 2),
+    assert loaded.tokens_by_cli_model() == {
+        "opencode/prov/Model-X": (150, 50),
+        "kimi/default": (5, 2),
     }
+    assert loaded.tokens_by_phase() == {
+        "implement": (100, 40),
+        "review": (50, 10),
+        "plan": (5, 2),
+    }
+
+
+def test_legacy_token_keys_aggregated_as_legacy_phase(tmp_path):
+    """Las claves antiguas "{modelo}|{input|output}" se agregan como fase legacy."""
+    task = models.Task.create("Demo", "desc", str(tmp_path), Config())
+    models.save(task)
+    meta = paths.task_meta_path(task.id)
+    with meta.open("rb") as handle:
+        data = tomllib.load(handle)
+    data["tokens"] = {"prov/Model-X|input": 100, "prov/Model-X|output": 40}
+    meta.write_text(_toml.dumps(data), encoding="utf-8")
+
+    loaded = models.load(task.id)
+    assert loaded.token_totals() == (100, 40)
+    assert loaded.tokens_by_phase() == {models.LEGACY_PHASE: (100, 40)}
+    assert loaded.tokens_by_cli_model() == {"prov/Model-X": (100, 40)}
+
+
+def test_cli_model_label():
+    """La etiqueta de agente es 'cli/modelo' o solo el modelo sin cli."""
+    assert models.cli_model_label("opencode", "prov/x") == "opencode/prov/x"
+    assert models.cli_model_label("", "default") == "default"
 
 
 def test_discarded_state_roundtrip():
