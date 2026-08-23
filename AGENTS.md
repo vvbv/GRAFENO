@@ -16,12 +16,13 @@ preparada para Codex y Claude Code).
 
 ```
 src/grafeno/
-├── app.py                  # App Textual y entry point (comando `grafeno`)
+├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas)
 ├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo, automode, paleta (tema), prompt de pasos finales
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
 ├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
+├── scheduler.py            # Lógica pura: programación horaria, encadenamiento padre/hija y repetición de tareas
 ├── _toml.py                # Serializador TOML propio (escritura; lectura con tomllib)
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
 ├── drivers/                # Abstracción de CLIs de agentes
@@ -35,7 +36,7 @@ src/grafeno/
 │   ├── verdict.py          # Parseo del veredicto del revisor (VERDICT: APPROVED / CHANGES_REQUESTED)
 │   └── gitops.py           # Rama opcional grafeno/<tarea>
 └── tui/
-    ├── runtime.py          # TaskRuntime: ejecución en segundo plano por tarea (workers Textual)
+    ├── runtime.py          # TaskRuntime: ejecución en segundo plano por tarea (workers Textual); notifica a la App cuando una ejecución termina en DONE (gancho de encadenamiento/repetición)
     ├── dirpicker.py        # Autocompletado de rutas en el formulario
     ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol
     ├── widgets.py          # Widgets comunes (barra de actividad, confirmaciones)
@@ -79,6 +80,11 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   por proyecto en `<proyecto>/.grafeno.toml`; el flag `--noeditor`
   la desactiva. Por defecto desactivado: sin editor configurado solo
   se abre la TUI.
+- **Planificador**: las tareas pueden tener `scheduled_at`, `parent_id`
+  y modo de repetición (`interval`/`infinite`) con política de plan
+  (`reuse`/`replan`/`reevaluate`). El arranque desatendido usa siempre el
+  pipeline completo (automode) e ignora `confirm_plan`; las pausas
+  manuales (PAUSED) nunca se auto-arrancan.
 - **Tests**: un archivo `test_<modulo>.py` por módulo; fixtures autouse en
   `conftest.py` ya aíslan `GRAFENO_HOME` y fijan idioma inglés; drivers falsos
   para el orquestador; smoke tests TUI con el modo headless de Textual

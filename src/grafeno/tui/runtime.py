@@ -53,6 +53,7 @@ class TaskRuntime:
     def __init__(self, task: Task, orchestrator_factory=_default_orchestrator):
         self.task = task
         self._orchestrator_factory = orchestrator_factory
+        self._app = None
         self.worker: Worker | None = None
         self.running = False
         self.log: list[Text] = []
@@ -110,6 +111,7 @@ class TaskRuntime:
         """Arranca el pipeline en un worker de la App. False si ya corría."""
         if self.running:
             return False
+        self._app = app
         self.running = True
         self._plan_then_ask = plan_then_ask
         self.pending_plan_confirm = False
@@ -151,6 +153,11 @@ class TaskRuntime:
                 if self.task.state is TaskState.PLANNED:
                     self.pending_plan_confirm = True
             self._emit("state", self.task)
+            app = self._app
+            if app is not None and self.task.state is TaskState.DONE:
+                notify = getattr(app, "task_finished", None)
+                if notify is not None:
+                    notify(self.task)
 
     def cancel(self) -> None:
         """Cancela el worker en curso (no bloqueante)."""

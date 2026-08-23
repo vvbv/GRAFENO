@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from pathlib import Path
 
 from textual.app import ComposeResult
@@ -17,11 +18,12 @@ from textual.widgets import (
     Header,
     Input,
     Label,
+    Select,
     Static,
     TextArea,
 )
 
-from ... import config as config_module
+from ... import config as config_module, scheduler
 from ... import models
 from ...i18n import t
 from ...models import Task, state_label
@@ -44,6 +46,34 @@ class NewTaskScreen(ModalScreen[Task | None]):
             yield TextArea(id="nt-description")
             yield Label(t("nt.workdir"))
             yield DirectoryPicker(os.getcwd(), input_id="nt-workdir")
+            yield Label(t("nt.schedule"))
+            yield Input(placeholder=t("nt.schedule.placeholder"), id="nt-schedule")
+            yield Label(t("nt.parent"))
+            yield Select([], id="nt-parent", allow_blank=True)
+            yield Label(t("nt.repeat"))
+            yield Select(
+                [
+                    (t("nt.repeat.none"), ""),
+                    (t("nt.repeat.interval"), "interval"),
+                    (t("nt.repeat.infinite"), "infinite"),
+                ],
+                id="nt-repeat",
+                value="",
+                allow_blank=False,
+            )
+            yield Label(t("nt.repeat.interval_minutes"))
+            yield Input(placeholder="60", id="nt-repeat-minutes")
+            yield Label(t("nt.plan_reuse"))
+            yield Select(
+                [
+                    (t("nt.plan_reuse.reuse"), "reuse"),
+                    (t("nt.plan_reuse.replan"), "replan"),
+                    (t("nt.plan_reuse.reevaluate"), "reevaluate"),
+                ],
+                id="nt-plan-reuse",
+                value="reuse",
+                allow_blank=False,
+            )
             yield Label(t("nt.tests"))
             yield Input(placeholder=t("nt.tests.placeholder"), id="nt-tests")
             with Horizontal(classes="final-prompt-row"):
@@ -69,6 +99,12 @@ class NewTaskScreen(ModalScreen[Task | None]):
         self.query_one("#nt-automode", Checkbox).value = cfg.automode.enabled
         self.query_one("#nt-confirm-plan", Checkbox).value = cfg.automode.confirm_plan
         self.query_one("#nt-branch", Checkbox).value = cfg.automode.create_branch
+        # Rellena el selector de tarea padre con las tareas existentes.
+        parent_select = self.query_one("#nt-parent", Select)
+        parent_options = [
+            (f"{task.name} ({task.id})", task.id) for task in models.list_all()
+        ]
+        parent_select.set_options(parent_options)
         self.query_one("#nt-name", Input).focus()
 
     def action_cancel(self) -> None:
@@ -93,13 +129,39 @@ class NewTaskScreen(ModalScreen[Task | None]):
         if not workdir.is_dir():
             self.notify(t("nt.error.bad_dir", path=workdir), severity="error")
             return
+        from ... import scheduler as scheduler_module
+
+        try:
+            scheduled_at = scheduler_module.parse_schedule(
+                self.query_one("#nt-schedule", Input).value
+            )
+        except ValueError:
+            self.notify(t("nt.error.bad_schedule"), severity="error")
+            return
+        parent_value = self.query_one("#nt-parent", Select).value
+        parent_id = "" if parent_value is Select.BLANK else str(parent_value)
+        repeat_mode = str(self.query_one("#nt-repeat", Select).value)
+        repeat_minutes_raw = self.query_one("#nt-repeat-minutes", Input).value.strip()
+        repeat_minutes = 60
+        if repeat_mode == "interval":
+            if not repeat_minutes_raw.isdigit() or int(repeat_minutes_raw) < 1:
+                self.notify(t("nt.error.bad_interval"), severity="error")
+                return
+            repeat_minutes = int(repeat_minutes_raw)
+        plan_reuse = str(self.query_one("#nt-plan-reuse", Select).value)
         cfg = config_module.load()
+        automode_value = self.query_one("#nt-automode", Checkbox).value
+        # Las tareas repetitivas se ejecutan en automode: si el usuario lo
+        # dejó desactivado, lo activamos silenciosamente y avisamos.
+        if repeat_mode and not automode_value:
+            automode_value = True
+            self.notify(t("nt.repeat.forces_automode"), severity="information")
         task = models.Task.create(
             name=name,
             description=self.query_one("#nt-description", TextArea).text.strip(),
             workdir=str(workdir.resolve()),
             config=cfg,
-            automode=self.query_one("#nt-automode", Checkbox).value,
+            automode=automode_value,
             test_command=self.query_one("#nt-tests", Input).value.strip(),
             create_branch=self.query_one("#nt-branch", Checkbox).value,
             confirm_plan=self.query_one("#nt-confirm-plan", Checkbox).value,
@@ -110,6 +172,11 @@ class NewTaskScreen(ModalScreen[Task | None]):
                 if self.query_one(f"#nt-hook-stage-{stage}", Checkbox).value
             ]),
             hook_mode="both" if self.query_one("#nt-hook-both", Checkbox).value else "override",
+            scheduled_at=scheduled_at,
+            parent_id=parent_id,
+            repeat_mode=repeat_mode,
+            repeat_interval_minutes=repeat_minutes,
+            plan_reuse=plan_reuse,
         )
         models.save(task)
         self.dismiss(task)
@@ -123,15 +190,23 @@ class TaskListScreen(Screen[None]):
         Binding("c", "config", t("tasks.bind.config")),
         Binding("enter", "open_task", t("tasks.bind.open")),
         Binding("r", "reload", t("tasks.bind.reload")),
+        Binding("v", "toggle_scope", t("tasks.bind.scope")),
         Binding("q", "quit_hint", t("common.quit")),
     ]
 
+    def __init__(self) -> None:
+        super().__init__()
+        # Por defecto: solo tareas del proyecto actual.
+        self._show_all = False
+        self._all_tasks: list[Task] = []
+        self._tasks: list[Task] = []
+
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static(
-            t("tasks.subtitle"),
-            id="subtitle",
-        )
+        with Horizontal(id="tasks-header"):
+            yield Static(t("tasks.subtitle"), id="subtitle")
+            yield Static("", id="clock")
+            yield Button(t("tasks.scope.project"), id="scope-toggle")
         yield DataTable(id="tasks-table", cursor_type="row", zebra_stripes=True)
         yield Static("", id="empty-hint")
         yield Static("", id="token-summary")
@@ -151,6 +226,9 @@ class TaskListScreen(Screen[None]):
         table.focus()
         # Refresco periódico: muestra el progreso de tareas en segundo plano.
         self.set_interval(2.0, self._tick_refresh)
+        # Reloj en vivo: un segundo basta.
+        self._render_clock()
+        self.set_interval(1.0, self._render_clock)
 
     def on_screen_resume(self) -> None:
         self._reload()
@@ -160,16 +238,51 @@ class TaskListScreen(Screen[None]):
         if any(runtime.running for runtime in runtimes.values()):
             self._reload(preserve_cursor=True)
 
+    def _render_clock(self) -> None:
+        """Reloj de 1s: hora actual siempre visible en el listado."""
+        self.query_one("#clock", Static).update(
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+
+    def action_toggle_scope(self) -> None:
+        """Alterna entre tareas del proyecto y todas las tareas."""
+        self._show_all = not self._show_all
+        self.query_one("#scope-toggle", Button).label = t(
+            "tasks.scope.all" if self._show_all else "tasks.scope.project"
+        )
+        self._reload()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "scope-toggle":
+            self.action_toggle_scope()
+
     def _reload(self, *, preserve_cursor: bool = False) -> None:
         table = self.query_one(DataTable)
         selected = self._selected_task_id() if preserve_cursor else None
         table.clear()
-        self._tasks = models.list_all()
+        self._all_tasks = models.list_all()
+        if self._show_all:
+            self._tasks = list(self._all_tasks)
+        else:
+            cwd = str(Path.cwd().resolve())
+            self._tasks = [
+                task for task in self._all_tasks
+                if str(Path(task.workdir).resolve()) == cwd
+                or (task.parent_id and any(
+                    parent.id == task.parent_id
+                    and str(Path(parent.workdir).resolve()) == cwd
+                    for parent in self._all_tasks
+                ))
+            ]
         runtimes = getattr(self.app, "runtimes", {})
-        for index, task in enumerate(self._tasks):
+        ordered = scheduler.tree_order(self._tasks)
+        for index, (task, depth) in enumerate(ordered):
             runtime = runtimes.get(task.id)
             running = runtime is not None and runtime.running
-            name = f"▶ {task.name}" if running else task.name
+            indent = "  " * depth + ("+ " if depth else "")
+            name = f"{indent}{task.name}"
+            if running:
+                name = f"▶ {name}"  # mantiene el marcador de ejecución
             table.add_row(
                 name,
                 state_label(task.state),

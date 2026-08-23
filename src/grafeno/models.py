@@ -47,6 +47,11 @@ LEGACY_PHASE = "legacy"          # fase de usos guardados con el formato antiguo
 # Orden de las fases con tokens (para mostrar el desglose).
 TOKEN_PHASES = ("plan", "implement", "review", "fix", "final")
 
+# Modos válidos de repetición de tareas (vacío = no repetitiva).
+REPEAT_MODES = ("", "interval", "infinite")
+# Política de reutilización del plan entre repeticiones.
+PLAN_REUSE_MODES = ("reuse", "replan", "reevaluate")
+
 
 def _token_key(phase: str, cli: str, model: str, kind: str) -> str:
     """Compone la clave plana ``"{fase}|{cli}|{modelo}|{input|output}"``."""
@@ -113,6 +118,14 @@ class Task:
     sessions: dict[str, str] = field(default_factory=dict)  # rol -> session id
     durations: dict[str, int] = field(default_factory=dict)  # fase -> segundos acumulados
     tokens: dict[str, int] = field(default_factory=dict)  # "{fase}|{cli}|{modelo}|{input|output}" -> tokens acumulados
+    # Programación horaria y repetición (ver scheduler.py).
+    scheduled_at: str = ""        # ISO local "YYYY-MM-DDTHH:MM"; vacío = no programada
+    parent_id: str = ""           # id de la tarea padre (encadenada); vacío = raíz
+    repeat_mode: str = ""         # "" | "interval" | "infinite"
+    repeat_interval_minutes: int = 60  # solo si repeat_mode == "interval"
+    plan_reuse: str = "reuse"     # "reuse" | "replan" | "reevaluate"
+    repeat_count: int = 0         # repeticiones ya ejecutadas (0 = primera ejecución)
+    last_completed_at: str = ""   # ISO local de la última vez que llegó a DONE
     created_at: str = ""
     updated_at: str = ""
 
@@ -133,6 +146,11 @@ class Task:
         hook_command: str | None = None,
         hook_stages: str | None = None,
         hook_mode: str | None = None,
+        scheduled_at: str | None = None,
+        parent_id: str | None = None,
+        repeat_mode: str | None = None,
+        repeat_interval_minutes: int | None = None,
+        plan_reuse: str | None = None,
     ) -> "Task":
         now = datetime.now().isoformat(timespec="seconds")
         return cls(
@@ -153,6 +171,11 @@ class Task:
             hook_command="" if hook_command is None else hook_command,
             hook_stages="" if hook_stages is None else hook_stages,
             hook_mode="override" if hook_mode is None else hook_mode,
+            scheduled_at="" if scheduled_at is None else scheduled_at,
+            parent_id="" if parent_id is None else parent_id,
+            repeat_mode="" if repeat_mode is None else repeat_mode,
+            repeat_interval_minutes=60 if repeat_interval_minutes is None else repeat_interval_minutes,
+            plan_reuse="reuse" if plan_reuse is None else plan_reuse,
             created_at=now,
             updated_at=now,
         )
@@ -236,6 +259,13 @@ class Task:
                 "branch": self.branch,
                 "iteration": self.iteration,
                 "cycle": self.cycle,
+                "scheduled_at": self.scheduled_at,
+                "parent_id": self.parent_id,
+                "repeat_mode": self.repeat_mode,
+                "repeat_interval_minutes": self.repeat_interval_minutes,
+                "plan_reuse": self.plan_reuse,
+                "repeat_count": self.repeat_count,
+                "last_completed_at": self.last_completed_at,
                 "created_at": self.created_at,
                 "updated_at": self.updated_at,
             },
@@ -274,6 +304,13 @@ class Task:
             branch=str(raw.get("branch", "")),
             iteration=int(raw.get("iteration", 0)),
             cycle=int(raw.get("cycle", 1)),
+            scheduled_at=str(raw.get("scheduled_at", "")),
+            parent_id=str(raw.get("parent_id", "")),
+            repeat_mode=str(raw.get("repeat_mode", "")),
+            repeat_interval_minutes=int(raw.get("repeat_interval_minutes", 60)),
+            plan_reuse=str(raw.get("plan_reuse", "reuse")),
+            repeat_count=int(raw.get("repeat_count", 0)),
+            last_completed_at=str(raw.get("last_completed_at", "")),
             sessions={str(k): str(v) for k, v in data.get("sessions", {}).items()},
             durations={str(k): int(v) for k, v in data.get("durations", {}).items()},
             extensions={str(k): str(v) for k, v in data.get("extensions", {}).items()},

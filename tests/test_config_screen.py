@@ -54,7 +54,9 @@ def test_config_screen_loads_models_and_saves(monkeypatch):
             assert str(final_cli.value) == "opencode"
 
             app.screen.query_one("#cfg-save").scroll_visible()
-            await pilot.pause()
+            # Da tiempo a que el scroll asiente antes de pulsar.
+            for _ in range(5):
+                await pilot.pause(0.05)
             await pilot.click("#cfg-save")
             await pilot.pause()
             assert isinstance(app.screen, TaskListScreen)

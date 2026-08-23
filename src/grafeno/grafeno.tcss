@@ -19,6 +19,20 @@ Footer {
     margin-bottom: 1;
 }
 
+#clock {
+    color: #8b949e;
+    padding: 0 2;
+}
+
+#tasks-header {
+    height: auto;
+}
+
+#scope-toggle {
+    width: auto;
+    margin-right: 2;
+}
+
 /* ---- Lista de tareas ---- */
 #tasks-table {
     margin: 0 2;

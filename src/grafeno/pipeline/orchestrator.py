@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Awaitable, Callable
 
 from .. import models, paths
 from ..config import RoleConfig
@@ -217,6 +217,32 @@ class Orchestrator:
             )
             self._info(t("orch.plan_fallback"))
 
+    async def run_reevaluate_plan(self) -> None:
+        """Reevalúa el plan existente (tareas repetitivas con plan_reuse=reevaluate).
+
+        Igual que ``run_plan`` pero sin generar AGENTS.md (ya existe) y con
+        el prompt de reevaluación. Si no hay archivos de plan, cae a
+        ``run_plan`` normal.
+        """
+        if not self._plan_files():
+            await self.run_plan()
+            return
+        result = await self._execute(
+            "planner",
+            "plan",
+            prompts.reevaluate_plan_prompt(self.task),
+            "reevaluate.jsonl",
+            TaskState.PLANNING,
+            TaskState.PLANNED,
+        )
+        if not self._plan_files() and result.text.strip():
+            plan_path = paths.plan_dir(self.task.id, self.task.cycle) / "01-plan.md"
+            plan_path.write_text(
+                f"{prompts.executor_header(self.task)}\n{prompts.executor_notice(self.task)}\n\n"
+                f"# Plan: {self.task.name}\n\n{result.text.strip()}\n",
+                encoding="utf-8",
+            )
+
     async def run_implement(self) -> None:
         self._ensure_branch()
         await self._execute(
@@ -381,3 +407,30 @@ class Orchestrator:
         if ok:
             task.branch = branch
             models.save(task)
+
+
+# ---------------------------------------------------------------------- #
+def repetition_runner(task: Task) -> Callable[[Orchestrator], Awaitable[None]]:
+    """Runner de una repetición según ``task.plan_reuse``.
+
+    - ``reuse``:      ``run_automode`` (reutiliza los planes existentes).
+    - ``replan``:     ``run_automode`` (los planes ya los borró el llamador).
+    - ``reevaluate``: ``run_reevaluate_plan`` + ``run_automode_continue``.
+
+    Se devuelve una corrutina para que ``TaskRuntime`` la ejecute como cualquier
+    otro runner del pipeline.
+    """
+    if task.plan_reuse == "reevaluate":
+
+        async def _reevaluate(orch: Orchestrator) -> None:
+            await orch.run_reevaluate_plan()
+            if orch.task.state is TaskState.FAILED:
+                return
+            await orch.run_automode_continue()
+
+        return _reevaluate
+
+    async def _automode(orch: Orchestrator) -> None:
+        await orch.run_automode()
+
+    return _automode

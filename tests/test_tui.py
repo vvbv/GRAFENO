@@ -306,6 +306,8 @@ def test_new_task_final_prompt_inherits_and_overrides():
 def test_navigation_does_not_interrupt_pipeline():
     """Volver al listado no interrumpe: el pipeline sigue en la App y la
     lista muestra el indicador ▶; al reabrir se reconecta."""
+    import os
+
     async def scenario():
         from grafeno import models
         from grafeno.config import Config
@@ -314,7 +316,7 @@ def test_navigation_does_not_interrupt_pipeline():
         from grafeno.tui.screens.tasks import TaskListScreen
         from textual.widgets import DataTable
 
-        task = Task.create("Demo paralela", "desc", "/tmp", Config())
+        task = Task.create("Demo paralela", "desc", os.getcwd(), Config())
         models.save(task)
 
         app = GrafenoApp()
@@ -477,13 +479,15 @@ def test_markdown_views_are_scrollable():
 
 def test_task_list_shows_global_token_summary():
     """La lista agrega tokens por modelo en #token-summary."""
+    import os
+
     from grafeno import models
     from grafeno.config import Config
     from grafeno.drivers.base import TokenUsage
     from grafeno.models import Task
     from textual.widgets import Static as StaticWidget
 
-    task = Task.create("Demo tokens", "desc", "/tmp", Config())
+    task = Task.create("Demo tokens", "desc", os.getcwd(), Config())
     task.record_tokens("opencode", "prov/M", "implement", TokenUsage(input=1500, output=600))
     models.save(task)
 
@@ -503,13 +507,15 @@ def test_task_list_shows_global_token_summary():
 
 def test_token_summary_sorted_by_usage_desc():
     """El resumen de tokens ordena los modelos de mayor a menor consumo."""
+    import os
+
     from grafeno import models
     from grafeno.config import Config
     from grafeno.drivers.base import TokenUsage
     from grafeno.models import Task
     from textual.widgets import Static as StaticWidget
 
-    task = Task.create("Demo orden tokens", "desc", "/tmp", Config())
+    task = Task.create("Demo orden tokens", "desc", os.getcwd(), Config())
     task.record_tokens("opencode", "prov/zzz", "implement", TokenUsage(input=9000, output=1000))
     task.record_tokens("opencode", "prov/aaa", "implement", TokenUsage(input=100, output=50))
     models.save(task)
@@ -838,5 +844,230 @@ def test_detail_agents_bar_reflects_role_changes():
             after = screen.query_one("#agents-bar", Static).render()
             after_text = after.plain if hasattr(after, "plain") else str(after)
             assert "codex/gpt-x" in after_text
+
+    asyncio.run(scenario())
+
+
+def test_task_list_clock_shows_current_time():
+    """La lista muestra un reloj con formato YYYY-MM-DD HH:MM:SS."""
+    import re
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()  # segundo pause: el reloj ya se renderizó
+            from textual.widgets import Static
+
+            clock = app.screen.query_one("#clock", Static).render()
+            text = clock.plain if hasattr(clock, "plain") else str(clock)
+            assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$", text)
+
+    asyncio.run(scenario())
+
+
+def test_task_list_filter_default_only_project():
+    """Por defecto solo se listan las tareas del proyecto actual."""
+    import os
+
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task
+        from textual.widgets import DataTable
+
+        cwd = os.getcwd()
+        in_project = Task.create("En proyecto", "d", cwd, Config())
+        models.save(in_project)
+        other = Task.create("En otro", "d", "/tmp", Config())
+        models.save(other)
+
+        app = GrafenoApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            assert table.row_count == 1
+
+            # Pulsa `v` para mostrar todas.
+            await pilot.press("v")
+            await pilot.pause()
+            assert table.row_count == 2
+
+    asyncio.run(scenario())
+
+
+def test_task_list_sublist_indents_children():
+    """Las hijas se muestran debajo de su padre e indentadas."""
+    import os
+
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task
+        from textual.widgets import DataTable
+
+        parent = Task.create("Padre", "d", os.getcwd(), Config())
+        parent.id = "p-indent"
+        models.save(parent)
+        child = Task.create("Hija", "d", os.getcwd(), Config())
+        child.id = "c-indent"
+        child.parent_id = "p-indent"
+        models.save(child)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            assert table.row_count == 2
+
+            # Primera fila: el padre, sin indentación (o solo prefijo de root).
+            first = str(table.get_row_at(0)[0])
+            assert first.endswith("Padre")
+            # Segunda fila: la hija, indentada con dos espacios y `+ `.
+            second = str(table.get_row_at(1)[0])
+            assert second.startswith("  + ")
+            assert "Hija" in second
+
+    asyncio.run(scenario())
+
+
+def test_new_task_form_accepts_schedule():
+    """El formulario acepta una fecha futura y la persiste como ISO local."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.tui.screens.detail import TaskDetailScreen
+        from textual.widgets import Input
+
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 60)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            screen = app.screen
+
+            screen.query_one("#nt-name", Input).value = "Programada"
+            screen.query_one("#nt-schedule", Input).value = "2020-01-01 10:00"
+            screen.query_one("#nt-create").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#nt-create")
+            await pilot.pause()
+
+            assert isinstance(app.screen, TaskDetailScreen)
+            assert app.screen.current_task.scheduled_at == "2020-01-01T10:00"
+            reloaded = models.load(app.screen.current_task.id)
+            assert reloaded.scheduled_at == "2020-01-01T10:00"
+
+    asyncio.run(scenario())
+
+
+def test_new_task_form_rejects_invalid_schedule():
+    """Una fecha inválida deja el modal abierto sin crear la tarea."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.tui.screens.tasks import NewTaskScreen
+        from textual.widgets import Input
+
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 60)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            screen = app.screen
+
+            screen.query_one("#nt-name", Input).value = "Fecha mala"
+            screen.query_one("#nt-schedule", Input).value = "ayer"
+            screen.query_one("#nt-create").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#nt-create")
+            await pilot.pause()
+
+            # Sigue en el modal y no se ha creado ninguna tarea.
+            assert isinstance(app.screen, NewTaskScreen)
+            assert not models.list_all()
+
+    asyncio.run(scenario())
+
+
+def test_new_task_form_persists_parent_id():
+    """Elegir tarea padre en el selector lo persiste en parent_id."""
+    import os
+
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task
+        from textual.widgets import Input, Select
+
+        parent = Task.create("Padre", "d", os.getcwd(), Config())
+        parent.id = "p-form"
+        models.save(parent)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 60)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            screen = app.screen
+
+            assert screen.query_one("#nt-parent", Select)._options  # hay opciones
+            screen.query_one("#nt-parent", Select).value = "p-form"
+            screen.query_one("#nt-name", Input).value = "Hija"
+            screen.query_one("#nt-create").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#nt-create")
+            await pilot.pause()
+
+            from grafeno.tui.screens.detail import TaskDetailScreen
+            assert isinstance(app.screen, TaskDetailScreen)
+            assert app.screen.current_task.parent_id == "p-form"
+            reloaded = models.load(app.screen.current_task.id)
+            assert reloaded.parent_id == "p-form"
+
+    asyncio.run(scenario())
+
+
+def test_new_task_form_repetitive_interval_validates_and_forces_automode():
+    """Modo repetitivo interval exige minutos válidos y fuerza automode."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.tui.screens.detail import TaskDetailScreen
+        from textual.widgets import Checkbox, Input, Select
+
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 60)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            screen = app.screen
+
+            # Intervalo vacío: debe rechazar.
+            screen.query_one("#nt-name", Input).value = "Repetitiva"
+            screen.query_one("#nt-repeat", Select).value = "interval"
+            screen.query_one("#nt-repeat-minutes", Input).value = ""
+            screen.query_one("#nt-automode", Checkbox).value = False
+            screen.query_one("#nt-create").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#nt-create")
+            await pilot.pause()
+
+            from grafeno.tui.screens.tasks import NewTaskScreen
+            assert isinstance(app.screen, NewTaskScreen)
+            assert not models.list_all()
+
+            # Intervalo válido: crea la tarea, fuerza automode.
+            screen.query_one("#nt-repeat-minutes", Input).value = "30"
+            screen.query_one("#nt-create").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#nt-create")
+            await pilot.pause()
+            assert isinstance(app.screen, TaskDetailScreen)
+            assert app.screen.current_task.repeat_mode == "interval"
+            assert app.screen.current_task.repeat_interval_minutes == 30
+            assert app.screen.current_task.automode is True
 
     asyncio.run(scenario())

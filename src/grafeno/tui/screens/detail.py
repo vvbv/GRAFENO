@@ -463,8 +463,14 @@ class TaskDetailScreen(Screen[None]):
 
     def _render_title(self) -> None:
         cycle = f"  [b]·[/b]  {t('det.cycle', n=self.current_task.cycle)}" if self.current_task.cycle > 1 else ""
+        extra = ""
+        task = self.current_task
+        if task.scheduled_at:
+            extra += f"  [b]·[/b]  {t('det.scheduled', at=task.scheduled_at.replace('T', ' '))}"
+        if task.repeat_mode:
+            extra += f"  [b]·[/b]  {t(f'det.repeat.{task.repeat_mode}', n=task.repeat_count, minutes=task.repeat_interval_minutes)}"
         self.query_one("#task-title", Static).update(
-            f"[b]{self.current_task.name}[/b]{cycle}  [b]·[/b]  {self.current_task.workdir}"
+            f"[b]{task.name}[/b]{cycle}  [b]·[/b]  {task.workdir}{extra}"
         )
 
     def _reload_files(self) -> None:

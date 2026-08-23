@@ -145,3 +145,15 @@ def test_common_rules_include_git_author_rule(tmp_path):
         assert "mensajes de commit" in prompt
         assert "INGLÉS" in prompt
         assert "AGENTS.md" in prompt
+
+
+def test_reevaluate_plan_prompt_includes_task_context(tmp_path):
+    """El prompt de reevaluación incluye nombre, descripción y ruta del plan."""
+    task = _task(tmp_path)
+    task.description = "una descripción concreta y única para el test"
+    prompt = prompts.reevaluate_plan_prompt(task)
+    assert task.name in prompt
+    assert task.description in prompt
+    assert str(paths.plan_dir(task.id)) in prompt
+    assert "GRAFENO-EXECUTOR" in prompt
+    assert "REEVALUACIÓN" in prompt

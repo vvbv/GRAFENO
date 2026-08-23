@@ -12,6 +12,7 @@ from grafeno import models, paths
 from grafeno.config import Config
 from grafeno.drivers.base import CLIDriver, RunResult, TokenUsage
 from grafeno.models import Task, TaskState
+from grafeno.pipeline import prompts
 from grafeno.pipeline.orchestrator import Orchestrator, PhaseError
 
 
@@ -37,6 +38,10 @@ class FakeDriver(CLIDriver):
 
     async def run(self, request, on_event=None, on_activity=None):
         self.prompts.append(request.prompt)
+        if request.log_path is not None:
+            request.log_path.parent.mkdir(parents=True, exist_ok=True)
+            with request.log_path.open("a", encoding="utf-8") as handle:
+                handle.write(f"{request.prompt[:80]}\n")
         if on_activity:
             on_activity()
         if self._results:
@@ -467,3 +472,116 @@ def test_hook_fires_with_failed_outcome(tmp_path):
         _run(orch.run_implement())
     lines = (tmp_path / "hooks.log").read_text(encoding="utf-8").splitlines()
     assert lines == ["implement:failed"]
+
+
+def test_repetition_runner_reuse_calls_run_automode(tmp_path):
+    from grafeno.pipeline.orchestrator import repetition_runner
+
+    task = _make_task(tmp_path, plan_reuse="reuse")
+    runner = repetition_runner(task)
+    captured = []
+
+    async def fake_run(orch):
+        captured.append("run_automode")
+
+    class _Orch:
+        run_automode = fake_run
+
+    _run(runner(_Orch()))
+    assert captured == ["run_automode"]
+
+
+def test_repetition_runner_replan_calls_run_automode(tmp_path):
+    from grafeno.pipeline.orchestrator import repetition_runner
+
+    task = _make_task(tmp_path, plan_reuse="replan")
+    runner = repetition_runner(task)
+    captured = []
+
+    async def fake_run(orch):
+        captured.append("run_automode")
+
+    class _Orch:
+        run_automode = fake_run
+
+    _run(runner(_Orch()))
+    assert captured == ["run_automode"]
+
+
+def test_repetition_runner_reevaluate_runs_reevaluate_then_continue(tmp_path):
+    """Con plan_reuse=reevaluate, primero reevalúa el plan y luego ejecuta el resto."""
+    from grafeno.pipeline.orchestrator import repetition_runner
+
+    task = _make_task(tmp_path, plan_reuse="reevaluate")
+    runner = repetition_runner(task)
+    captured = []
+
+    class _Orch:
+        def __init__(self):
+            self.task = task
+
+        async def run_reevaluate_plan(self):
+            captured.append("reevaluate")
+
+        async def run_automode_continue(self):
+            captured.append("continue")
+
+    _run(runner(_Orch()))
+    assert captured == ["reevaluate", "continue"]
+
+
+def test_repetition_runner_reevaluate_stops_when_plan_failed(tmp_path):
+    """Si la reevaluación falla (state=FAILED), no se ejecuta la continuación."""
+    from grafeno.pipeline.orchestrator import repetition_runner
+
+    task = _make_task(tmp_path, plan_reuse="reevaluate")
+    runner = repetition_runner(task)
+    captured = []
+
+    class _Orch:
+        def __init__(self):
+            self.task = task
+            self.task.state = TaskState.FAILED
+
+        async def run_reevaluate_plan(self):
+            captured.append("reevaluate")
+
+        async def run_automode_continue(self):
+            captured.append("continue")
+
+    _run(runner(_Orch()))
+    assert captured == ["reevaluate"]
+
+
+def test_run_reevaluate_plan_without_existing_files_falls_back_to_run_plan(tmp_path):
+    """Sin archivos de plan, run_reevaluate_plan delega en run_plan."""
+    task = _make_task(tmp_path, plan_reuse="reevaluate")
+    planner = FakeDriver("fake-planner", [_ok("plan nuevo")])
+    drivers = {"fake-planner": planner}
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_reevaluate_plan())
+
+    assert task.state is TaskState.PLANNED
+    # Se usó plan.jsonl, no reevaluate.jsonl.
+    assert (paths.logs_dir(task.id) / "plan.jsonl").exists()
+    assert not (paths.logs_dir(task.id) / "reevaluate.jsonl").exists()
+
+
+def test_run_reevaluate_plan_with_existing_files_writes_reevaluate_log(tmp_path):
+    """Con plan existente, run_reevaluate_plan escribe reevaluate.jsonl."""
+    task = _make_task(tmp_path, plan_reuse="reevaluate")
+    # Crea un archivo de plan previo.
+    (paths.plan_dir(task.id) / "01-previo.md").write_text(
+        f"{prompts.executor_header(task)}\n# Plan previo\n", encoding="utf-8"
+    )
+    planner = FakeDriver("fake-planner", [_ok("plan reevaluado")])
+    drivers = {"fake-planner": planner}
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_reevaluate_plan())
+
+    assert task.state is TaskState.PLANNED
+    # Log específico de reevaluación (no plan).
+    assert (paths.logs_dir(task.id) / "reevaluate.jsonl").exists()
+    assert not (paths.logs_dir(task.id) / "plan.jsonl").exists()
+    # El planner recibió el prompt de reevaluación.
+    assert "REEVALUACIÓN" in planner.prompts[-1]

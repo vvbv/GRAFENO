@@ -131,6 +131,49 @@ tarea de programación orquestada por GRAFENO.
 """.strip()
 
 
+def reevaluate_plan_prompt(task: Task) -> str:
+    """Prompt de reevaluación: ajusta el plan existente según la descripción."""
+    plan_dir = paths.plan_dir(task.id, task.cycle)
+    return f"""Eres un INGENIERO DE SOFTWARE SENIOR actuando como PLANIFICADOR de una
+tarea de programación orquestada por GRAFENO. Esta es una REEVALUACIÓN de un
+plan existente, NO una planificación desde cero.
+
+# Tarea
+- Nombre: {task.name}
+- Descripción: {task.description or "(sin descripción)"}
+- Proyecto (directorio de trabajo): {task.workdir}
+{_cycle_section(task)}
+# Tu entrega
+1. La tarea YA TIENE archivos de plan en:
+   {plan_dir}
+   LEE PRIMERO esos archivos (en orden alfabético) para entender qué se
+   planificó en repeticiones anteriores.
+2. Compara el plan existente con la descripción ORIGINAL de la tarea (arriba)
+   y con el estado actual del proyecto en `{task.workdir}`.
+3. ACTUALIZA los archivos del plan solo donde proceda:
+   - mantén el formato de cabecera EXACTO en cada archivo (sin modificar):
+
+{executor_header(task)}
+{executor_notice(task)}
+
+   - ajusta pasos, criterios de aceptación y sugerencias a la realidad del
+     proyecto;
+   - añade o elimina archivos `NN-slug.md` si la estructura del plan cambia;
+   - mantén el orden de numeración coherente.
+4. Si el plan sigue siendo válido, NO lo modifiques: indícalo en tu respuesta
+   y no escribas archivos nuevos.
+5. El plan lo ejecutará OTRO modelo (`{task.implementer.model or "default"}` vía CLI `{task.implementer.cli}`),
+   que no compartirá tu contexto. OPTIMIZA el plan para ese ejecutor.{_tests_section(task)}
+6. El plan debe incluir literalmente estas reglas para el ejecutor:
+
+{_CODE_RULES}
+
+7. Termina tu respuesta con un resumen de los cambios (o de "sin cambios").
+
+{_COMMON_RULES}
+""".strip()
+
+
 def implement_prompt(task: Task) -> str:
     plan_dir = paths.plan_dir(task.id, task.cycle)
     tests = (

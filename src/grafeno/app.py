@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from pathlib import Path
 
 from textual.app import App
 from textual.binding import Binding
 
-from . import __version__
+from . import __version__, models, paths, scheduler
 from .i18n import t
-from .models import Task
+from .models import Task, TaskState
 from .tui.runtime import TaskRuntime
 
 
@@ -37,6 +38,9 @@ class GrafenoApp(App):
         from .tui.screens.tasks import TaskListScreen
 
         self.push_screen(TaskListScreen())
+        # Tick del planificador: arranca tareas programadas, encadenadas y
+        # repeticiones desatendidas cuando les toca.
+        self.set_interval(10.0, self._scheduler_tick)
 
     def watch_theme(self, theme_name: str) -> None:
         """Guarda en la config la paleta elegida (p.ej. vía Ctrl+T)."""
@@ -58,6 +62,85 @@ class GrafenoApp(App):
         elif not runtime.running:
             runtime.task = task  # objeto recién cargado de disco
         return runtime
+
+    # ------------------------------------------------------------------ #
+    # Planificador (tareas programadas, encadenadas y repetitivas)
+    # ------------------------------------------------------------------ #
+    def _scheduler_tick(self) -> None:
+        """Revisa tareas programadas/repetitivas y arranca las que tocan."""
+        tasks = models.list_all()
+        by_id = {task.id: task for task in tasks}
+        now = datetime.now()
+        for task in tasks:
+            runtime = self.runtimes.get(task.id)
+            if runtime is not None and runtime.running:
+                continue
+            if not (scheduler.is_due(task, now) and scheduler.parent_done(task, by_id)):
+                continue
+            self._start_unattended(task, t("sched.trigger"))
+
+    def task_finished(self, task: Task) -> None:
+        """Gancho al completar una tarea: hijas encadenadas y repeticiones."""
+        tasks = models.list_all()
+        by_id = {task.id: task for task in tasks}
+        try:
+            finished = models.load(task.id)
+        except Exception:
+            return
+        self._maybe_restart(finished, by_id)
+        if finished.repeat_mode:
+            # Marca de referencia para el siguiente intervalo (también en
+            # repeticiones no infinitas).
+            finished.last_completed_at = datetime.now().isoformat(timespec="seconds")
+            models.save(finished)
+        self._launch_children(finished, tasks)
+
+    def _maybe_restart(self, finished: Task, by_id: dict[str, Task]) -> None:
+        """Si la cadena entera terminó y la tarea es repetitiva infinita, reinicia."""
+        if finished.repeat_mode == "infinite" and scheduler.chain_completed(finished, by_id):
+            self._restart_repetition(finished)
+
+    def _launch_children(self, finished: Task, tasks: list[Task]) -> None:
+        """Lanza las hijas DRAFT cuando el padre termina."""
+        for child in scheduler.children(tasks, finished.id):
+            if child.state is not TaskState.DRAFT:
+                continue
+            runtime = self.runtimes.get(child.id)
+            if runtime is not None and runtime.running:
+                continue
+            if child.scheduled_at:
+                try:
+                    target = datetime.fromisoformat(child.scheduled_at)
+                except ValueError:
+                    target = None
+                if target is not None and target > datetime.now():
+                    # Tiene hora propia: ya la arrancará el tick cuando toque.
+                    continue
+            self._start_unattended(child, t("sched.chained", name=finished.name))
+
+    def _restart_repetition(self, task: Task) -> None:
+        """Prepara la siguiente iteración de una tarea repetitiva y la arranca."""
+        task.repeat_count += 1
+        scheduler.prepare_next_iteration(task)
+        if task.plan_reuse == "replan":
+            for plan_file in paths.plan_dir(task.id, 1).glob("*.md"):
+                plan_file.unlink()
+        models.save(task)
+        runtime = self.runtime_for(task)
+        runtime._cb_info(
+            t("sched.repetition", name=task.name, n=task.repeat_count + 1)
+        )
+        self._start_unattended(task, t("sched.trigger"))
+
+    def _start_unattended(self, task: Task, label: str) -> None:
+        """Arranca el pipeline completo de una tarea sin interacción."""
+        from .pipeline.orchestrator import repetition_runner
+
+        runtime = self.runtime_for(task)
+        if task.confirm_plan:
+            runtime._cb_info(t("sched.confirm_ignored"))
+        runtime._cb_info(t("sched.starting", name=task.name))
+        runtime.start(self, repetition_runner(task), label)
 
 
 def main() -> None:
