@@ -25,6 +25,7 @@ from ... import config as config_module
 from ... import models
 from ...i18n import t
 from ...models import Task, state_label
+from ...tokenfmt import format_tokens
 from ..dirpicker import DirectoryPicker
 
 
@@ -120,6 +121,7 @@ class TaskListScreen(Screen[None]):
         )
         yield DataTable(id="tasks-table", cursor_type="row", zebra_stripes=True)
         yield Static("", id="empty-hint")
+        yield Static("", id="token-summary")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -128,6 +130,7 @@ class TaskListScreen(Screen[None]):
             t("tasks.col.task"),
             t("tasks.col.state"),
             t("tasks.col.iter"),
+            t("tasks.col.tokens"),
             t("tasks.col.updated"),
             t("tasks.col.workdir"),
         )
@@ -158,6 +161,7 @@ class TaskListScreen(Screen[None]):
                 name,
                 state_label(task.state),
                 str(task.iteration),
+                self._format_task_tokens(task),
                 task.updated_at.replace("T", " "),
                 task.workdir,
                 key=task.id,
@@ -166,6 +170,33 @@ class TaskListScreen(Screen[None]):
                 table.move_cursor(row=index)
         hint = self.query_one("#empty-hint", Static)
         hint.update("" if self._tasks else t("tasks.empty_hint"))
+        self._render_token_summary()
+
+    @staticmethod
+    def _format_task_tokens(task: Task) -> str:
+        """Celda 'in/out' compacta; vacía si la tarea no tiene uso aún."""
+        total_in, total_out = task.token_totals()
+        if total_in == 0 and total_out == 0:
+            return ""
+        return f"↑{format_tokens(total_in)} ↓{format_tokens(total_out)}"
+
+    def _render_token_summary(self) -> None:
+        """Resumen global de tokens por modelo (todas las tareas)."""
+        summary = self.query_one("#token-summary", Static)
+        totals: dict[str, list[int]] = {}
+        for task in self._tasks:
+            for model, (model_in, model_out) in task.tokens_by_model().items():
+                entry = totals.setdefault(model, [0, 0])
+                entry[0] += model_in
+                entry[1] += model_out
+        if not totals:
+            summary.update(t("tasks.tokens.empty"))
+            return
+        parts = [
+            f"{model}: ↑{format_tokens(pair[0])} ↓{format_tokens(pair[1])}"
+            for model, pair in sorted(totals.items())
+        ]
+        summary.update(t("tasks.tokens.summary", summary=" · ".join(parts)))
 
     def _selected_task_id(self) -> str | None:
         table = self.query_one(DataTable)

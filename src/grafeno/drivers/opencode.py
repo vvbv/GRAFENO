@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import CLIDriver, EventKind, RunEvent, RunRequest
+from .base import CLIDriver, EventKind, RunEvent, RunRequest, TokenUsage
 
 
 class OpenCodeDriver(CLIDriver):
@@ -72,3 +72,18 @@ class OpenCodeDriver(CLIDriver):
             return None, session_id  # ruido interno: se registra en el log crudo
 
         return RunEvent(EventKind.INFO, f"[{event_type or 'evento'}]"), session_id
+
+    # ------------------------------------------------------------ #
+    def extract_usage(self, payload: dict[str, Any]) -> TokenUsage | None:
+        if str(payload.get("type", "")) != "step_finish":
+            return None
+        part = payload.get("part") or {}
+        tokens = part.get("tokens") or payload.get("tokens") or {}
+        try:
+            usage = TokenUsage(
+                input=int(tokens.get("input", 0) or 0),
+                output=int(tokens.get("output", 0) or 0),
+            )
+        except (TypeError, ValueError):
+            return None
+        return None if usage.empty else usage
