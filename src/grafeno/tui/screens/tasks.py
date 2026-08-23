@@ -207,7 +207,10 @@ class TaskListScreen(Screen[None]):
             return
         parts = [
             f"{model}: ↑{format_tokens(pair[0])} ↓{format_tokens(pair[1])}"
-            for model, pair in sorted(totals.items())
+            for model, pair in sorted(
+                totals.items(),
+                key=lambda item: (-(item[1][0] + item[1][1]), item[0]),
+            )
         ]
         summary.update(t("tasks.tokens.summary", summary=" · ".join(parts)))
 

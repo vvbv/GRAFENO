@@ -499,3 +499,29 @@ def test_task_list_shows_global_token_summary():
             assert "1.5k" in text
 
     asyncio.run(scenario())
+
+
+def test_token_summary_sorted_by_usage_desc():
+    """El resumen de tokens ordena los modelos de mayor a menor consumo."""
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.drivers.base import TokenUsage
+    from grafeno.models import Task
+    from textual.widgets import Static as StaticWidget
+
+    task = Task.create("Demo orden tokens", "desc", "/tmp", Config())
+    task.record_tokens("prov/zzz", TokenUsage(input=9000, output=1000))
+    task.record_tokens("prov/aaa", TokenUsage(input=100, output=50))
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            await pilot.pause()  # segundo pause: se ejecuta _reload tras on_mount
+            widget = app.screen.query_one("#token-summary", StaticWidget)
+            rendered = widget.render()
+            text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
+            assert text.index("prov/zzz") < text.index("prov/aaa")
+
+    asyncio.run(scenario())
