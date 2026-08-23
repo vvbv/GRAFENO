@@ -69,9 +69,13 @@ class Task:
     max_iterations: int = 5
     test_command: str = ""
     create_branch: bool = True
+    confirm_plan: bool = False  # en automode, pedir confirmación tras el plan
     branch: str = ""
     iteration: int = 0
+    cycle: int = 1  # ciclo actual (≥2 = ampliaciones "pedir más")
+    extensions: dict[str, str] = field(default_factory=dict)  # ciclo -> petición
     sessions: dict[str, str] = field(default_factory=dict)  # rol -> session id
+    durations: dict[str, int] = field(default_factory=dict)  # fase -> segundos acumulados
     created_at: str = ""
     updated_at: str = ""
 
@@ -86,6 +90,7 @@ class Task:
         *,
         automode: bool | None = None,
         test_command: str | None = None,
+        confirm_plan: bool | None = None,
     ) -> "Task":
         now = datetime.now().isoformat(timespec="seconds")
         return cls(
@@ -100,12 +105,25 @@ class Task:
             max_iterations=config.automode.max_iterations,
             test_command=config.automode.test_command if test_command is None else test_command,
             create_branch=config.automode.create_branch,
+            confirm_plan=config.automode.confirm_plan if confirm_plan is None else confirm_plan,
             created_at=now,
             updated_at=now,
         )
 
     def role(self, name: str) -> RoleConfig:
         return getattr(self, name)
+
+    @property
+    def current_extension(self) -> str:
+        """Petición de ampliación del ciclo actual (vacía en el ciclo 1)."""
+        return self.extensions.get(str(self.cycle), "")
+
+    def start_new_cycle(self, request: str) -> None:
+        """Registra una ampliación y reinicia la máquina de estados del ciclo."""
+        self.cycle += 1
+        self.extensions[str(self.cycle)] = request
+        self.iteration = 0
+        self.state = TaskState.DRAFT
 
     # ------------------------------------------------------------------ #
     def to_dict(self) -> dict[str, Any]:
@@ -120,8 +138,10 @@ class Task:
                 "max_iterations": self.max_iterations,
                 "test_command": self.test_command,
                 "create_branch": self.create_branch,
+                "confirm_plan": self.confirm_plan,
                 "branch": self.branch,
                 "iteration": self.iteration,
+                "cycle": self.cycle,
                 "created_at": self.created_at,
                 "updated_at": self.updated_at,
             },
@@ -129,6 +149,8 @@ class Task:
             "implementer": self.implementer.to_dict(),
             "reviewer": self.reviewer.to_dict(),
             "sessions": dict(self.sessions),
+            "durations": dict(self.durations),
+            "extensions": dict(self.extensions),
         }
 
     @classmethod
@@ -147,9 +169,13 @@ class Task:
             max_iterations=int(raw.get("max_iterations", 5)),
             test_command=str(raw.get("test_command", "")),
             create_branch=bool(raw.get("create_branch", True)),
+            confirm_plan=bool(raw.get("confirm_plan", False)),
             branch=str(raw.get("branch", "")),
             iteration=int(raw.get("iteration", 0)),
+            cycle=int(raw.get("cycle", 1)),
             sessions={str(k): str(v) for k, v in data.get("sessions", {}).items()},
+            durations={str(k): int(v) for k, v in data.get("durations", {}).items()},
+            extensions={str(k): str(v) for k, v in data.get("extensions", {}).items()},
             created_at=str(raw.get("created_at", "")),
             updated_at=str(raw.get("updated_at", "")),
         )

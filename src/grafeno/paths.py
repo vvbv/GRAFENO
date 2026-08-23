@@ -38,14 +38,20 @@ def task_meta_path(task_id: str) -> Path:
     return task_dir(task_id) / "task.toml"
 
 
-def plan_dir(task_id: str) -> Path:
+def plan_dir(task_id: str, cycle: int = 1) -> Path:
+    """Directorio de planes del ciclo. El ciclo 1 usa la raíz (compatibilidad);
+    los ciclos de ampliación usan ``plan/ciclo-NN/``."""
     path = task_dir(task_id) / "plan"
+    if cycle > 1:
+        path = path / f"ciclo-{cycle:02d}"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def review_dir(task_id: str) -> Path:
+def review_dir(task_id: str, cycle: int = 1) -> Path:
     path = task_dir(task_id) / "review"
+    if cycle > 1:
+        path = path / f"ciclo-{cycle:02d}"
     path.mkdir(parents=True, exist_ok=True)
     return path
 

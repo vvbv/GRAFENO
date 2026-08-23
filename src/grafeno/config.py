@@ -35,6 +35,7 @@ class AutomodeConfig:
     max_iterations: int = 5
     test_command: str = ""  # vacío = sin tests
     create_branch: bool = True
+    confirm_plan: bool = False  # pausar tras el plan para confirmación manual
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -42,6 +43,7 @@ class AutomodeConfig:
             "max_iterations": self.max_iterations,
             "test_command": self.test_command,
             "create_branch": self.create_branch,
+            "confirm_plan": self.confirm_plan,
         }
 
     @classmethod
@@ -51,6 +53,7 @@ class AutomodeConfig:
             max_iterations=int(data.get("max_iterations", 5)),
             test_command=str(data.get("test_command", "")),
             create_branch=bool(data.get("create_branch", True)),
+            confirm_plan=bool(data.get("confirm_plan", False)),
         )
 
 
