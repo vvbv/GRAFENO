@@ -7,6 +7,9 @@ from rich.text import Text
 from textual.widgets import Markdown, Static
 
 from ..models import STATE_LABELS, TaskState
+from ..timefmt import format_duration
+
+__all__ = ["PhaseBar", "markdown_set", "format_duration"]
 
 _PHASE_ORDER = (
     ("plan", "Plan"),

@@ -43,6 +43,7 @@ class NewTaskScreen(ModalScreen[Task | None]):
             yield Label("Comando de tests (opcional)")
             yield Input(placeholder="p. ej. pytest -q", id="nt-tests")
             yield Checkbox("Automode (plan → ejecución → revisión ⇄ corrección)", id="nt-automode")
+            yield Checkbox("Automode: preguntar si el plan está bien antes de implementar", id="nt-confirm-plan")
             with Horizontal(id="nt-buttons"):
                 yield Button("Crear", variant="primary", id="nt-create")
                 yield Button("Cancelar", id="nt-cancel")
@@ -51,6 +52,7 @@ class NewTaskScreen(ModalScreen[Task | None]):
         cfg = config_module.load()
         self.query_one("#nt-tests", Input).value = cfg.automode.test_command
         self.query_one("#nt-automode", Checkbox).value = cfg.automode.enabled
+        self.query_one("#nt-confirm-plan", Checkbox).value = cfg.automode.confirm_plan
         self.query_one("#nt-name", Input).focus()
 
     def action_cancel(self) -> None:
@@ -83,6 +85,7 @@ class NewTaskScreen(ModalScreen[Task | None]):
             config=cfg,
             automode=self.query_one("#nt-automode", Checkbox).value,
             test_command=self.query_one("#nt-tests", Input).value.strip(),
+            confirm_plan=self.query_one("#nt-confirm-plan", Checkbox).value,
         )
         models.save(task)
         self.dismiss(task)
@@ -114,23 +117,38 @@ class TaskListScreen(Screen[None]):
         table.add_columns("Tarea", "Estado", "Iter.", "Actualizada", "Directorio")
         self._reload()
         table.focus()
+        # Refresco periódico: muestra el progreso de tareas en segundo plano.
+        self.set_interval(2.0, self._tick_refresh)
 
     def on_screen_resume(self) -> None:
         self._reload()
 
-    def _reload(self) -> None:
+    def _tick_refresh(self) -> None:
+        runtimes = getattr(self.app, "runtimes", {})
+        if any(runtime.running for runtime in runtimes.values()):
+            self._reload(preserve_cursor=True)
+
+    def _reload(self, *, preserve_cursor: bool = False) -> None:
         table = self.query_one(DataTable)
+        selected = self._selected_task_id() if preserve_cursor else None
         table.clear()
         self._tasks = models.list_all()
-        for task in self._tasks:
+        runtimes = getattr(self.app, "runtimes", {})
+        for index, task in enumerate(self._tasks):
+            runtime = runtimes.get(task.id)
+            running = runtime is not None and runtime.running
+            name = f"▶ {task.name}" if running else task.name
+            state_label = STATE_LABELS.get(task.state, task.state.value)
             table.add_row(
-                task.name,
-                STATE_LABELS.get(task.state, task.state.value),
+                name,
+                state_label,
                 str(task.iteration),
                 task.updated_at.replace("T", " "),
                 task.workdir,
                 key=task.id,
             )
+            if selected == task.id:
+                table.move_cursor(row=index)
         hint = self.query_one("#empty-hint", Static)
         hint.update("" if self._tasks else "No hay tareas. Pulsa [n] para crear la primera.")
 

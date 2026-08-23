@@ -68,6 +68,36 @@ Footer {
     height: auto;
 }
 
+/* ---- Confirmación de plan (modal) ---- */
+#plan-confirm-dialog {
+    background: #161b22;
+    border: round #e3b341;
+    padding: 1 2;
+    width: 64;
+    height: auto;
+    margin: 2 4;
+}
+
+#plan-confirm-title {
+    text-style: bold;
+    color: #e3b341;
+    margin-bottom: 1;
+}
+
+#pc-buttons {
+    margin-top: 1;
+    height: auto;
+}
+
+#pc-buttons Button {
+    margin-right: 2;
+}
+
+.pc-detail {
+    color: #8b949e;
+    margin-top: 1;
+}
+
 #nt-buttons Button, #config-buttons Button {
     margin-right: 2;
 }
@@ -81,6 +111,11 @@ Footer {
 PhaseBar {
     padding: 0 2;
     height: 3;
+}
+
+#activity-bar {
+    padding: 0 2;
+    height: 1;
     border-bottom: solid #30363d;
 }
 
@@ -118,6 +153,7 @@ Markdown {
 /* ---- Configuración ---- */
 #config-container {
     padding: 1 3;
+    overflow-y: auto;
 }
 
 .section-title {
@@ -137,16 +173,22 @@ Markdown {
     margin-top: 1;
 }
 
-.role-row Select {
+.role-row .cli-select {
     width: 24;
 }
 
-.role-row Input {
+.role-row .model-select {
     width: 1fr;
 }
 
-.role-row Select, .role-row Input {
+.role-row Select {
     margin: 0 1;
+}
+
+#models-status {
+    color: #8b949e;
+    text-style: italic;
+    margin-top: 1;
 }
 
 .automode-row {
