@@ -218,3 +218,46 @@ def test_config_screen_final_prompt_loads_existing(monkeypatch):
             assert area.text == "valor previo"
 
     asyncio.run(scenario())
+
+
+def test_config_screen_hook_persists(monkeypatch):
+    """El Input de hook y los checkboxes de etapas guardan y restauran valores."""
+    from textual.widgets import Checkbox
+
+    from grafeno.pipeline.hooks import HOOK_STAGES
+
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 80)) as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfigScreen)
+
+            # Espera a que el worker de modelos termine antes de tocar el save.
+            for _ in range(20):
+                await pilot.pause(0.1)
+                if app.screen.query_one(RolesForm).models:
+                    break
+            await pilot.pause()
+
+            app.screen.query_one("#hook-command").value = "./notify.sh"
+            app.screen.query_one("#hook-stage-plan", Checkbox).value = True
+            app.screen.query_one("#hook-stage-final", Checkbox).value = True
+
+            app.screen.query_one("#cfg-save").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#cfg-save")
+            await pilot.pause()
+
+        saved = config_module.load()
+        assert saved.hook.command == "./notify.sh"
+        for stage in HOOK_STAGES:
+            expected = stage in ("plan", "final")
+            actual = stage in saved.hook.stages.split(",") if saved.hook.stages else False
+            assert actual is expected
+
+    asyncio.run(scenario())

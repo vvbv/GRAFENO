@@ -23,6 +23,7 @@ from ... import paths
 from ...config import KNOWN_CLIS, Config
 from ...drivers import fetch_all_models
 from ...i18n import LANGUAGES, set_language, t
+from ...pipeline.hooks import HOOK_STAGES, format_stages, parse_stages
 from ..rolesform import ROLES, RolesForm
 
 
@@ -49,6 +50,14 @@ class ConfigScreen(Screen[None]):
                 yield Input(id="am-tests", placeholder="p. ej. pytest -q")
             yield Label(t("cfg.final_prompt"))
             yield TextArea(id="cfg-final-prompt")
+            yield Static(t("cfg.hook"), classes="section-title")
+            with Horizontal(classes="automode-row"):
+                yield Label(t("cfg.hook.command"))
+                yield Input(id="hook-command", placeholder="p. ej. ./notify.sh")
+            yield Label(t("cfg.hook.stages"))
+            with Horizontal(classes="automode-row", id="hook-stages"):
+                for stage in HOOK_STAGES:
+                    yield Checkbox(t(f"hook.stage.{stage}"), id=f"hook-stage-{stage}")
             yield Static(t("cfg.language"), classes="section-title")
             with Horizontal(classes="automode-row"):
                 yield Select(
@@ -75,6 +84,9 @@ class ConfigScreen(Screen[None]):
         self.query_one("#am-max-iter", Input).value = str(auto.max_iterations)
         self.query_one("#am-tests", Input).value = auto.test_command
         self.query_one("#cfg-final-prompt", TextArea).text = self._config.final_prompt
+        self.query_one("#hook-command", Input).value = self._config.hook.command
+        for stage in parse_stages(self._config.hook.stages):
+            self.query_one(f"#hook-stage-{stage}", Checkbox).value = True
         self.query_one("#cfg-language", Select).value = (
             self._config.language if self._config.language in LANGUAGES else "en"
         )
@@ -152,6 +164,11 @@ class ConfigScreen(Screen[None]):
         cfg.automode.max_iterations = max_iter
         cfg.automode.test_command = self.query_one("#am-tests", Input).value.strip()
         cfg.final_prompt = self.query_one("#cfg-final-prompt", TextArea).text.strip()
+        cfg.hook.command = self.query_one("#hook-command", Input).value.strip()
+        cfg.hook.stages = format_stages([
+            stage for stage in HOOK_STAGES
+            if self.query_one(f"#hook-stage-{stage}", Checkbox).value
+        ])
         cfg.language = str(self.query_one("#cfg-language", Select).value)
         config_module.save(cfg)
         set_language(cfg.language)

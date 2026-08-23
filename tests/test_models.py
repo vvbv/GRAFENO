@@ -96,6 +96,18 @@ def test_task_roundtrip(tmp_path):
     assert [t.id for t in listed] == [task.id]
 
 
+def test_task_hook_fields_roundtrip(tmp_path):
+    task = models.Task.create(
+        "Demo", "d", str(tmp_path), Config(),
+        hook_command="./notify.sh", hook_stages="review,fix", hook_mode="both",
+    )
+    models.save(task)
+    loaded = models.load(task.id)
+    assert loaded.hook_command == "./notify.sh"
+    assert loaded.hook_stages == "review,fix"
+    assert loaded.hook_mode == "both"
+
+
 def test_task_final_role_roundtrip_and_legacy(tmp_path):
     """El rol final persiste; las tareas antiguas sin sección [final] cargan por defecto."""
     task = Task.create("Demo", "desc", str(tmp_path), Config())

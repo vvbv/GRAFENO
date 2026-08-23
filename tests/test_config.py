@@ -53,3 +53,14 @@ def test_final_prompt_roundtrip():
 
     loaded = config.load()
     assert loaded.final_prompt == "Revisa el CHANGELOG\ny actualiza README"
+
+
+def test_hook_roundtrip():
+    cfg = Config()
+    cfg.hook.command = "make notify"
+    cfg.hook.stages = "plan,final"
+    config.save(cfg)
+
+    loaded = config.load()
+    assert loaded.hook.command == "make notify"
+    assert loaded.hook.stages == "plan,final"

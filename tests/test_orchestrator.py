@@ -6,6 +6,8 @@ import asyncio
 from collections import deque
 from pathlib import Path
 
+import pytest
+
 from grafeno import models, paths
 from grafeno.config import Config
 from grafeno.drivers.base import CLIDriver, RunResult, TokenUsage
@@ -394,3 +396,47 @@ def test_tokens_recorded_per_model(tmp_path):
     assert by_model["prov/Impl-Model"] == (1000, 200)
     # Persistido: se recarga de task.toml sin pérdida.
     assert models.load(task.id).tokens == task.tokens
+
+
+def test_hooks_fire_per_phase_and_on_each_iteration(tmp_path):
+    task = _make_task(
+        tmp_path,
+        hook_command='echo "$GRAFENO_PHASE:$GRAFENO_OUTCOME" >> hooks.log',
+        hook_stages="implement,review,fix",
+    )
+    models.save(task)
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", [_ok("v1"), _ok("v2")]),
+        "fake-rev": FakeDriver(
+            "fake-rev",
+            [_ok("Mal.\nVERDICT: CHANGES_REQUESTED"), _ok("Bien.\nVERDICT: APPROVED")],
+        ),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_automode())
+
+    lines = (tmp_path / "hooks.log").read_text(encoding="utf-8").splitlines()
+    # review y fix se repiten por iteración: el hook se dispara en cada una.
+    assert lines.count("review:ok") == 2
+    assert lines.count("fix:ok") == 1
+    assert "implement:ok" in lines
+    assert all(line.endswith(":ok") for line in lines)
+
+
+def test_hook_fires_with_failed_outcome(tmp_path):
+    task = _make_task(
+        tmp_path,
+        hook_command='echo "$GRAFENO_PHASE:$GRAFENO_OUTCOME" >> hooks.log',
+        hook_stages="implement",
+    )
+    models.save(task)
+    drivers = {
+        "fake-impl": FakeDriver("fake-impl", [RunResult(ok=False, text="", error="boom")]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    with pytest.raises(PhaseError):
+        _run(orch.run_implement())
+    lines = (tmp_path / "hooks.log").read_text(encoding="utf-8").splitlines()
+    assert lines == ["implement:failed"]
