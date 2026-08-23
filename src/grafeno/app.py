@@ -17,7 +17,10 @@ from .tui.runtime import TaskRuntime
 class GrafenoApp(App):
     TITLE = "GRAFENO"
     CSS_PATH = "grafeno.tcss"
-    BINDINGS = [Binding("ctrl+q", "quit", t("common.quit"), show=False)]
+    BINDINGS = [
+        Binding("ctrl+q", "quit", t("common.quit"), show=False),
+        Binding("ctrl+t", "change_theme", t("app.bind.theme")),
+    ]
 
     def __init__(self):
         super().__init__()
@@ -26,9 +29,25 @@ class GrafenoApp(App):
 
     def on_mount(self) -> None:
         self.sub_title = t("app.subtitle", version=__version__)
+        from . import config as config_module
+
+        cfg = config_module.load()
+        if cfg.theme and cfg.theme in self.available_themes:
+            self.theme = cfg.theme
         from .tui.screens.tasks import TaskListScreen
 
         self.push_screen(TaskListScreen())
+
+    def watch_theme(self, theme_name: str) -> None:
+        """Guarda en la config la paleta elegida (p.ej. vía Ctrl+T)."""
+        if not theme_name:
+            return
+        from . import config as config_module
+
+        cfg = config_module.load()
+        if cfg.theme != theme_name:
+            cfg.theme = theme_name
+            config_module.save(cfg)
 
     def runtime_for(self, task: Task) -> TaskRuntime:
         """Devuelve (o crea) el runtime de una tarea, refrescando su estado."""

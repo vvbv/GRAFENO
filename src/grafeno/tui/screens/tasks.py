@@ -123,7 +123,7 @@ class TaskListScreen(Screen[None]):
         Binding("c", "config", t("tasks.bind.config")),
         Binding("enter", "open_task", t("tasks.bind.open")),
         Binding("r", "reload", t("tasks.bind.reload")),
-        Binding("q", "quit", t("common.quit")),
+        Binding("q", "quit_hint", t("common.quit")),
     ]
 
     def compose(self) -> ComposeResult:
@@ -240,6 +240,10 @@ class TaskListScreen(Screen[None]):
 
     def action_reload(self) -> None:
         self._reload()
+
+    def action_quit_hint(self) -> None:
+        """Bloquea el cierre con q: salir solo es posible con Ctrl+Q."""
+        self.notify(t("tasks.quit_hint"), severity="warning")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.row_key.value:

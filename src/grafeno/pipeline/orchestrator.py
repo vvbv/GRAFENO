@@ -194,6 +194,7 @@ class Orchestrator:
             self._info(t("orch.agents_md.failed", error=result.error or "?"))
 
     async def run_plan(self) -> None:
+        self._set_state(TaskState.PLANNING)  # incluye la generación de AGENTS.md
         await self.ensure_agents_md()
         result = await self._execute(
             "planner",

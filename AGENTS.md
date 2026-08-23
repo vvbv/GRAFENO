@@ -17,7 +17,7 @@ preparada para Codex y Claude Code).
 ```
 src/grafeno/
 ├── app.py                  # App Textual y entry point (comando `grafeno`)
-├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo, automode, prompt de pasos finales
+├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo, automode, paleta (tema), prompt de pasos finales
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)

@@ -643,3 +643,108 @@ def test_main_noeditor_flag(monkeypatch):
     app_module.main()
     assert calls["editor"] == 1
     assert calls["run"] == 1
+
+
+def test_q_does_not_quit_task_list():
+    """Regresión: q no cierra la app; solo Ctrl+Q puede hacerlo."""
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, TaskListScreen)
+            await pilot.press("q")
+            await pilot.pause()
+            # La app sigue viva en la lista de tareas.
+            assert isinstance(app.screen, TaskListScreen)
+            assert app.is_running
+
+    asyncio.run(scenario())
+
+
+def test_theme_selection_persists():
+    """Cambiar app.theme guarda la paleta en la config global."""
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.theme = "nord"
+            await pilot.pause()
+            from grafeno import config as config_module
+
+            assert config_module.load().theme == "nord"
+
+    asyncio.run(scenario())
+
+
+def test_saved_theme_is_applied_on_boot():
+    """La paleta guardada se aplica al arrancar la app."""
+    from grafeno import config as config_module
+
+    cfg = config_module.load()
+    cfg.theme = "nord"
+    config_module.save(cfg)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.theme == "nord"
+
+    asyncio.run(scenario())
+
+
+def test_automode_status_updates_immediately():
+    """Regresión: al lanzar automode el estado se refresca sin salir de la tarea."""
+    from grafeno import models
+    from grafeno.drivers.base import CLIDriver, EventKind, RunEvent, RunResult
+    from grafeno.models import TaskState
+    from grafeno.tui.screens.detail import TaskDetailScreen
+    from grafeno.tui.widgets import PhaseBar
+    import grafeno.pipeline.orchestrator as orch_mod
+
+    class FakeDriver(CLIDriver):
+        name = "opencode"
+        display_name = "Fake"
+
+        def is_available(self) -> bool:
+            return True
+
+        def build_command(self, request):
+            return []
+
+        async def run(self, request, on_event=None, on_activity=None):
+            if on_event:
+                on_event(RunEvent(EventKind.TEXT, "trabajando"))
+            await asyncio.sleep(0.2)
+            return RunResult(ok=True, text="salida del agente")
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await pilot.pause()
+            from grafeno import config as config_module
+
+            cfg = config_module.load()
+            task = models.Task.create(name="T1", description="d", workdir="/tmp", config=cfg)
+            models.save(task)
+            app.screen._reload()
+            await pilot.pause()
+            app.screen._open(task.id)
+            await pilot.pause()
+            assert isinstance(app.screen, TaskDetailScreen)
+
+            original = orch_mod.get_driver
+            orch_mod.get_driver = lambda name: FakeDriver()
+            try:
+                await pilot.press("a")
+                await pilot.pause()
+                await pilot.click("#pc-accept")
+                for _ in range(10):
+                    await pilot.pause(0.1)
+                # Sin salir de la pantalla: el estado ya no es DRAFT.
+                assert app.screen.query_one(PhaseBar)._state is not TaskState.DRAFT
+                assert app.screen.runtime.running or app.screen.query_one(PhaseBar)._state is TaskState.DONE
+            finally:
+                orch_mod.get_driver = original
+
+    asyncio.run(scenario())

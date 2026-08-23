@@ -117,6 +117,7 @@ class Config:
     hook: HookConfig = field(default_factory=HookConfig)
     editor: EditorConfig = field(default_factory=EditorConfig)
     final_prompt: str = ""  # instrucciones extra para la fase de pasos finales
+    theme: str = ""  # paleta de Textual; vacío = tema por defecto
 
     def role(self, name: str) -> RoleConfig:
         return getattr(self, name)
@@ -132,6 +133,7 @@ class Config:
             "hook": self.hook.to_dict(),
             "editor": self.editor.to_dict(),
             "final_prompt": self.final_prompt,
+            "theme": self.theme,
         }
 
     @classmethod
@@ -146,6 +148,7 @@ class Config:
             hook=HookConfig.from_dict(data.get("hook", {})),
             editor=EditorConfig.from_dict(data.get("editor", {})),
             final_prompt=str(data.get("final_prompt", "")),
+            theme=str(data.get("theme", "")),
         )
 
 

@@ -86,13 +86,14 @@ GitHub Release with the `vX.Y.Z` tag and attached artifacts.
 | `D` | Detail | Discard task (terminal state `discarded`, with confirmation) |
 | `x` | Detail | Cancel execution |
 | `Esc` | Detail/Config | Back |
-| `Ctrl+Q` | Global | Quit |
+| `Ctrl+T` | Global | Theme selector (the chosen palette is persisted in the config) |
+| `Ctrl+Q` | Global | Quit (pressing `q` in the list only shows this hint; it does not quit) |
 
 ## Data
 
 ```
 ~/.grafeno/
-├── config.toml              # language (en/es), roles (cli+model), automode, tests, git, final-steps prompt, global hook, editor
+├── config.toml              # language (en/es), roles (cli+model), automode, tests, git, theme (palette), final-steps prompt, global hook, editor
 └── tasks/<date>-<slug>/
     ├── task.toml            # state, iterations, sessions, workdir, branch
     ├── plan/*.md            # plans with GRAFENO-EXECUTOR header

@@ -46,6 +46,22 @@ def test_roundtrip():
     assert loaded.automode.confirm_plan is True
 
 
+def test_theme_roundtrip():
+    """La paleta elegida sobrevive al roundtrip to_dict/from_dict."""
+    cfg = Config()
+    cfg.theme = "nord"
+    config.save(cfg)
+
+    loaded = config.load()
+    assert loaded.theme == "nord"
+
+
+def test_theme_defaults_to_empty():
+    """Sin clave theme en disco, la config carga con tema por defecto."""
+    loaded = Config.from_dict({})
+    assert loaded.theme == ""
+
+
 def test_final_prompt_roundtrip():
     cfg = Config()
     cfg.final_prompt = "Revisa el CHANGELOG\ny actualiza README"

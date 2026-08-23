@@ -36,6 +36,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "en": {
         # app / comunes
         "app.subtitle": "v{version} · multi-CLI orchestrator",
+        "app.bind.theme": "Theme",
         "common.quit": "Quit",
         "common.cancel": "Cancel",
         "common.back": "Back",
@@ -79,6 +80,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tasks.bind.config": "Settings",
         "tasks.bind.open": "Open",
         "tasks.bind.reload": "Reload",
+        "tasks.quit_hint": "Closing with q is disabled: press Ctrl+Q to quit",
         "tasks.error.load": "Could not load task: {error}",
         # modal nueva tarea
         "nt.title": "New task",
@@ -293,6 +295,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
     },
     "es": {
         "app.subtitle": "v{version} · orquestador multi-CLI",
+        "app.bind.theme": "Tema",
         "common.quit": "Salir",
         "common.cancel": "Cancelar",
         "common.back": "Volver",
@@ -333,6 +336,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tasks.bind.config": "Configuración",
         "tasks.bind.open": "Abrir",
         "tasks.bind.reload": "Recargar",
+        "tasks.quit_hint": "No se puede salir con q: pulsa Ctrl+Q para cerrar",
         "tasks.error.load": "No se pudo cargar la tarea: {error}",
         "nt.title": "Nueva tarea",
         "nt.name": "Nombre",

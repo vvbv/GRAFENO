@@ -306,8 +306,7 @@ class TaskDetailScreen(Screen[None]):
         # Al volver: reconectar con el pipeline que siguió corriendo.
         self.runtime.add_listener(self._on_runtime)
         self._replay_log()
-        self._render_title()
-        self._reload_files()
+        self._state_changed(self.runtime.task)  # repinta PhaseBar, título y archivos
         self._render_activity()
         self._maybe_plan_confirm()
 
@@ -394,6 +393,7 @@ class TaskDetailScreen(Screen[None]):
         return self.query_one("#live-log", RichLog)
 
     def _state_changed(self, task: Task) -> None:
+        self.current_task = task  # objeto vivo del runtime (el orquestador lo muta)
         self.query_one(PhaseBar).set_state(task.state, task.iteration)
         self._render_title()
         self._reload_files()  # los artefactos aparecen al terminar cada fase
@@ -434,6 +434,11 @@ class TaskDetailScreen(Screen[None]):
     ) -> None:
         if not self.runtime.start(self.app, runner, label, plan_then_ask=plan_then_ask):
             self.notify(t("det.warn.running"), severity="warning")
+            return
+        # Refresco inmediato: el callback del modal llega con la pantalla
+        # suspendida y el primer evento de estado se puede perder.
+        self._state_changed(self.runtime.task)
+        self._render_activity()
 
     # ------------------------------------------------------------------ #
     # Acciones (todas pasan por el modal de confirmación)
