@@ -36,6 +36,7 @@ def _phase_status(state: TaskState) -> dict[str, str]:
         TaskState.DONE: {"plan": "done", "implement": "done", "review": "done", "final": "done", "done": "done"},
         TaskState.FAILED: {},
         TaskState.PAUSED: {},
+        TaskState.DISCARDED: {},
     }
     status.update(mapping.get(state, {}))
     if state is TaskState.FAILED:

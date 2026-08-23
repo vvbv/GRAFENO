@@ -151,6 +151,31 @@ class PhaseConfirmScreen(ModalScreen[bool]):
         self.dismiss(event.button.id == "pc-accept")
 
 
+class StatusConfirmScreen(ModalScreen[bool]):
+    """Confirmación de cambio de estado manual (completar forzado / descartar)."""
+
+    BINDINGS = [Binding("escape", "cancel", t("common.cancel"))]
+
+    def __init__(self, title: str, body: str):
+        super().__init__()
+        self._title = title
+        self._body = body
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="plan-confirm-dialog"):
+            yield Label(self._title, id="plan-confirm-title")
+            yield Static(self._body)
+            with Horizontal(id="pc-buttons"):
+                yield Button(t("det.mark.confirm"), variant="primary", id="pc-accept")
+                yield Button(t("common.cancel"), id="pc-reject")
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "pc-accept")
+
+
 class RequestMoreScreen(ModalScreen[str | None]):
     """Pedir una ampliación: arranca un ciclo nuevo con la misma lógica."""
 
@@ -205,6 +230,8 @@ class TaskDetailScreen(Screen[None]):
         Binding("a", "run_automode", t("det.bind.automode")),
         Binding("m", "ask_more", t("det.bind.more")),
         Binding("e", "edit_roles", t("det.bind.agents")),
+        Binding("d", "mark_done", t("det.bind.complete")),
+        Binding("D", "mark_discard", t("det.bind.discard")),
         Binding("x", "cancel", t("det.bind.cancel")),
         Binding("escape", "back", t("common.back")),
     ]
@@ -421,6 +448,9 @@ class TaskDetailScreen(Screen[None]):
         if self.runtime.running:
             self.notify(t("det.warn.running"), severity="warning")
             return
+        if self.current_task.state is TaskState.DISCARDED:
+            self.notify(t("det.warn.discarded"), severity="warning")
+            return
 
         def decide(accepted: bool) -> None:
             if accepted:
@@ -480,6 +510,9 @@ class TaskDetailScreen(Screen[None]):
     def action_ask_more(self) -> None:
         if self.runtime.running:
             self.notify(t("det.warn.running"), severity="warning")
+            return
+        if self.current_task.state is TaskState.DISCARDED:
+            self.notify(t("det.warn.discarded"), severity="warning")
             return
 
         def accepted(request: str | None) -> None:
@@ -558,3 +591,54 @@ class TaskDetailScreen(Screen[None]):
     def action_back(self) -> None:
         # Volver nunca interrumpe: el pipeline sigue en segundo plano.
         self.dismiss()
+
+    # ------------------------------------------------------------------ #
+    # Cambio manual de estado (completar forzado / descartar)
+    # ------------------------------------------------------------------ #
+    def _mark_state(
+        self,
+        state: TaskState,
+        title_key: str,
+        body_key: str,
+        log_key: str,
+    ) -> None:
+        """Cambia el estado de la tarea manualmente, previa confirmación."""
+        if self.runtime.running:
+            self.notify(t("det.warn.running"), severity="warning")
+            return
+        if self.current_task.state is state:
+            key = "det.warn.already_done" if state is TaskState.DONE else "det.warn.already_discarded"
+            self.notify(t(key), severity="warning")
+            return
+        if self.current_task.state is TaskState.DISCARDED:
+            self.notify(t("det.warn.discarded"), severity="warning")
+            return
+
+        def decide(accepted: bool) -> None:
+            if not accepted:
+                return
+            self.current_task.state = state
+            models.save(self.current_task)
+            self.runtime.task = self.current_task
+            self._state_changed(self.current_task)
+            self.runtime._cb_info(t(log_key))
+
+        self.app.push_screen(
+            StatusConfirmScreen(t(title_key), t(body_key)), decide
+        )
+
+    def action_mark_done(self) -> None:
+        self._mark_state(
+            TaskState.DONE,
+            "det.mark.done.title",
+            "det.mark.done.body",
+            "det.marked.done",
+        )
+
+    def action_mark_discard(self) -> None:
+        self._mark_state(
+            TaskState.DISCARDED,
+            "det.mark.discard.title",
+            "det.mark.discard.body",
+            "det.marked.discarded",
+        )

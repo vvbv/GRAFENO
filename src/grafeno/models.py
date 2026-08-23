@@ -30,6 +30,7 @@ class TaskState(str, Enum):
     DONE = "done"
     FAILED = "failed"
     PAUSED = "paused"
+    DISCARDED = "discarded"
 
 
 def state_label(state: "TaskState") -> str:
