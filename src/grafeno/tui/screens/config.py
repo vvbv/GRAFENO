@@ -15,6 +15,7 @@ from textual.widgets import (
     Label,
     Select,
     Static,
+    TextArea,
 )
 
 from ... import config as config_module
@@ -46,6 +47,8 @@ class ConfigScreen(Screen[None]):
                 yield Input(id="am-max-iter", type="integer", placeholder="5")
                 yield Label(t("cfg.tests"))
                 yield Input(id="am-tests", placeholder="p. ej. pytest -q")
+            yield Label(t("cfg.final_prompt"))
+            yield TextArea(id="cfg-final-prompt")
             yield Static(t("cfg.language"), classes="section-title")
             with Horizontal(classes="automode-row"):
                 yield Select(
@@ -71,6 +74,7 @@ class ConfigScreen(Screen[None]):
         self.query_one("#am-confirm-plan", Checkbox).value = auto.confirm_plan
         self.query_one("#am-max-iter", Input).value = str(auto.max_iterations)
         self.query_one("#am-tests", Input).value = auto.test_command
+        self.query_one("#cfg-final-prompt", TextArea).text = self._config.final_prompt
         self.query_one("#cfg-language", Select).value = (
             self._config.language if self._config.language in LANGUAGES else "en"
         )
@@ -147,6 +151,7 @@ class ConfigScreen(Screen[None]):
         cfg.automode.confirm_plan = self.query_one("#am-confirm-plan", Checkbox).value
         cfg.automode.max_iterations = max_iter
         cfg.automode.test_command = self.query_one("#am-tests", Input).value.strip()
+        cfg.final_prompt = self.query_one("#cfg-final-prompt", TextArea).text.strip()
         cfg.language = str(self.query_one("#cfg-language", Select).value)
         config_module.save(cfg)
         set_language(cfg.language)

@@ -44,6 +44,9 @@ class NewTaskScreen(ModalScreen[Task | None]):
             yield DirectoryPicker(os.getcwd(), input_id="nt-workdir")
             yield Label(t("nt.tests"))
             yield Input(placeholder=t("nt.tests.placeholder"), id="nt-tests")
+            with Horizontal(classes="final-prompt-row"):
+                yield Label(t("nt.final_prompt"))
+                yield TextArea(id="nt-final-prompt")
             yield Checkbox(t("nt.automode"), id="nt-automode")
             yield Checkbox(t("nt.confirm_plan"), id="nt-confirm-plan")
             yield Checkbox(t("nt.branch"), id="nt-branch")
@@ -54,6 +57,7 @@ class NewTaskScreen(ModalScreen[Task | None]):
     def on_mount(self) -> None:
         cfg = config_module.load()
         self.query_one("#nt-tests", Input).value = cfg.automode.test_command
+        self.query_one("#nt-final-prompt", TextArea).text = cfg.final_prompt
         self.query_one("#nt-automode", Checkbox).value = cfg.automode.enabled
         self.query_one("#nt-confirm-plan", Checkbox).value = cfg.automode.confirm_plan
         self.query_one("#nt-branch", Checkbox).value = cfg.automode.create_branch
@@ -91,6 +95,7 @@ class NewTaskScreen(ModalScreen[Task | None]):
             test_command=self.query_one("#nt-tests", Input).value.strip(),
             create_branch=self.query_one("#nt-branch", Checkbox).value,
             confirm_plan=self.query_one("#nt-confirm-plan", Checkbox).value,
+            final_prompt=self.query_one("#nt-final-prompt", TextArea).text.strip(),
         )
         models.save(task)
         self.dismiss(task)

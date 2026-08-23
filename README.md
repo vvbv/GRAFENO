@@ -17,7 +17,9 @@ Cada tarea sigue un pipeline con cuatro roles configurables (CLI + modelo para c
 3. **Revisor** — verifica los criterios de aceptación, escribe la revisión en `review/NN-review.md` y emite un veredicto estructurado (`VERDICT: APPROVED` / `VERDICT: CHANGES_REQUESTED`). Si pide cambios, el implementador corrige y se vuelve a revisar.
 4. **Pasos finales** — tras la aprobación, un último agente cierra la tarea: actualiza la
    documentación afectada, hace limpieza final y escribe un informe en `final/01-final.md`.
-   También tiene CLI y modelo configurables (rol `final`).
+   También tiene CLI y modelo configurables (rol `final`). Puedes añadirle un bloque de
+   instrucciones extra en `config.toml` (`final_prompt`) o sobrescribirlo por tarea al
+   crearla; si está vacío el cierre se ejecuta como siempre.
 
 **Automode**: encadena todo el ciclo sin intervención hasta que la tarea queda aprobada **y** los tests (si se definieron) pasan, y termina con los pasos finales, o hasta agotar las iteraciones máximas. Con la opción `confirm_plan` (global o por tarea), el automode se pausa tras el plan para que confirmes antes de implementar.
 
@@ -71,7 +73,7 @@ python3 -m venv .venv
 
 ```
 ~/.grafeno/
-├── config.toml              # idioma (en/es), roles (cli+modelo), automode, tests, git
+├── config.toml              # idioma (en/es), roles (cli+modelo), automode, tests, git, prompt de pasos finales
 └── tasks/<fecha>-<slug>/
     ├── task.toml            # estado, iteraciones, sesiones, workdir, rama
     ├── plan/*.md            # planes con cabecera GRAFENO-EXECUTOR

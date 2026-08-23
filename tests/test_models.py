@@ -22,13 +22,22 @@ def test_task_create_snapshots_config(tmp_path):
     cfg.automode.enabled = True
     cfg.automode.test_command = "make test"
     cfg.automode.confirm_plan = True
+    cfg.final_prompt = "instrucciones globales"
     task = Task.create("Demo", "desc", str(tmp_path), cfg)
     assert task.planner.model == "p-model"
     assert task.final.model == "f-model"
     assert task.automode is True
     assert task.test_command == "make test"
     assert task.confirm_plan is True
+    assert task.final_prompt == "instrucciones globales"
     assert task.state is TaskState.DRAFT
+
+
+def test_task_final_prompt_override(tmp_path):
+    task = Task.create("Demo", "desc", str(tmp_path), Config(), final_prompt="override")
+    assert task.final_prompt == "override"
+    models.save(task)
+    assert models.load(task.id).final_prompt == "override"
 
 
 def test_task_confirm_plan_override(tmp_path):
@@ -71,6 +80,7 @@ def test_task_roundtrip(tmp_path):
     task.sessions["implementer"] = "ses_123"
     task.iteration = 2
     task.branch = "grafeno/demo-n"
+    task.final_prompt = "instrucciones\nmultilínea"
     models.save(task)
 
     loaded = models.load(task.id)
@@ -80,6 +90,7 @@ def test_task_roundtrip(tmp_path):
     assert loaded.sessions == {"implementer": "ses_123"}
     assert loaded.iteration == 2
     assert loaded.branch == "grafeno/demo-n"
+    assert loaded.final_prompt == "instrucciones\nmultilínea"
 
     listed = models.list_all()
     assert [t.id for t in listed] == [task.id]

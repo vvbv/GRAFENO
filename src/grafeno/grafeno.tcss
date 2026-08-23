@@ -63,6 +63,27 @@ Footer {
     border: round #30363d;
 }
 
+#new-task-dialog .final-prompt-row {
+    height: 3;
+    margin: 0;
+}
+
+#new-task-dialog .final-prompt-row Label {
+    width: 18;
+    color: #8b949e;
+    margin-top: 0;
+}
+
+#new-task-dialog .final-prompt-row TextArea {
+    height: 3;
+    border: round #30363d;
+}
+
+#cfg-final-prompt {
+    height: 3;
+    border: round #30363d;
+}
+
 #nt-buttons, #config-buttons {
     margin-top: 1;
     height: auto;
