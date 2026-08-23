@@ -19,7 +19,7 @@ from ..drivers.base import CLIDriver, EventKind, RunResult
 from ..i18n import t
 from ..models import Task, TaskState
 from ..timefmt import format_duration
-from . import gitops, prompts
+from . import gitops, hooks, prompts
 from .verdict import Verdict, parse_verdict
 
 
@@ -119,11 +119,13 @@ class Orchestrator:
             task.sessions[role_name] = result.session_id
         if not result.ok:
             self._set_state(TaskState.FAILED)
+            await self._run_hooks(phase, "failed")
             raise PhaseError(result.error or t("orch.phase_failed", phase=phase_label(phase)))
         self._set_state(done_state)
         self._info(
             t("orch.phase_done", phase=phase_label(phase), duration=format_duration(time.monotonic() - started_at))
         )
+        await self._run_hooks(phase, "ok")
         return result
 
     def _record_duration(self, phase: str, elapsed: float) -> None:
@@ -137,6 +139,16 @@ class Orchestrator:
             return
         self.task.record_tokens(role.model, result.tokens)
         models.save(self.task)
+
+    async def _run_hooks(self, stage: str, outcome: str) -> None:
+        """Dispara los hooks configurados para la etapa (nunca falla)."""
+        try:
+            await hooks.run_stage_hooks(
+                self.task, stage, outcome,
+                on_event=self._on_event, on_info=self._info,
+            )
+        except Exception as exc:  # noqa: BLE001 — los hooks nunca rompen el pipeline
+            self._info(t("hook.exec_error", error=exc))
 
     # ------------------------------------------------------------------ #
     # Fases
@@ -299,6 +311,7 @@ class Orchestrator:
         self._info(
             t("orch.tests.exit", code=returncode, duration=format_duration(time.monotonic() - started_at))
         )
+        await self._run_hooks("tests", "ok" if returncode == 0 else "failed")
         return returncode == 0
 
     # ------------------------------------------------------------------ #

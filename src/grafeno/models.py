@@ -77,6 +77,9 @@ class Task:
     create_branch: bool = True
     confirm_plan: bool = False  # en automode, pedir confirmación tras el plan
     final_prompt: str = ""  # instrucciones extra para los pasos finales
+    hook_command: str = ""  # vacío = sin hook propio de tarea
+    hook_stages: str = ""   # etapas separadas por comas; vacío = ninguna
+    hook_mode: str = "override"  # "override" (sustituye al global) | "both"
     branch: str = ""
     iteration: int = 0
     cycle: int = 1  # ciclo actual (≥2 = ampliaciones "pedir más")
@@ -101,6 +104,9 @@ class Task:
         create_branch: bool | None = None,
         confirm_plan: bool | None = None,
         final_prompt: str | None = None,
+        hook_command: str | None = None,
+        hook_stages: str | None = None,
+        hook_mode: str | None = None,
     ) -> "Task":
         now = datetime.now().isoformat(timespec="seconds")
         return cls(
@@ -118,6 +124,9 @@ class Task:
             create_branch=config.automode.create_branch if create_branch is None else create_branch,
             confirm_plan=config.automode.confirm_plan if confirm_plan is None else confirm_plan,
             final_prompt=config.final_prompt if final_prompt is None else final_prompt,
+            hook_command="" if hook_command is None else hook_command,
+            hook_stages="" if hook_stages is None else hook_stages,
+            hook_mode="override" if hook_mode is None else hook_mode,
             created_at=now,
             updated_at=now,
         )
@@ -182,6 +191,9 @@ class Task:
                 "create_branch": self.create_branch,
                 "confirm_plan": self.confirm_plan,
                 "final_prompt": self.final_prompt,
+                "hook_command": self.hook_command,
+                "hook_stages": self.hook_stages,
+                "hook_mode": self.hook_mode,
                 "branch": self.branch,
                 "iteration": self.iteration,
                 "cycle": self.cycle,
@@ -217,6 +229,9 @@ class Task:
             create_branch=bool(raw.get("create_branch", True)),
             confirm_plan=bool(raw.get("confirm_plan", False)),
             final_prompt=str(raw.get("final_prompt", "")),
+            hook_command=str(raw.get("hook_command", "")),
+            hook_stages=str(raw.get("hook_stages", "")),
+            hook_mode=str(raw.get("hook_mode", "override")),
             branch=str(raw.get("branch", "")),
             iteration=int(raw.get("iteration", 0)),
             cycle=int(raw.get("cycle", 1)),

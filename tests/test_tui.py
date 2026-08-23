@@ -32,6 +32,9 @@ def test_create_task_via_modal():
             assert isinstance(app.screen, NewTaskScreen)
 
             app.screen.query_one("#nt-name", Input).value = "Tarea de prueba"
+            app.screen.query_one("#nt-create").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
             await pilot.click("#nt-create")
             await pilot.pause()
 
@@ -55,6 +58,9 @@ def test_open_task_detail():
             await pilot.press("n")
             await pilot.pause()
             app.screen.query_one("#nt-name", Input).value = "Detalle"
+            app.screen.query_one("#nt-create").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
             await pilot.click("#nt-create")
             await pilot.pause()
             await pilot.pause()
@@ -246,6 +252,9 @@ def test_new_task_branch_checkbox_defaults_and_persists():
 
             checkbox.value = True
             app.screen.query_one("#nt-name", Input).value = "Con rama"
+            app.screen.query_one("#nt-create").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
             await pilot.click("#nt-create")
             await pilot.pause()
 
@@ -277,6 +286,9 @@ def test_new_task_final_prompt_inherits_and_overrides():
 
             area.text = "override\nmultilínea"
             app.screen.query_one("#nt-name", Input).value = "Con cierre"
+            app.screen.query_one("#nt-create").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
             await pilot.click("#nt-create")
             await pilot.pause()
 

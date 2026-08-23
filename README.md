@@ -29,6 +29,8 @@ Cada tarea sigue un pipeline con cuatro roles configurables (CLI + modelo para c
 
 **Conteo de tokens**: cada ejecución acumula los tokens consumidos en `task.toml`, desglosados por modelo. La lista de tareas muestra una columna «Tokens (in/out)» con el total por tarea, una línea inferior agrega el resumen global por modelo, y el detalle incluye los totales en la barra de actividad.
 
+**Hooks de completado**: puedes configurar un comando shell que se ejecute al terminar etapas del pipeline. Hay un hook global (configuración, tecla `c`) y uno opcional por tarea (al crearla): el de tarea sustituye al global, o se suma a él si activas «ejecutar también el hook global». En ambos casos eliges en qué etapas se dispara (plan, implementación, revisión, corrección, pasos finales y tests, incluidas las repeticiones de cada una). Los hooks reciben el contexto por variables de entorno `GRAFENO_*` (id y nombre de tarea, workdir, fase, resultado, estado, iteración y ciclo), se ejecutan en mejor esfuerzo (con timeout de 120 s) y nunca interrumpen el pipeline: su salida se registra en el log de la tarea.
+
 **Idioma de la interfaz**: la GUI puede mostrarse en inglés (defecto) o español; se elige en la pantalla de configuración (`c`) y se persiste en `config.toml`. Al cambiarlo, las pantallas nuevas lo aplican de inmediato y el pie de atajos se actualiza al reiniciar la app.
 
 ## Instalación
@@ -75,7 +77,7 @@ python3 -m venv .venv
 
 ```
 ~/.grafeno/
-├── config.toml              # idioma (en/es), roles (cli+modelo), automode, tests, git, prompt de pasos finales
+├── config.toml              # idioma (en/es), roles (cli+modelo), automode, tests, git, prompt de pasos finales, hook global
 └── tasks/<fecha>-<slug>/
     ├── task.toml            # estado, iteraciones, sesiones, workdir, rama
     ├── plan/*.md            # planes con cabecera GRAFENO-EXECUTOR

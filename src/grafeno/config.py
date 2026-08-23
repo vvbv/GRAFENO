@@ -58,6 +58,24 @@ class AutomodeConfig:
 
 
 @dataclass
+class HookConfig:
+    """Hook de completado: comando shell disparado al terminar etapas."""
+
+    command: str = ""  # vacío = hook desactivado
+    stages: str = ""   # etapas separadas por comas; vacío = ninguna
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"command": self.command, "stages": self.stages}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "HookConfig":
+        return cls(
+            command=str(data.get("command", "")),
+            stages=str(data.get("stages", "")),
+        )
+
+
+@dataclass
 class Config:
     language: str = "en"
     planner: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
@@ -65,6 +83,7 @@ class Config:
     reviewer: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
     final: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
     automode: AutomodeConfig = field(default_factory=AutomodeConfig)
+    hook: HookConfig = field(default_factory=HookConfig)
     final_prompt: str = ""  # instrucciones extra para la fase de pasos finales
 
     def role(self, name: str) -> RoleConfig:
@@ -78,6 +97,7 @@ class Config:
             "reviewer": self.reviewer.to_dict(),
             "final": self.final.to_dict(),
             "automode": self.automode.to_dict(),
+            "hook": self.hook.to_dict(),
             "final_prompt": self.final_prompt,
         }
 
@@ -90,6 +110,7 @@ class Config:
             reviewer=RoleConfig.from_dict(data.get("reviewer", {}), default_cli="opencode"),
             final=RoleConfig.from_dict(data.get("final", {}), default_cli="opencode"),
             automode=AutomodeConfig.from_dict(data.get("automode", {})),
+            hook=HookConfig.from_dict(data.get("hook", {})),
             final_prompt=str(data.get("final_prompt", "")),
         )
 

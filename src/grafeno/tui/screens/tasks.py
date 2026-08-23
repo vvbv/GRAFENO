@@ -25,6 +25,7 @@ from ... import config as config_module
 from ... import models
 from ...i18n import t
 from ...models import Task, state_label
+from ...pipeline.hooks import HOOK_STAGES, format_stages
 from ...tokenfmt import format_tokens
 from ..dirpicker import DirectoryPicker
 
@@ -51,6 +52,12 @@ class NewTaskScreen(ModalScreen[Task | None]):
             yield Checkbox(t("nt.automode"), id="nt-automode")
             yield Checkbox(t("nt.confirm_plan"), id="nt-confirm-plan")
             yield Checkbox(t("nt.branch"), id="nt-branch")
+            yield Label(t("nt.hook"))
+            yield Input(placeholder=t("nt.hook.placeholder"), id="nt-hook-command")
+            with Horizontal(classes="automode-row"):
+                for stage in HOOK_STAGES:
+                    yield Checkbox(t(f"hook.stage.{stage}"), id=f"nt-hook-stage-{stage}")
+            yield Checkbox(t("nt.hook.both"), id="nt-hook-both")
             with Horizontal(id="nt-buttons"):
                 yield Button(t("common.create"), variant="primary", id="nt-create")
                 yield Button(t("common.cancel"), id="nt-cancel")
@@ -97,6 +104,12 @@ class NewTaskScreen(ModalScreen[Task | None]):
             create_branch=self.query_one("#nt-branch", Checkbox).value,
             confirm_plan=self.query_one("#nt-confirm-plan", Checkbox).value,
             final_prompt=self.query_one("#nt-final-prompt", TextArea).text.strip(),
+            hook_command=self.query_one("#nt-hook-command", Input).value.strip(),
+            hook_stages=format_stages([
+                stage for stage in HOOK_STAGES
+                if self.query_one(f"#nt-hook-stage-{stage}", Checkbox).value
+            ]),
+            hook_mode="both" if self.query_one("#nt-hook-both", Checkbox).value else "override",
         )
         models.save(task)
         self.dismiss(task)
