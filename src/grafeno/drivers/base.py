@@ -15,7 +15,7 @@ import codecs
 import json
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import AsyncIterator, Callable
@@ -64,6 +64,22 @@ class RunEvent:
 
 
 @dataclass
+class TokenUsage:
+    """Tokens consumidos por una ejecución (o por un evento suelto)."""
+
+    input: int = 0
+    output: int = 0
+
+    def add(self, other: "TokenUsage") -> None:
+        self.input += other.input
+        self.output += other.output
+
+    @property
+    def empty(self) -> bool:
+        return self.input == 0 and self.output == 0
+
+
+@dataclass
 class RunRequest:
     prompt: str
     model: str  # vacío = modelo por defecto del CLI
@@ -80,6 +96,7 @@ class RunResult:
     session_id: str | None = None
     error: str = ""
     returncode: int | None = None
+    tokens: TokenUsage = field(default_factory=TokenUsage)  # uso agregado
 
 
 EventCallback = Callable[[RunEvent], None]
@@ -175,14 +192,23 @@ Reglas:
 - Termina tu respuesta con una línea que indique la ruta del archivo creado.
 """
 
-    def decode_line(self, line: str) -> tuple[RunEvent | None, str | None]:
-        """Interpreta una línea de salida. Devuelve (evento, session_id|None)."""
+    def decode_line(self, line: str) -> tuple[RunEvent | None, str | None, TokenUsage | None]:
+        """Interpreta una línea. Devuelve (evento, session_id|None, uso|None)."""
         try:
             payload = json.loads(line)
         except json.JSONDecodeError:
             stripped = line.rstrip()
-            return (RunEvent(EventKind.TEXT, stripped) if stripped else None), None
-        return self.decode_event(payload)
+            return (RunEvent(EventKind.TEXT, stripped) if stripped else None), None, None
+        event, session_id = self.decode_event(payload)
+        return event, session_id, self.extract_usage(payload)
+
+    def extract_usage(self, payload: dict) -> TokenUsage | None:
+        """Extrae el uso de tokens de un evento JSON ya parseado.
+
+        Las subclases lo sobreescriben según el dialecto del CLI.
+        ``None`` = el evento no lleva información de uso.
+        """
+        return None
 
     def decode_event(self, payload: dict) -> tuple[RunEvent | None, str | None]:
         """Interpreta un evento JSON ya parseado (dialecto del CLI)."""
@@ -210,6 +236,7 @@ Reglas:
         text_parts: list[str] = []
         session_id: str | None = None
         stderr_parts: list[str] = []
+        tokens = TokenUsage()
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -233,9 +260,11 @@ Reglas:
                     log_handle.flush()
                 if on_activity:
                     on_activity()  # latido: el CLI sigue emitiendo salida
-                event, found_session = self.decode_line(line)
+                event, found_session, usage = self.decode_line(line)
                 if found_session:
                     session_id = found_session
+                if usage:
+                    tokens.add(usage)
                 if event is None:
                     continue
                 if event.kind is EventKind.TEXT:
@@ -272,4 +301,5 @@ Reglas:
             session_id=session_id,
             error=error,
             returncode=returncode,
+            tokens=tokens,
         )

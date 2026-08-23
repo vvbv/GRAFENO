@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .base import CLIDriver, EventKind, RunEvent, RunRequest
+from .base import CLIDriver, EventKind, RunEvent, RunRequest, TokenUsage
 
 
 class KimiDriver(CLIDriver):
@@ -104,3 +104,21 @@ class KimiDriver(CLIDriver):
             ]
             return "\n".join(part for part in parts if part).strip()
         return ""
+
+    # ------------------------------------------------------------ #
+    def extract_usage(self, payload: dict[str, Any]) -> TokenUsage | None:
+        usage_dict = payload.get("usage")
+        if not isinstance(usage_dict, dict):
+            message = payload.get("message")
+            if isinstance(message, dict) and isinstance(message.get("usage"), dict):
+                usage_dict = message["usage"]
+        if not isinstance(usage_dict, dict):
+            return None
+        try:
+            usage = TokenUsage(
+                input=int(usage_dict.get("input_tokens") or usage_dict.get("prompt_tokens") or 0),
+                output=int(usage_dict.get("output_tokens") or usage_dict.get("completion_tokens") or 0),
+            )
+        except (TypeError, ValueError):
+            return None
+        return None if usage.empty else usage

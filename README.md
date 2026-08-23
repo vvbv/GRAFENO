@@ -27,6 +27,8 @@ Cada tarea sigue un pipeline con cuatro roles configurables (CLI + modelo para c
 
 **Seguridad de ejecución**: ninguna fase arranca con una sola tecla — cada acción abre un modal que explica qué va a ocurrir (agente, CLI, modelo, directorio) y pide confirmación. Mientras una fase corre, una barra de actividad muestra spinner, tiempos por fase, nº de eventos y watchdog de salida del CLI.
 
+**Conteo de tokens**: cada ejecución acumula los tokens consumidos en `task.toml`, desglosados por modelo. La lista de tareas muestra una columna «Tokens (in/out)» con el total por tarea, una línea inferior agrega el resumen global por modelo, y el detalle incluye los totales en la barra de actividad.
+
 **Idioma de la interfaz**: la GUI puede mostrarse en inglés (defecto) o español; se elige en la pantalla de configuración (`c`) y se persiste en `config.toml`. Al cambiarlo, las pantallas nuevas lo aplican de inmediato y el pie de atajos se actualiza al reiniciar la app.
 
 ## Instalación

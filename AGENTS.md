@@ -21,6 +21,7 @@ src/grafeno/
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
+├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
 ├── _toml.py                # Serializador TOML propio (escritura; lectura con tomllib)
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL
@@ -67,9 +68,10 @@ Instalación de usuario: `pipx install .` o `scripts/install.sh` / `install.ps1`
   breves tras el código cuando aclaran un valor (alineados a la derecha).
 - **Drivers**: añadir un CLI = nuevo archivo en `drivers/` que herede de
   `CLIDriver` (implementar `build_command`, `models_command`, `parse_models`,
-  `decode_event`) y registrarlo en `drivers/__init__.py`. La lectura de
-  streams usa `read_lines` (chunked), nunca el reader de líneas de asyncio
-  (bug de 64 KiB).
+  `decode_event`, `extract_usage`) y registrarlo en `drivers/__init__.py`.
+  La lectura de streams usa `read_lines` (chunked), nunca el reader de líneas
+  de asyncio (bug de 64 KiB). `decode_line` devuelve además del evento el
+  `TokenUsage` acumulado cuando el CLI emite eventos de uso.
 - **Tests**: un archivo `test_<modulo>.py` por módulo; fixtures autouse en
   `conftest.py` ya aíslan `GRAFENO_HOME` y fijan idioma inglés; drivers falsos
   para el orquestador; smoke tests TUI con el modo headless de Textual

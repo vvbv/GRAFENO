@@ -45,7 +45,7 @@ def test_opencode_command_minimal():
 def test_opencode_decode_text_and_session():
     driver = OpenCodeDriver()
     line = json.dumps({"type": "text", "sessionID": "ses_9", "part": {"text": "hola"}})
-    event, session = driver.decode_line(line)
+    event, session, _ = driver.decode_line(line)
     assert session == "ses_9"
     assert event.kind is EventKind.TEXT
     assert event.text == "hola"
@@ -53,16 +53,16 @@ def test_opencode_decode_text_and_session():
 
 def test_opencode_decode_tool_and_noise():
     driver = OpenCodeDriver()
-    tool, _ = driver.decode_line(
+    tool, _, _ = driver.decode_line(
         json.dumps({"type": "tool_use", "part": {"tool": "bash", "state": {"title": "ls"}}})
     )
     assert tool.kind is EventKind.TOOL
-    noise, _ = driver.decode_line(json.dumps({"type": "step_start"}))
+    noise, _, _ = driver.decode_line(json.dumps({"type": "step_start"}))
     assert noise is None
 
 
 def test_opencode_decode_plain_fallback():
-    event, session = OpenCodeDriver().decode_line("salida plana")
+    event, session, _ = OpenCodeDriver().decode_line("salida plana")
     assert event.kind is EventKind.TEXT
     assert event.text == "salida plana"
     assert session is None
@@ -102,28 +102,28 @@ def test_kimi_decode_real_event_shapes():
     """Eventos reales capturados de kimi 0.37 --output-format stream-json."""
     driver = KimiDriver()
 
-    event, _ = driver.decode_line('{"role":"assistant","content":"ok"}')
+    event, _, _ = driver.decode_line('{"role":"assistant","content":"ok"}')
     assert event.kind is EventKind.TEXT
     assert event.text == "ok"
 
-    event, _ = driver.decode_line(
+    event, _, _ = driver.decode_line(
         '{"role":"assistant","tool_calls":[{"type":"function","id":"t1",'
         '"function":{"name":"Write","arguments":"{}"}}]}'
     )
     assert event.kind is EventKind.TOOL
     assert "Write" in event.text
 
-    event, _ = driver.decode_line('{"role":"tool","content":"Wrote 4 bytes to /tmp/x"}')
+    event, _, _ = driver.decode_line('{"role":"tool","content":"Wrote 4 bytes to /tmp/x"}')
     assert event.kind is EventKind.TOOL
     assert "Wrote 4 bytes" in event.text
 
-    event, session = driver.decode_line(
+    event, session, _ = driver.decode_line(
         '{"role":"meta","type":"session.resume_hint","session_id":"session_abc","command":"kimi -r session_abc"}'
     )
     assert event is None
     assert session == "session_abc"
 
-    event, _ = driver.decode_line('{"role":"meta","type":"system.version","version":"0.37.2"}')
+    event, _, _ = driver.decode_line('{"role":"meta","type":"system.version","version":"0.37.2"}')
     assert event is None
 
 
@@ -136,7 +136,7 @@ def test_kimi_decode_assistant_message():
             "message": {"content": [{"type": "text", "text": "hola"}]},
         }
     )
-    event, session = driver.decode_line(line)
+    event, session, _ = driver.decode_line(line)
     assert session == "s1"
     assert event.kind is EventKind.TEXT
     assert event.text == "hola"
@@ -339,3 +339,48 @@ def test_fetch_all_models(monkeypatch):
     monkeypatch.setattr(CLIDriver, "list_models_async", _fake)
     result = asyncio.run(drivers.fetch_all_models(["opencode", "kimi"]))
     assert result == {"opencode": ["opencode/m1"], "kimi": ["kimi/m1"]}
+
+
+# ---------------------------------------------------------------------- #
+# Token usage
+# ---------------------------------------------------------------------- #
+def test_opencode_extract_usage_step_finish():
+    driver = OpenCodeDriver()
+    line = json.dumps({
+        "type": "step_finish",
+        "sessionID": "ses_1",
+        "part": {"tokens": {"input": 1200, "output": 340, "reasoning": 5}},
+    })
+    event, session, usage = driver.decode_line(line)
+    assert event is None            # step_finish sigue siendo ruido
+    assert session == "ses_1"
+    assert usage is not None
+    assert usage.input == 1200
+    assert usage.output == 340
+
+
+def test_opencode_extract_usage_absent():
+    driver = OpenCodeDriver()
+    _, _, usage = driver.decode_line(json.dumps({"type": "text", "part": {"text": "x"}}))
+    assert usage is None
+
+
+def test_kimi_extract_usage_variants():
+    driver = KimiDriver()
+    _, _, usage = driver.decode_line(json.dumps({"role": "meta", "usage": {"input_tokens": 10, "output_tokens": 4}}))
+    assert usage is not None and (usage.input, usage.output) == (10, 4)
+    _, _, usage = driver.decode_line(json.dumps({"message": {"usage": {"prompt_tokens": 7, "completion_tokens": 3}}}))
+    assert usage is not None and (usage.input, usage.output) == (7, 3)
+    _, _, usage = driver.decode_line(json.dumps({"role": "assistant", "content": "hola"}))
+    assert usage is None
+
+
+def test_token_usage_add():
+    from grafeno.drivers.base import TokenUsage
+
+    total = TokenUsage()
+    total.add(TokenUsage(input=5, output=2))
+    total.add(TokenUsage(input=3, output=1))
+    assert (total.input, total.output) == (8, 3)
+    assert not total.empty
+    assert TokenUsage().empty
