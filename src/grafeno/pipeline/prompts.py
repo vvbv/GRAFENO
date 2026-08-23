@@ -29,6 +29,8 @@ Reglas de esta ejecución (modo automático, no interactivo):
   autor y correo ya configurados en el sistema donde se ejecuta
   (`git config user.name` / `git config user.email`): bajo ningún concepto los
   modifiques, salvo que la tarea lo solicite explícitamente.
+- Los mensajes de commit se escriben SIEMPRE en INGLÉS por defecto, salvo que
+  el AGENTS.md del proyecto o los datos de la tarea indiquen lo contrario.
 """.strip()
 
 _CODE_RULES = """

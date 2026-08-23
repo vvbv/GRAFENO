@@ -5,3 +5,10 @@ __pycache__/
 .pytest_cache/
 dist/
 build/
+
+# Editor folders
+.idea/
+.vscode/
+.vs/
+.fleet/
+.zed/

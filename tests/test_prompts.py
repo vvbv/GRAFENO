@@ -142,3 +142,6 @@ def test_common_rules_include_git_author_rule(tmp_path):
     ):
         assert "git config user.name" in prompt
         assert "bajo ningún concepto" in prompt
+        assert "mensajes de commit" in prompt
+        assert "INGLÉS" in prompt
+        assert "AGENTS.md" in prompt
