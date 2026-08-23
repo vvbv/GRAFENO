@@ -777,3 +777,66 @@ def test_automode_status_updates_immediately():
                 orch_mod.get_driver = original
 
     asyncio.run(scenario())
+
+
+def test_detail_agents_bar_shows_phase_agents_and_tokens():
+    """Bajo la barra de fases se ve el agente de cada fase y su consumo."""
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.drivers.base import TokenUsage
+    from grafeno.models import Task
+    from grafeno.tui.screens.detail import TaskDetailScreen
+    from textual.widgets import Static
+
+    task = Task.create("Barra agentes", "desc", "/tmp", Config())
+    task.planner.cli = "kimi"
+    task.planner.model = "k3"
+    task.implementer.cli = "opencode"
+    task.implementer.model = "prov/M"
+    task.record_tokens("opencode", "prov/M", "implement", TokenUsage(input=1500, output=600))
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+            widget = app.screen.query_one("#agents-bar", Static)
+            rendered = widget.render()
+            text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
+            assert "kimi/k3" in text          # agente de la fase de plan
+            assert "opencode/prov/M" in text  # agente de implementación
+            assert "1.5k" in text             # consumo fase a fase
+
+    asyncio.run(scenario())
+
+
+def test_detail_agents_bar_reflects_role_changes():
+    """Al cambiar los roles de la tarea la barra se actualiza."""
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task
+    from grafeno.tui.screens.detail import TaskDetailScreen
+    from textual.widgets import Static
+
+    task = Task.create("Barra cambios", "desc", "/tmp", Config())
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+            screen = app.screen
+            before = screen.query_one("#agents-bar", Static).render()
+            before_text = before.plain if hasattr(before, "plain") else str(before)
+            assert "codex/gpt-x" not in before_text
+            screen.current_task.implementer.cli = "codex"
+            screen.current_task.implementer.model = "gpt-x"
+            screen._render_agents_bar()
+            await pilot.pause()
+            after = screen.query_one("#agents-bar", Static).render()
+            after_text = after.plain if hasattr(after, "plain") else str(after)
+            assert "codex/gpt-x" in after_text
+
+    asyncio.run(scenario())
