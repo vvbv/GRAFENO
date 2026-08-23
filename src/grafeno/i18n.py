@@ -319,6 +319,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
         # runtime
         "rt.cancelled": "Run cancelled by the user.",
         "rt.unexpected": "Unexpected error: {error}",
+        # scheduler
+        "sched.trigger": "Scheduled run",
+        "sched.chained": "Chained after {name}",
+        "sched.starting": "Scheduler: starting task \"{name}\".",
+        "sched.repetition": "Repetition {n} of \"{name}\".",
+        "sched.confirm_ignored": "confirm_plan is ignored in unattended runs.",
     },
     "es": {
         "app.subtitle": "v{version} · orquestador multi-CLI",
@@ -590,5 +596,11 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "drv.exit_error": "{name} terminó con código {code}.",
         "rt.cancelled": "Ejecución cancelada por el usuario.",
         "rt.unexpected": "Error inesperado: {error}",
+        # scheduler
+        "sched.trigger": "Ejecución programada",
+        "sched.chained": "Encadenada tras {name}",
+        "sched.starting": "Planificador: arrancando la tarea \"{name}\".",
+        "sched.repetition": "Repetición {n} de \"{name}\".",
+        "sched.confirm_ignored": "confirm_plan se ignora en ejecuciones desatendidas.",
     },
 }

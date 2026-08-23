@@ -87,7 +87,8 @@ class GrafenoApp(App):
             finished = models.load(task.id)
         except Exception:
             return
-        self._maybe_restart(finished, by_id)
+        if self._maybe_restart(finished, by_id):
+            return  # la repetición ya relanzó la tarea: no procesamos el resto
         if finished.repeat_mode:
             # Marca de referencia para el siguiente intervalo (también en
             # repeticiones no infinitas).
@@ -95,10 +96,16 @@ class GrafenoApp(App):
             models.save(finished)
         self._launch_children(finished, tasks)
 
-    def _maybe_restart(self, finished: Task, by_id: dict[str, Task]) -> None:
-        """Si la cadena entera terminó y la tarea es repetitiva infinita, reinicia."""
+    def _maybe_restart(self, finished: Task, by_id: dict[str, Task]) -> bool:
+        """Si la cadena entera terminó y la tarea es repetitiva infinita, reinicia.
+
+        Devuelve ``True`` si se relanzó una repetición (en cuyo caso el llamador
+        debe abandonar el procesamiento de la tarea antigua).
+        """
         if finished.repeat_mode == "infinite" and scheduler.chain_completed(finished, by_id):
             self._restart_repetition(finished)
+            return True
+        return False
 
     def _launch_children(self, finished: Task, tasks: list[Task]) -> None:
         """Lanza las hijas DRAFT cuando el padre termina."""

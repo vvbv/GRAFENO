@@ -38,6 +38,31 @@ def test_catalog_parity():
     assert set(i18n._MESSAGES["en"]) == set(i18n._MESSAGES["es"])
 
 
+def test_used_keys_are_defined_in_catalog():
+    """Todas las claves ``t("...")`` usadas en ``src/`` están en el catálogo.
+
+    Recorre los ``.py`` bajo ``src/grafeno/`` y extrae los primeros argumentos
+    literales de ``t(...)`` para detectar claves que el código usa pero que
+    faltan en ``_MESSAGES``. Evita regresiones del estilo "se añade la clave
+    en código pero se olvida su traducción".
+    """
+    import re
+    from pathlib import Path
+
+    src_root = Path("src")
+    pattern = re.compile(r"""(?<![\w.])t\(\s*["']([a-zA-Z][\w.]*)["']""")
+    used: set[str] = set()
+    for path in src_root.rglob("*.py"):
+        used.update(pattern.findall(path.read_text(encoding="utf-8")))
+
+    defined_en = set(i18n._MESSAGES["en"])
+    defined_es = set(i18n._MESSAGES["es"])
+    missing_en = sorted(used - defined_en)
+    missing_es = sorted(used - defined_es)
+    assert not missing_en, f"Claves usadas en src y NO definidas en en: {missing_en}"
+    assert not missing_es, f"Claves usadas en src y NO definidas en es: {missing_es}"
+
+
 def test_config_language_roundtrip():
     cfg = config_module.load()
     assert cfg.language == "en"  # defecto

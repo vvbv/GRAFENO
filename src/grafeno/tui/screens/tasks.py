@@ -129,10 +129,9 @@ class NewTaskScreen(ModalScreen[Task | None]):
         if not workdir.is_dir():
             self.notify(t("nt.error.bad_dir", path=workdir), severity="error")
             return
-        from ... import scheduler as scheduler_module
 
         try:
-            scheduled_at = scheduler_module.parse_schedule(
+            scheduled_at = scheduler.parse_schedule(
                 self.query_one("#nt-schedule", Input).value
             )
         except ValueError:
