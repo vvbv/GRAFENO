@@ -56,7 +56,7 @@ def test_config_screen_language_select_persists():
         from textual.widgets import Select
 
         app = GrafenoApp()
-        async with app.run_test(size=(110, 60)) as pilot:
+        async with app.run_test(size=(110, 80)) as pilot:
             await pilot.pause()
             await pilot.press("c")
             await pilot.pause()

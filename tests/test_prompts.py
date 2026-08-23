@@ -107,3 +107,24 @@ def test_final_prompt_contract(tmp_path):
     assert "emotes" in prompt
     assert "INGLÉS" in prompt
     assert "AGENTE DE PASOS FINALES" in prompt
+
+
+def test_final_prompt_custom_instructions(tmp_path):
+    """Si la tarea define final_prompt, el prompt lo incluye como sección dedicada."""
+    task = _task(tmp_path, final_prompt="Revisa el CHANGELOG")
+    prompt = prompts.final_prompt(task)
+    assert "# Instrucciones adicionales del usuario para el cierre" in prompt
+    assert "Revisa el CHANGELOG" in prompt
+
+
+def test_final_prompt_without_custom_instructions_unchanged(tmp_path):
+    """Sin final_prompt (o solo espacios), el prompt no añade la sección extra."""
+    task_empty = _task(tmp_path)
+    prompt_empty = prompts.final_prompt(task_empty)
+    assert "Instrucciones adicionales" not in prompt_empty
+
+    task_blank = _task(tmp_path, final_prompt="   \n  ")
+    prompt_blank = prompts.final_prompt(task_blank)
+    assert "Instrucciones adicionales" not in prompt_blank
+    # El resto del contrato sigue intacto.
+    assert "AGENTE DE PASOS FINALES" in prompt_blank

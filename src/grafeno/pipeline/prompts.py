@@ -70,6 +70,16 @@ Planifica SOLO esta ampliación: no repitas lo ya implementado.
 """
 
 
+def _custom_final_section(task: Task) -> str:
+    """Instrucciones extra del usuario para la fase final (vacías = sin sección)."""
+    if not task.final_prompt.strip():
+        return ""
+    return f"""
+# Instrucciones adicionales del usuario para el cierre
+{task.final_prompt.strip()}
+"""
+
+
 def plan_prompt(task: Task) -> str:
     plan_dir = paths.plan_dir(task.id, task.cycle)
     return f"""Eres un INGENIERO DE SOFTWARE SENIOR actuando como PLANIFICADOR de una
@@ -231,7 +241,7 @@ La tarea ya fue implementada y APROBADA por el revisor. Tu trabajo es el cierre.
 - Proyecto (directorio de trabajo): {task.workdir}
 - Plan implementado: {plan_dir}
 - Revisiones del ciclo: {review_dir} (la última aprobó el trabajo)
-
+{_custom_final_section(task)}
 # Tu entrega
 1. Inspecciona el estado final del proyecto (git status / git diff).
 2. Actualiza la documentación afectada por los cambios (README, AGENTS.md u otros

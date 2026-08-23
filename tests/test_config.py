@@ -44,3 +44,12 @@ def test_roundtrip():
     assert loaded.automode.test_command == "pytest -q"
     assert loaded.automode.create_branch is False
     assert loaded.automode.confirm_plan is True
+
+
+def test_final_prompt_roundtrip():
+    cfg = Config()
+    cfg.final_prompt = "Revisa el CHANGELOG\ny actualiza README"
+    config.save(cfg)
+
+    loaded = config.load()
+    assert loaded.final_prompt == "Revisa el CHANGELOG\ny actualiza README"

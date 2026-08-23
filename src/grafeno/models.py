@@ -65,6 +65,7 @@ class Task:
     test_command: str = ""
     create_branch: bool = True
     confirm_plan: bool = False  # en automode, pedir confirmación tras el plan
+    final_prompt: str = ""  # instrucciones extra para los pasos finales
     branch: str = ""
     iteration: int = 0
     cycle: int = 1  # ciclo actual (≥2 = ampliaciones "pedir más")
@@ -87,6 +88,7 @@ class Task:
         test_command: str | None = None,
         create_branch: bool | None = None,
         confirm_plan: bool | None = None,
+        final_prompt: str | None = None,
     ) -> "Task":
         now = datetime.now().isoformat(timespec="seconds")
         return cls(
@@ -103,6 +105,7 @@ class Task:
             test_command=config.automode.test_command if test_command is None else test_command,
             create_branch=config.automode.create_branch if create_branch is None else create_branch,
             confirm_plan=config.automode.confirm_plan if confirm_plan is None else confirm_plan,
+            final_prompt=config.final_prompt if final_prompt is None else final_prompt,
             created_at=now,
             updated_at=now,
         )
@@ -136,6 +139,7 @@ class Task:
                 "test_command": self.test_command,
                 "create_branch": self.create_branch,
                 "confirm_plan": self.confirm_plan,
+                "final_prompt": self.final_prompt,
                 "branch": self.branch,
                 "iteration": self.iteration,
                 "cycle": self.cycle,
@@ -169,6 +173,7 @@ class Task:
             test_command=str(raw.get("test_command", "")),
             create_branch=bool(raw.get("create_branch", True)),
             confirm_plan=bool(raw.get("confirm_plan", False)),
+            final_prompt=str(raw.get("final_prompt", "")),
             branch=str(raw.get("branch", "")),
             iteration=int(raw.get("iteration", 0)),
             cycle=int(raw.get("cycle", 1)),

@@ -6,7 +6,7 @@ import asyncio
 
 from grafeno.app import GrafenoApp
 from grafeno.tui.screens.tasks import NewTaskScreen, TaskListScreen
-from textual.widgets import DataTable, Input
+from textual.widgets import DataTable, Input, TextArea
 
 
 def test_app_boots_into_task_list():
@@ -25,7 +25,7 @@ def test_create_task_via_modal():
         from grafeno.tui.screens.detail import TaskDetailScreen
 
         app = GrafenoApp()
-        async with app.run_test(size=(100, 40)) as pilot:
+        async with app.run_test(size=(100, 50)) as pilot:
             await pilot.pause()
             await pilot.press("n")
             await pilot.pause()
@@ -50,7 +50,7 @@ def test_open_task_detail():
         from grafeno.tui.screens.detail import TaskDetailScreen
 
         app = GrafenoApp()
-        async with app.run_test(size=(100, 40)) as pilot:
+        async with app.run_test(size=(100, 50)) as pilot:
             await pilot.pause()
             await pilot.press("n")
             await pilot.pause()
@@ -82,7 +82,7 @@ def test_detail_screen_with_dotted_filenames():
         (paths.review_dir(task.id) / "01-review.md").write_text("# Review\n", encoding="utf-8")
 
         app = GrafenoApp()
-        async with app.run_test(size=(100, 40)) as pilot:
+        async with app.run_test(size=(100, 50)) as pilot:
             app.push_screen(TaskDetailScreen(models.load(task.id)))
             await pilot.pause()
             from textual.widgets import ListView
@@ -107,7 +107,7 @@ def test_phase_actions_require_confirmation():
         models.save(task)
 
         app = GrafenoApp()
-        async with app.run_test(size=(100, 40)) as pilot:
+        async with app.run_test(size=(100, 50)) as pilot:
             screen = TaskDetailScreen(models.load(task.id))
             started: list[str] = []
             screen._start = lambda runner, label, plan_then_ask=False: started.append(label)
@@ -150,7 +150,7 @@ def test_ask_more_starts_new_cycle():
         models.save(task)
 
         app = GrafenoApp()
-        async with app.run_test(size=(100, 40)) as pilot:
+        async with app.run_test(size=(100, 50)) as pilot:
             screen = TaskDetailScreen(models.load(task.id))
             started: list[str] = []
             screen._start = lambda runner, label, plan_then_ask=False: started.append(label)
@@ -192,7 +192,7 @@ def test_activity_bar_renders_phase_and_time():
         models.save(task)
 
         app = GrafenoApp()
-        async with app.run_test(size=(100, 40)) as pilot:
+        async with app.run_test(size=(100, 50)) as pilot:
             app.push_screen(TaskDetailScreen(models.load(task.id)))
             await pilot.pause()
             screen = app.screen
@@ -236,7 +236,7 @@ def test_new_task_branch_checkbox_defaults_and_persists():
         config_module.save(cfg)
 
         app = GrafenoApp()
-        async with app.run_test(size=(100, 40)) as pilot:
+        async with app.run_test(size=(100, 50)) as pilot:
             await pilot.pause()
             await pilot.press("n")
             await pilot.pause()
@@ -256,6 +256,41 @@ def test_new_task_branch_checkbox_defaults_and_persists():
     asyncio.run(scenario())
 
 
+def test_new_task_final_prompt_inherits_and_overrides():
+    """El modal precarga final_prompt global y guarda el override en la tarea."""
+    async def scenario():
+        from grafeno import config as config_module, models
+
+        cfg = config_module.load()
+        cfg.final_prompt = "global"
+        config_module.save(cfg)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            assert isinstance(app.screen, NewTaskScreen)
+
+            area = app.screen.query_one("#nt-final-prompt", TextArea)
+            assert area.text == "global"  # hereda el valor global
+
+            area.text = "override\nmultilínea"
+            app.screen.query_one("#nt-name", Input).value = "Con cierre"
+            await pilot.click("#nt-create")
+            await pilot.pause()
+
+            from grafeno.tui.screens.detail import TaskDetailScreen
+            assert isinstance(app.screen, TaskDetailScreen)
+            task_id = app.screen.current_task.id
+            assert app.screen.current_task.final_prompt == "override\nmultilínea"
+
+            reloaded = models.load(task_id)
+            assert reloaded.final_prompt == "override\nmultilínea"
+
+    asyncio.run(scenario())
+
+
 def test_navigation_does_not_interrupt_pipeline():
     """Volver al listado no interrumpe: el pipeline sigue en la App y la
     lista muestra el indicador ▶; al reabrir se reconecta."""
@@ -271,7 +306,7 @@ def test_navigation_does_not_interrupt_pipeline():
         models.save(task)
 
         app = GrafenoApp()
-        async with app.run_test(size=(100, 40)) as pilot:
+        async with app.run_test(size=(100, 50)) as pilot:
             await pilot.pause()
             app.push_screen(TaskDetailScreen(models.load(task.id)))
             await pilot.pause()
@@ -344,7 +379,7 @@ def test_detail_screen_has_final_tab_and_binding():
 
     async def scenario():
         app = GrafenoApp()
-        async with app.run_test(size=(100, 40)) as pilot:
+        async with app.run_test(size=(100, 50)) as pilot:
             await pilot.pause()
             app.push_screen(TaskDetailScreen(models.load(task.id)))
             await pilot.pause()

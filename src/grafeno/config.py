@@ -65,6 +65,7 @@ class Config:
     reviewer: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
     final: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
     automode: AutomodeConfig = field(default_factory=AutomodeConfig)
+    final_prompt: str = ""  # instrucciones extra para la fase de pasos finales
 
     def role(self, name: str) -> RoleConfig:
         return getattr(self, name)
@@ -77,6 +78,7 @@ class Config:
             "reviewer": self.reviewer.to_dict(),
             "final": self.final.to_dict(),
             "automode": self.automode.to_dict(),
+            "final_prompt": self.final_prompt,
         }
 
     @classmethod
@@ -88,6 +90,7 @@ class Config:
             reviewer=RoleConfig.from_dict(data.get("reviewer", {}), default_cli="opencode"),
             final=RoleConfig.from_dict(data.get("final", {}), default_cli="opencode"),
             automode=AutomodeConfig.from_dict(data.get("automode", {})),
+            final_prompt=str(data.get("final_prompt", "")),
         )
 
 
