@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "grafeno"
+version = "0.1.0"
+description = "Orquestador TUI multi-CLI para tareas de programación (plan -> implementación -> revisión)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "textual>=0.86",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
+
+[project.scripts]
+grafeno = "grafeno.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+grafeno = ["*.tcss"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
