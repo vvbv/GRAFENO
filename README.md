@@ -25,6 +25,10 @@ Every task follows a pipeline with four configurable roles (CLI + model for each
 
 **Cycles ("Ask for more")**: once the task is completed (or at any pause), the `m` key lets you request extensions on the same project. Each extension starts a new cycle with the same logic (plan -> optional approval -> implementation -> review), keeping the history under `plan/ciclo-NN/` and `review/ciclo-NN/`.
 
+**Scheduler, chains and repetitive tasks**: in the new-task form you can set a start time (`Start at`, format `YYYY-MM-DD HH:MM`), chain the task to another (`Chained after task`, which fires as soon as the parent reaches `DONE`), and turn it into a repetitive task. Two repeat modes are available: `interval` (every N minutes after the previous run, with the interval reused as the next start time) and `infinite` (restart when the whole chain finishes). For repetitive runs you also pick a plan policy: `reuse` (run the same plan again), `replan` (drop the plan and let the planner start from scratch) or `reevaluate` (keep the plan but ask the planner to re-check it against the description before implementing). Unattended runs always use the full pipeline in automode and ignore `confirm_plan`; tasks paused manually (`PAUSED`) are never auto-started. The detail view shows the start time and the repeat mode so the context is visible without leaving the screen.
+
+**Tasks list**: the task table renders chained tasks as a sub-list under their parent, with the child rows indented (`+` marks the root, two spaces per level). The header has a live clock (updated every second) and a scope button — `Project tasks` by default (it compares `task.workdir` against the current directory, including chained children whose parent belongs to this project) and `All tasks` when toggled with the `v` key. Running tasks show a leading `▶` so they stand out even when the list is long.
+
 **Execution safety**: no phase starts with a single key — every action opens a modal that explains what is about to happen (agent, CLI, model, directory) and asks for confirmation. While a phase runs, an activity bar shows a spinner, per-phase timings, event counts and a CLI output watchdog.
 
 **Token counting**: each run accumulates the consumed tokens in `task.toml`, broken down by phase and by CLI + model. The tasks list shows a "Tokens (in/out)" column with the total per task and a footer line with the global summary by CLI + model. The detail view adds a "Tokens" tab with the consolidated total plus the per-phase and per-CLI+model breakdowns; usages recorded with older versions are grouped under a "Legacy" phase.
@@ -73,9 +77,11 @@ GitHub Release with the `vX.Y.Z` tag and attached artifacts.
 | Key | Screen | Action |
 |---|---|---|
 | `n` | List | New task |
-| (form) | New task | The "Project directory" field autocompletes paths with a dropdown (arrows/Enter or mouse) |
+| (form) | New task | The "Project directory" field autocompletes paths with a dropdown (arrows/Enter or mouse). "Start at", "Chained after task", repeat mode and plan-reuse policy are also configurable here. |
 | `c` | List | Global configuration |
 | `Enter` | List | Open task |
+| `v` | List | Toggle scope: project tasks only / all tasks |
+| `r` | List | Reload the task list |
 | `p` / `i` / `r` / `f` | Detail | Plan / Implement / Review / Fix (with confirmation) |
 | `s` | Detail | Final steps (with confirmation) |
 | `t` | Detail | Run tests |
@@ -95,7 +101,7 @@ GitHub Release with the `vX.Y.Z` tag and attached artifacts.
 ~/.grafeno/
 ├── config.toml              # language (en/es), roles (cli+model), automode, tests, git, theme (palette), final-steps prompt, global hook, editor
 └── tasks/<date>-<slug>/
-    ├── task.toml            # state, iterations, sessions, workdir, branch
+    ├── task.toml            # state, iterations, sessions, workdir, branch, scheduling (scheduled_at, parent_id, repeat_mode, plan_reuse, repeat_count, last_completed_at)
     ├── plan/*.md            # plans with GRAFENO-EXECUTOR header
     ├── review/*.md          # reviews numbered by iteration
     ├── final/*.md           # final-step reports per cycle
