@@ -15,7 +15,11 @@ Cada tarea sigue un pipeline con tres roles configurables (CLI + modelo para cad
 2. **Implementador** — lee los planes y los ejecuta en el directorio del proyecto (opcionalmente en una rama `grafeno/<tarea>`).
 3. **Revisor** — verifica los criterios de aceptación, escribe la revisión en `review/NN-review.md` y emite un veredicto estructurado (`VERDICT: APPROVED` / `VERDICT: CHANGES_REQUESTED`). Si pide cambios, el implementador corrige y se vuelve a revisar.
 
-**Automode**: encadena todo el ciclo sin intervención hasta que la tarea queda aprobada **y** los tests (si se definieron) pasan, o hasta agotar las iteraciones máximas.
+**Automode**: encadena todo el ciclo sin intervención hasta que la tarea queda aprobada **y** los tests (si se definieron) pasan, o hasta agotar las iteraciones máximas. Con la opción `confirm_plan` (global o por tarea), el automode se pausa tras el plan para que confirmes antes de implementar.
+
+**Ciclos («Pedir más»)**: una vez completada la tarea (o en cualquier pausa), la tecla `m` permite pedir ampliaciones sobre el mismo proyecto. Cada ampliación arranca un ciclo nuevo con la misma lógica (plan → aprobación opcional → implementación → revisión), conservando el historial en `plan/ciclo-NN/` y `review/ciclo-NN/`.
+
+**Seguridad de ejecución**: ninguna fase arranca con una sola tecla — cada acción abre un modal que explica qué va a ocurrir (agente, CLI, modelo, directorio) y pide confirmación. Mientras una fase corre, una barra de actividad muestra spinner, tiempos por fase, nº de eventos y watchdog de salida del CLI.
 
 ## Instalación
 
@@ -39,11 +43,13 @@ python3 -m venv .venv
 | `n` | Lista | Nueva tarea |
 | `c` | Lista | Configuración global |
 | `Enter` | Lista | Abrir tarea |
-| `p` / `i` / `r` / `f` | Detalle | Plan / Implementar / Revisar / Corregir |
+| `p` / `i` / `r` / `f` | Detalle | Planificar / Implementar / Revisar / Corregir (con confirmación) |
 | `t` | Detalle | Ejecutar tests |
 | `a` | Detalle | Automode |
+| `m` | Detalle | Pedir más (nuevo ciclo de ampliación) |
 | `x` | Detalle | Cancelar ejecución |
 | `Esc` | Detalle/Config | Volver |
+| `Ctrl+Q` | Global | Salir |
 
 ## Datos
 
