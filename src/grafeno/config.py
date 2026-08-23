@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from . import _toml, paths
 
 KNOWN_CLIS = ("opencode", "kimi")  # futuro: "codex", "claude"
+PROJECT_CONFIG_FILE = ".grafeno.toml"
 
 
 @dataclass
@@ -76,6 +78,33 @@ class HookConfig:
 
 
 @dataclass
+class EditorConfig:
+    """Editor que se abre automáticamente al lanzar GRAFENO."""
+
+    enabled: bool = True
+    editor: str = ""        # vacío = autodetectar (code, zed, sublime...)
+    mode: str = "window"    # window | split | none (solo editores de consola)
+    side: str = "left"      # left = editor a la izquierda, grafeno a la derecha
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "editor": self.editor,
+            "mode": self.mode,
+            "side": self.side,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "EditorConfig":
+        return cls(
+            enabled=bool(data.get("enabled", True)),
+            editor=str(data.get("editor", "")),
+            mode=str(data.get("mode", "window")),
+            side=str(data.get("side", "left")),
+        )
+
+
+@dataclass
 class Config:
     language: str = "en"
     planner: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
@@ -84,6 +113,7 @@ class Config:
     final: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
     automode: AutomodeConfig = field(default_factory=AutomodeConfig)
     hook: HookConfig = field(default_factory=HookConfig)
+    editor: EditorConfig = field(default_factory=EditorConfig)
     final_prompt: str = ""  # instrucciones extra para la fase de pasos finales
 
     def role(self, name: str) -> RoleConfig:
@@ -98,6 +128,7 @@ class Config:
             "final": self.final.to_dict(),
             "automode": self.automode.to_dict(),
             "hook": self.hook.to_dict(),
+            "editor": self.editor.to_dict(),
             "final_prompt": self.final_prompt,
         }
 
@@ -111,6 +142,7 @@ class Config:
             final=RoleConfig.from_dict(data.get("final", {}), default_cli="opencode"),
             automode=AutomodeConfig.from_dict(data.get("automode", {})),
             hook=HookConfig.from_dict(data.get("hook", {})),
+            editor=EditorConfig.from_dict(data.get("editor", {})),
             final_prompt=str(data.get("final_prompt", "")),
         )
 
@@ -128,3 +160,27 @@ def load() -> Config:
 
 def save(config: Config) -> None:
     paths.config_path().write_text(_toml.dumps(config.to_dict()), encoding="utf-8")
+
+
+def _project_overrides(workdir: Path) -> dict[str, Any]:
+    """Lee <workdir>/.grafeno.toml y devuelve su sección [editor] o {}."""
+    path = workdir / PROJECT_CONFIG_FILE
+    try:
+        with path.open("rb") as handle:
+            data = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    section = data.get("editor", {})
+    return section if isinstance(section, dict) else {}
+
+
+def resolve_editor_config(config: Config, workdir: Path | None) -> EditorConfig:
+    """Config de editor efectiva: la global, sobreescrita por `.grafeno.toml`
+    del proyecto si existe (solo sección [editor])."""
+    if workdir is None:
+        return config.editor
+    overrides = _project_overrides(workdir)
+    if not overrides:
+        return config.editor
+    merged = config.editor.to_dict() | overrides
+    return EditorConfig.from_dict(merged)

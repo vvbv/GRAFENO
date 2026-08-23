@@ -64,3 +64,63 @@ def test_hook_roundtrip():
     loaded = config.load()
     assert loaded.hook.command == "make notify"
     assert loaded.hook.stages == "plan,final"
+
+
+def test_editor_defaults():
+    cfg = config.load()
+    assert cfg.editor.enabled is True
+    assert cfg.editor.editor == ""
+    assert cfg.editor.mode == "window"
+    assert cfg.editor.side == "left"
+
+
+def test_editor_roundtrip():
+    cfg = Config()
+    cfg.editor.editor = "zed"
+    cfg.editor.mode = "split"
+    cfg.editor.side = "right"
+    config.save(cfg)
+
+    loaded = config.load()
+    assert loaded.editor.editor == "zed"
+    assert loaded.editor.mode == "split"
+    assert loaded.editor.side == "right"
+
+
+def test_resolve_editor_config_project_override(tmp_path):
+    cfg = Config()
+    cfg.editor.editor = "code"
+    project_toml = tmp_path / ".grafeno.toml"
+    project_toml.write_text(
+        '[editor]\neditor = "tode"\nmode = "split"\n',
+        encoding="utf-8",
+    )
+
+    resolved = config.resolve_editor_config(cfg, tmp_path)
+    assert resolved.editor == "tode"
+    assert resolved.mode == "split"
+    assert resolved.side == "left"  # heredado, no sobreescrito
+
+
+def test_resolve_editor_config_without_project_file(tmp_path):
+    cfg = Config()
+    cfg.editor.editor = "code"
+    assert not (tmp_path / ".grafeno.toml").exists()
+
+    resolved = config.resolve_editor_config(cfg, tmp_path)
+    assert resolved.editor == "code"
+
+
+def test_resolve_editor_config_invalid_toml(tmp_path):
+    cfg = Config()
+    cfg.editor.editor = "code"
+    (tmp_path / ".grafeno.toml").write_text("= = =", encoding="utf-8")
+
+    resolved = config.resolve_editor_config(cfg, tmp_path)
+    assert resolved.editor == "code"  # sin sobreescritura, no se propaga la excepción
+
+
+def test_resolve_editor_config_none_workdir():
+    cfg = Config()
+    cfg.editor.editor = "code"
+    assert config.resolve_editor_config(cfg, None) is cfg.editor

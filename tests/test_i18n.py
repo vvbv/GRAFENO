@@ -66,7 +66,9 @@ def test_config_screen_language_select_persists():
             select.value = "es"
             await pilot.pause()
             app.screen.query_one("#cfg-save").scroll_visible()
-            await pilot.pause()
+            # Deja tiempo a que el scroll deje el botón en el viewport visible.
+            for _ in range(5):
+                await pilot.pause(0.05)
             await pilot.click("#cfg-save")
             await pilot.pause()
 

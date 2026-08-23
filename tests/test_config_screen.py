@@ -261,3 +261,50 @@ def test_config_screen_hook_persists(monkeypatch):
             assert actual is expected
 
     asyncio.run(scenario())
+
+
+def test_editor_section_roundtrip(monkeypatch):
+    """La sección de editor persiste enabled/editor/mode/side en config.toml."""
+    from textual.widgets import Checkbox
+
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr(
+        "grafeno.tui.screens.config.editor_module.available_editors",
+        lambda: ["zed", "tode"],
+    )
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 80)) as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfigScreen)
+
+            # Espera a que el worker de modelos termine antes de tocar el save.
+            for _ in range(20):
+                await pilot.pause(0.1)
+                if app.screen.query_one(RolesForm).models:
+                    break
+            await pilot.pause()
+
+            app.screen.query_one("#editor-enabled", Checkbox).value = True
+            editor_select = app.screen.query_one("#editor-name", Select)
+            editor_select.value = "tode"
+            app.screen.query_one("#editor-mode", Select).value = "split"
+            app.screen.query_one("#editor-side", Select).value = "right"
+            await pilot.pause()
+
+            app.screen.query_one("#cfg-save").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#cfg-save")
+            await pilot.pause()
+
+        saved = config_module.load()
+        assert saved.editor.enabled is True
+        assert saved.editor.editor == "tode"
+        assert saved.editor.mode == "split"
+        assert saved.editor.side == "right"
+
+    asyncio.run(scenario())

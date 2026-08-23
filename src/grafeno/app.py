@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from textual.app import App
 from textual.binding import Binding
 
@@ -39,10 +42,29 @@ class GrafenoApp(App):
 
 
 def main() -> None:
+    import argparse
+
     from . import config as config_module
+    from . import editor
     from .i18n import set_language
 
-    set_language(config_module.load().language)
+    parser = argparse.ArgumentParser(prog="grafeno")
+    parser.add_argument(
+        "--noeditor",
+        action="store_true",
+        help="Do not open the configured editor on startup.",
+    )
+    args = parser.parse_args()
+
+    cfg = config_module.load()
+    set_language(cfg.language)
+    if not args.noeditor:
+        workdir = os.getcwd()
+        editor_cfg = config_module.resolve_editor_config(cfg, Path(workdir))
+        try:
+            editor.maybe_open_editor(editor_cfg, workdir)
+        except Exception:  # mejor esfuerzo: la TUI arranca aunque el editor falle
+            pass
     GrafenoApp().run()
 
 

@@ -19,6 +19,7 @@ from textual.widgets import (
 )
 
 from ... import config as config_module
+from ... import editor as editor_module
 from ... import paths
 from ...config import KNOWN_CLIS, Config
 from ...drivers import fetch_all_models
@@ -59,6 +60,27 @@ class ConfigScreen(Screen[None]):
             with Horizontal(classes="automode-row", id="hook-stages"):
                 for stage in HOOK_STAGES:
                     yield Checkbox(t(f"hook.stage.{stage}"), id=f"hook-stage-{stage}")
+            yield Static(t("cfg.editor"), classes="section-title")
+            with Horizontal(classes="automode-row"):
+                yield Checkbox(t("cfg.editor.enabled"), id="editor-enabled")
+            with Horizontal(classes="automode-row"):
+                yield Label(t("cfg.editor.name"))
+                yield Select([], id="editor-name")
+                yield Label(t("cfg.editor.mode"))
+                yield Select(
+                    [(t("cfg.editor.mode.window"), "window"),
+                     (t("cfg.editor.mode.split"), "split"),
+                     (t("cfg.editor.mode.none"), "none")],
+                    id="editor-mode",
+                    allow_blank=False,
+                )
+                yield Label(t("cfg.editor.side"))
+                yield Select(
+                    [(t("cfg.editor.side.left"), "left"),
+                     (t("cfg.editor.side.right"), "right")],
+                    id="editor-side",
+                    allow_blank=False,
+                )
             yield Static(t("cfg.language"), classes="section-title")
             with Horizontal(classes="automode-row"):
                 yield Select(
@@ -88,6 +110,18 @@ class ConfigScreen(Screen[None]):
         self.query_one("#hook-command", Input).value = self._config.hook.command
         for stage in parse_stages(self._config.hook.stages):
             self.query_one(f"#hook-stage-{stage}", Checkbox).value = True
+        names = editor_module.available_editors()
+        select = self.query_one("#editor-name", Select)
+        select.set_options([(name, name) for name in names])
+        self.query_one("#editor-enabled", Checkbox).value = self._config.editor.enabled
+        if self._config.editor.editor in names:
+            select.value = self._config.editor.editor
+        self.query_one("#editor-mode", Select).value = (
+            self._config.editor.mode if self._config.editor.mode in ("window", "split", "none") else "window"
+        )
+        self.query_one("#editor-side", Select).value = (
+            self._config.editor.side if self._config.editor.side in ("left", "right") else "left"
+        )
         self.query_one("#cfg-language", Select).value = (
             self._config.language if self._config.language in LANGUAGES else "en"
         )
@@ -170,6 +204,11 @@ class ConfigScreen(Screen[None]):
             stage for stage in HOOK_STAGES
             if self.query_one(f"#hook-stage-{stage}", Checkbox).value
         ])
+        cfg.editor.enabled = self.query_one("#editor-enabled", Checkbox).value
+        selected = self.query_one("#editor-name", Select).value
+        cfg.editor.editor = "" if selected is Select.BLANK else str(selected)
+        cfg.editor.mode = str(self.query_one("#editor-mode", Select).value)
+        cfg.editor.side = str(self.query_one("#editor-side", Select).value)
         cfg.language = str(self.query_one("#cfg-language", Select).value)
         config_module.save(cfg)
         set_language(cfg.language)

@@ -23,6 +23,7 @@ src/grafeno/
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
 ├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
 ├── _toml.py                # Serializador TOML propio (escritura; lectura con tomllib)
+├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL
 │   ├── opencode.py, kimi.py#   Dialectos concretos
@@ -73,6 +74,10 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   La lectura de streams usa `read_lines` (chunked), nunca el reader de líneas
   de asyncio (bug de 64 KiB). `decode_line` devuelve además del evento el
   `TokenUsage` acumulado cuando el CLI emite eventos de uso.
+- **Editor**: la apertura automática usa `editor.py` (mejor esfuerzo,
+  nunca bloquea la TUI). Config global en `[editor]`, sobreescritura
+  por proyecto en `<proyecto>/.grafeno.toml`; el flag `--noeditor`
+  la desactiva.
 - **Tests**: un archivo `test_<modulo>.py` por módulo; fixtures autouse en
   `conftest.py` ya aíslan `GRAFENO_HOME` y fijan idioma inglés; drivers falsos
   para el orquestador; smoke tests TUI con el modo headless de Textual

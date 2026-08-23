@@ -604,3 +604,42 @@ def test_discarded_blocks_pipeline_actions():
             assert not isinstance(app.screen, PhaseConfirmScreen)
 
     asyncio.run(scenario())
+
+
+def test_main_noeditor_flag(monkeypatch):
+    """El flag --noeditor desactiva la apertura automática del editor."""
+    from unittest.mock import MagicMock
+
+    from grafeno import app as app_module
+    from grafeno import editor as editor_module
+
+    calls = {"editor": 0, "run": 0}
+
+    def fake_editor(*_args, **_kwargs):
+        calls["editor"] += 1
+        return True
+
+    def fake_run():
+        calls["run"] += 1
+
+    editor_mock = MagicMock(side_effect=fake_editor)
+    run_mock = MagicMock(side_effect=fake_run)
+    app_mock = MagicMock()
+    app_mock.return_value.run = run_mock
+
+    monkeypatch.setattr(editor_module, "maybe_open_editor", editor_mock)
+    monkeypatch.setattr(app_module, "GrafenoApp", app_mock)
+
+    # --noeditor: el editor NO debe invocarse.
+    monkeypatch.setattr("sys.argv", ["grafeno", "--noeditor"])
+    app_module.main()
+    assert calls["editor"] == 0
+    assert calls["run"] == 1
+
+    # Sin flag: el editor SÍ se invoca una vez.
+    calls["editor"] = 0
+    calls["run"] = 0
+    monkeypatch.setattr("sys.argv", ["grafeno"])
+    app_module.main()
+    assert calls["editor"] == 1
+    assert calls["run"] == 1
