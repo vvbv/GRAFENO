@@ -252,6 +252,7 @@ class TaskDetailScreen(Screen[None]):
         yield Header()
         yield Static("", id="task-title")
         yield PhaseBar(self.current_task.state, self.current_task.iteration, id="phase-bar")
+        yield Static("", id="agents-bar")
         yield Static("", id="activity-bar")
         with TabbedContent(id="tabs"):
             with TabPane(t("det.tab.desc"), id="tab-desc"):
@@ -293,6 +294,7 @@ class TaskDetailScreen(Screen[None]):
         self._replay_log()
         self._render_activity()
         self._render_tokens()
+        self._render_agents_bar()
         # Reloj de 1s: el tick en pantalla demuestra que la UI no está congelada.
         self.set_interval(1.0, self._tick)
         self._maybe_plan_confirm()
@@ -338,6 +340,7 @@ class TaskDetailScreen(Screen[None]):
             self._spinner_index += 1
             self._render_activity()
             self._render_tokens()
+            self._render_agents_bar()
 
     def _total_seconds(self) -> float:
         total = float(sum(self.current_task.durations.values()))
@@ -424,6 +427,29 @@ class TaskDetailScreen(Screen[None]):
         ):
             lines.append(f"  {label}: ↑{format_tokens(pair_in)} ↓{format_tokens(pair_out)}")
         view.update("\n".join(lines))
+
+    def _render_agents_bar(self) -> None:
+        """Bajo la barra de fases: agente (cli/modelo) y consumo por fase."""
+        bar = self.query_one("#agents-bar", Static)
+        task = self.current_task
+        by_phase = task.tokens_by_phase()
+        phases = ["plan", "implement", "review"]
+        if "fix" in by_phase:
+            phases.append("fix")  # fix usa el rol implementer; solo si hubo fixes
+        phases.append("final")
+        line = Text()
+        for index, phase in enumerate(phases):
+            role = task.role(_PHASE_INFO[phase]["role"])
+            label = models.cli_model_label(role.cli, role.model or "default")
+            line.append(f"{t(f'phase.{phase}')}: ", style="dim")
+            line.append(label, style="cyan")
+            if phase in by_phase:
+                pair_in, pair_out = by_phase[phase]
+                line.append(f" ↑{format_tokens(pair_in)} ↓{format_tokens(pair_out)}", style="green")
+            if index < len(phases) - 1:
+                line.append("  ·  ", style="dim")
+        bar.update(line)
+
     def _log(self) -> RichLog:
         return self.query_one("#live-log", RichLog)
 
@@ -433,6 +459,7 @@ class TaskDetailScreen(Screen[None]):
         self._render_title()
         self._reload_files()  # los artefactos aparecen al terminar cada fase
         self._render_tokens()
+        self._render_agents_bar()
 
     def _render_title(self) -> None:
         cycle = f"  [b]·[/b]  {t('det.cycle', n=self.current_task.cycle)}" if self.current_task.cycle > 1 else ""
@@ -613,6 +640,7 @@ class TaskDetailScreen(Screen[None]):
             # que la siguiente fase use los nuevos CLI/modelo.
             self.runtime.task = self.current_task
             self._render_title()
+            self._render_agents_bar()
             self.runtime._cb_info(
                 t(
                     "det.agents_updated",
