@@ -15,6 +15,7 @@ __all__ = [
     "RunRequest",
     "RunResult",
     "fetch_all_models",
+    "fetch_all_variants",
     "get_driver",
     "available_clis",
 ]
@@ -54,4 +55,16 @@ async def fetch_all_models(clis: Iterable[str]) -> dict[str, list[str]]:
             result[cli] = await get_driver(cli).list_models_async()
         except (KeyError, NotImplementedError, OSError):
             result[cli] = []
+    return result
+
+
+async def fetch_all_variants(clis: Iterable[str]) -> dict[str, dict[str, list[str]]]:
+    """Variantes de esfuerzo por modelo de cada CLI; un CLI que falla
+    devuelve dict vacío. Cancelable igual que ``fetch_all_models``."""
+    result: dict[str, dict[str, list[str]]] = {}
+    for cli in clis:
+        try:
+            result[cli] = await get_driver(cli).list_variants_async()
+        except (KeyError, NotImplementedError, OSError):
+            result[cli] = {}
     return result

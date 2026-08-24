@@ -14,6 +14,7 @@ Notas verificadas contra kimi 0.37:
   ``{"role":"meta","type":"session.resume_hint","session_id":"..."}``.
 - Continuación de sesión con ``-S <id>`` (mejor esfuerzo).
 - Los modelos se obtienen de ``kimi provider list --json``.
+- No tiene flag de nivel de trabajo del modelo: ``effort`` se ignora.
 """
 
 from __future__ import annotations

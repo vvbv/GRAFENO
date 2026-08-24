@@ -106,6 +106,7 @@ class Orchestrator:
             session_id=task.sessions.get(role_name) or None,
             log_path=paths.logs_dir(task.id) / log_name,
             title=f"grafeno:{task.id}",
+            effort=role.effort,
         )
         started_at = time.monotonic()
         result = await driver.run(
@@ -179,6 +180,7 @@ class Orchestrator:
             workdir=workdir,
             log_path=paths.logs_dir(self.task.id) / "agents-md.jsonl",
             title=f"grafeno:{self.task.id}:agents-md",
+            effort=role.effort,
         )
         result = await driver.run(
             request,

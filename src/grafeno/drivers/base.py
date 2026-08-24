@@ -87,6 +87,7 @@ class RunRequest:
     session_id: str | None = None  # continuar sesión previa (mejor esfuerzo)
     log_path: Path | None = None   # dónde volcar la salida cruda
     title: str = ""
+    effort: str = ""               # nivel de trabajo del modelo; vacío = default del CLI
 
 
 @dataclass
@@ -155,6 +156,47 @@ class CLIDriver:
         if process.returncode != 0:
             return []
         return self.parse_models(stdout.decode("utf-8", errors="replace"))
+
+    def variants_command(self) -> list[str]:
+        """Comando del CLI que lista las variantes de esfuerzo por modelo.
+
+        Vacío = el CLI no soporta niveles de trabajo configurables.
+        """
+        return []
+
+    def parse_variants(self, output: str) -> dict[str, list[str]]:
+        """Interpreta la salida de ``variants_command``.
+
+        Devuelve ``{modelo: [niveles...]}``; vacío si no hay soporte.
+        """
+        return {}
+
+    async def list_variants_async(self, timeout: float = 30.0) -> dict[str, list[str]]:
+        """Versión asíncrona y cancelable, espejo de ``list_models_async``."""
+        command = self.variants_command()
+        if not command:
+            return {}
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except OSError:
+            return {}
+        try:
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            return {}
+        except asyncio.CancelledError:
+            process.kill()
+            await process.wait()
+            raise
+        if process.returncode != 0:
+            return {}
+        return self.parse_variants(stdout.decode("utf-8", errors="replace"))
 
     def build_agents_md_prompt(self) -> str:
         """Construye el prompt para generar el AGENTS.md del proyecto.

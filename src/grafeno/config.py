@@ -19,15 +19,17 @@ class RoleConfig:
 
     cli: str = "opencode"
     model: str = ""  # vacío = modelo por defecto del CLI
+    effort: str = ""  # vacío = nivel de trabajo por defecto del CLI/modelo
 
     def to_dict(self) -> dict[str, Any]:
-        return {"cli": self.cli, "model": self.model}
+        return {"cli": self.cli, "model": self.model, "effort": self.effort}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], *, default_cli: str) -> "RoleConfig":
         return cls(
             cli=str(data.get("cli", default_cli)),
             model=str(data.get("model", "")),
+            effort=str(data.get("effort", "")),
         )
 
 

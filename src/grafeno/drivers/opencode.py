@@ -2,15 +2,19 @@
 
 Modo no-interactivo:
     opencode run "<prompt>" -m <provider/model> --format json --auto \
-        --dir <workdir> [--session <id>] [--title <título>]
+        --dir <workdir> [--variant <nivel>] [--session <id>] [--title <título>]
 
 Con ``--format json`` emite eventos JSONL con campos como ``sessionID``,
 ``type`` ("text", "tool_use", "step_start", "error", …) y ``part``.
 El parseo es defensivo: eventos desconocidos se muestran como INFO.
+
+Las variantes de esfuerzo por modelo se listan con ``opencode models --verbose``
+(cabecera ``proveedor/modelo`` seguida de un bloque JSON multilínea).
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .base import CLIDriver, EventKind, RunEvent, RunRequest, TokenUsage
@@ -26,6 +30,8 @@ class OpenCodeDriver(CLIDriver):
         command = ["opencode", "run", request.prompt, "--format", "json", "--auto"]
         if request.model:
             command += ["-m", request.model]
+        if request.effort:
+            command += ["--variant", request.effort]
         command += ["--dir", str(request.workdir)]
         if request.session_id:
             command += ["--session", request.session_id]
@@ -42,6 +48,52 @@ class OpenCodeDriver(CLIDriver):
             for line in output.splitlines()
             if line.strip() and "/" in line and " " not in line.strip()
         )
+
+    def variants_command(self) -> list[str]:
+        return ["opencode", "models", "--verbose"]
+
+    def parse_variants(self, output: str) -> dict[str, list[str]]:
+        """Extrae ``variants`` por modelo de la salida de ``opencode models --verbose``.
+
+        La salida alterna una línea ``proveedor/modelo`` con un bloque JSON
+        multilínea que puede incluir ``"variants": {nivel: {...}, ...}``. NO
+        es JSONL: cada bloque hay que parsearlo entero. Se omiten los modelos
+        cuyo ``variants`` está vacío.
+        """
+        result: dict[str, list[str]] = {}
+        current_model = ""
+        buffer: list[str] = []
+        in_block = False
+        for raw_line in output.splitlines():
+            line = raw_line.rstrip()
+            stripped = line.strip()
+            if not in_block:
+                if (
+                    stripped
+                    and "/" in stripped
+                    and " " not in stripped
+                    and not stripped.startswith("{")
+                ):
+                    current_model = stripped
+                    buffer = []
+                elif stripped == "{" and current_model:
+                    buffer = ["{"]
+                    in_block = True
+                continue
+            buffer.append(line if line else " ")
+            joined = "\n".join(buffer)
+            try:
+                data = json.loads(joined)
+            except json.JSONDecodeError:
+                continue
+            in_block = False
+            variants = (data.get("variants") or {}) if isinstance(data, dict) else {}
+            keys = sorted(str(key) for key in variants.keys()) if isinstance(variants, dict) else []
+            if keys and current_model:
+                result[current_model] = keys
+            current_model = ""
+            buffer = []
+        return result
 
     # ------------------------------------------------------------ #
     def decode_event(self, payload: dict[str, Any]) -> tuple[RunEvent | None, str | None]:
