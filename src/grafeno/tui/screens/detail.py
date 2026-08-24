@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -15,6 +16,7 @@ from textual.widgets import (
     Button,
     Footer,
     Header,
+    Input,
     Label,
     ListItem,
     ListView,
@@ -219,6 +221,47 @@ class RequestMoreScreen(ModalScreen[str | None]):
         self.dismiss(request)
 
 
+class EditTaskScreen(ModalScreen[bool]):
+    """Edita el nombre y la descripción de la tarea."""
+
+    BINDINGS = [Binding("escape", "cancel", t("common.cancel"))]
+
+    def __init__(self, task: Task):
+        super().__init__()
+        self._gtask = task
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="new-task-dialog"):
+            yield Label(t("et.title"), id="new-task-title")
+            yield Label(t("et.name"))
+            yield Input(self._gtask.name, id="et-name")
+            yield Label(t("et.description"))
+            yield TextArea(id="et-description")
+            with Horizontal(id="nt-buttons"):
+                yield Button(t("common.save"), variant="primary", id="et-save")
+                yield Button(t("common.cancel"), id="et-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#et-description", TextArea).text = self._gtask.description
+        self.query_one("#et-name", Input).focus()
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "et-cancel":
+            self.dismiss(False)
+            return
+        name = self.query_one("#et-name", Input).value.strip()
+        if not name:
+            self.notify(t("et.error.name_required"), severity="error")
+            return
+        self._gtask.name = name
+        self._gtask.description = self.query_one("#et-description", TextArea).text.strip()
+        models.save(self._gtask)
+        self.dismiss(True)
+
+
 class TaskDetailScreen(Screen[None]):
     BINDINGS = [
         Binding("p", "run_plan", t("det.bind.plan")),
@@ -230,7 +273,9 @@ class TaskDetailScreen(Screen[None]):
         Binding("a", "run_automode", t("det.bind.automode")),
         Binding("m", "ask_more", t("det.bind.more")),
         Binding("e", "edit_roles", t("det.bind.agents")),
+        Binding("E", "edit_info", t("det.bind.edit")),
         Binding("d", "mark_done", t("det.bind.complete")),
+        Binding("R", "restart", t("det.bind.restart")),
         Binding("D", "mark_discard", t("det.bind.discard")),
         Binding("x", "cancel", t("det.bind.cancel")),
         Binding("escape", "back", t("common.back")),
@@ -633,6 +678,61 @@ class TaskDetailScreen(Screen[None]):
         if self.runtime.running:
             self.runtime.cancel()
             self.notify(t("det.cancel"))
+
+    def action_restart(self) -> None:
+        if self.current_task.state is TaskState.DISCARDED:
+            self.notify(t("det.warn.discarded"), severity="warning")
+            return
+
+        def decide(accepted: bool) -> None:
+            if accepted:
+                self.run_worker(
+                    self._do_restart(),
+                    exclusive=True,
+                    group=f"grafeno-restart-{self.current_task.id}",
+                )
+
+        self.app.push_screen(
+            StatusConfirmScreen(t("det.restart.title"), t("det.restart.body")),
+            decide,
+        )
+
+    async def _do_restart(self) -> None:
+        """Aborta la ejecución en curso (si la hay) y reinicia a DRAFT."""
+        if self.runtime.running:
+            self.runtime.cancel()
+            # Espera a que el worker muera: _wrap fija running=False al
+            # capturar la CancelledError (estado PAUSED intermedio).
+            for _ in range(100):  # 100 x 0.1s = 10s de margen
+                await asyncio.sleep(0.1)
+                if not self.runtime.running:
+                    break
+            if self.runtime.running:
+                self.notify(t("det.warn.running"), severity="warning")
+                return
+        models.reset_to_draft(self.current_task)
+        self.runtime.task = self.current_task
+        self._state_changed(self.current_task)
+        self._render_activity()
+        self.runtime._cb_info(t("det.restarted"))
+
+    def action_edit_info(self) -> None:
+        if self.runtime.running:
+            self.notify(t("det.warn.running"), severity="warning")
+            return
+
+        def closed(saved: bool) -> None:
+            if not saved:
+                return
+            # El runtime usa la copia en memoria: hay que refrescarla.
+            self.runtime.task = self.current_task
+            self._render_title()
+            self.query_one("#desc-view", Static).update(
+                self.current_task.description or t("det.desc.empty")
+            )
+            self.runtime._cb_info(t("det.info_updated", name=self.current_task.name))
+
+        self.app.push_screen(EditTaskScreen(self.current_task), closed)
 
     def action_edit_roles(self) -> None:
         if self.runtime.running:

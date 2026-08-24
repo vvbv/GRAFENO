@@ -6,7 +6,7 @@ import tomllib
 
 from grafeno import _toml, models, paths
 from grafeno.config import Config
-from grafeno.models import Task, TaskState, state_label
+from grafeno.models import Task, TaskState, reset_to_draft, state_label
 
 
 def test_slugify():
@@ -183,3 +183,56 @@ def test_discarded_state_roundtrip():
     loaded = models.load(task.id)
     assert loaded.state is TaskState.DISCARDED
     assert state_label(loaded.state) == "Discarded"
+
+
+def test_reset_to_draft_limpia_estado_y_artefactos(tmp_path):
+    """reset_to_draft devuelve la tarea a DRAFT y borra plan/review/final."""
+    task = Task.create("Reinicio", "desc", str(tmp_path), Config())
+    models.save(task)
+    task.state = TaskState.IMPLEMENTED
+    task.iteration = 3
+    task.cycle = 2
+    task.sessions = {"planner": "s1"}
+    task.extensions = {"2": "mas cosas"}
+    task.scheduled_at = "2030-01-01T10:00"
+    models.save(task)
+    # Artefactos del ciclo 1 y de una ampliación.
+    (paths.plan_dir(task.id) / "01-plan.md").write_text("plan", encoding="utf-8")
+    (paths.review_dir(task.id) / "01-review.md").write_text("rev", encoding="utf-8")
+    (paths.final_dir(task.id) / "01-final.md").write_text("fin", encoding="utf-8")
+    ciclo2 = paths.plan_dir(task.id, 2)
+    (ciclo2 / "01-plan.md").write_text("plan2", encoding="utf-8")
+
+    reset_to_draft(task)
+
+    persisted = models.load(task.id)
+    assert persisted.state is TaskState.DRAFT
+    assert persisted.iteration == 0
+    assert persisted.cycle == 1
+    assert persisted.sessions == {}
+    assert persisted.extensions == {}
+    assert persisted.scheduled_at == ""
+    # Los artefactos desaparecen; los directorios quedan recreados vacíos.
+    assert list(paths.plan_dir(task.id).glob("**/*.md")) == []
+    assert list(paths.review_dir(task.id).glob("**/*.md")) == []
+    assert list(paths.final_dir(task.id).glob("**/*.md")) == []
+    # Logs y metadatos sobreviven.
+    assert paths.logs_dir(task.id).is_dir()
+    assert paths.task_meta_path(task.id).is_file()
+
+
+def test_reset_to_draft_conserva_tokens_y_rama(tmp_path):
+    """El reinicio no toca tokens, duraciones ni la rama git."""
+    task = Task.create("Conservar", "desc", str(tmp_path), Config())
+    models.save(task)
+    task.branch = "grafeno/conservar"
+    task.durations = {"plan": 12}
+    task.tokens = {"plan|opencode|m|input": 100}
+    models.save(task)
+
+    reset_to_draft(task)
+
+    persisted = models.load(task.id)
+    assert persisted.branch == "grafeno/conservar"
+    assert persisted.durations == {"plan": 12}
+    assert persisted.tokens == {"plan|opencode|m|input": 100}

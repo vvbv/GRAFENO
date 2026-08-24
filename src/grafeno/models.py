@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import tomllib
 import unicodedata
 from dataclasses import dataclass, field
@@ -330,6 +331,30 @@ def save(task: Task) -> None:
     paths.final_dir(task.id)
     paths.logs_dir(task.id)
     paths.task_meta_path(task.id).write_text(_toml.dumps(task.to_dict()), encoding="utf-8")
+
+
+def reset_to_draft(task: Task) -> None:
+    """Reinicia la tarea a DRAFT para relanzarla desde cero.
+
+    Limpia la máquina de estados (estado, iteración, ciclo, sesiones y
+    ampliaciones), desprograma el arranque desatendido y borra los
+    artefactos del pipeline (``plan/``, ``review/``, ``final/``) para que el
+    siguiente arranque vuelva a planificar con el nombre y la descripción
+    actuales. Conserva tokens, duraciones, hooks y la rama git ya creada.
+    """
+    task.state = TaskState.DRAFT
+    task.iteration = 0
+    task.cycle = 1
+    task.sessions = {}
+    task.extensions = {}
+    task.scheduled_at = ""
+    for directory in (
+        paths.plan_dir(task.id),
+        paths.review_dir(task.id),
+        paths.final_dir(task.id),
+    ):
+        shutil.rmtree(directory, ignore_errors=True)
+    save(task)
 
 
 def load(task_id: str) -> Task:

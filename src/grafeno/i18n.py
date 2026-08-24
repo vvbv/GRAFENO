@@ -176,6 +176,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "det.bind.agents": "Agents",
         "det.bind.complete": "Complete",
         "det.bind.discard": "Discard",
+        "det.bind.edit": "Edit",
+        "det.bind.restart": "Restart",
         # modal de agentes por tarea
         "roles.title": "Task agents · {name}",
         "roles.body": "CLI and model that will execute each phase of THIS task.",
@@ -213,6 +215,15 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "det.mark.confirm": "Confirm",
         "det.marked.done": "Task force-marked as completed.",
         "det.marked.discarded": "Task marked as discarded.",
+        "det.info_updated": "Task updated: {name}",
+        "det.restart.title": "Restart this task from scratch?",
+        "det.restart.body": (
+            "Any run in progress will be aborted. The task returns to draft and "
+            "its plan, reviews and final report are deleted, so the next run plans "
+            "again with the current name and description. The schedule is cleared. "
+            "This cannot be undone."
+        ),
+        "det.restarted": "Task restarted: back to draft; plan, reviews and final report cleared.",
         "det.warn.discarded": "Task is discarded: pipeline actions are blocked.",
         "det.warn.already_done": "Task is already done.",
         "det.warn.already_discarded": "Task is already discarded.",
@@ -275,6 +286,11 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "rm.approval": "you approve, ",
         "rm.accept": "Start cycle",
         "rm.error.empty": "Describe what you need.",
+        # modal editar tarea
+        "et.title": "Edit task",
+        "et.name": "Name",
+        "et.description": "Description",
+        "et.error.name_required": "The task needs a name.",
         # orquestador
         "orch.unknown_cli": "Unknown CLI: '{cli}'.",
         "orch.cli_missing": "The CLI '{cli}' ({name}) is not installed or is not in PATH.",
@@ -462,6 +478,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "det.bind.agents": "Agentes",
         "det.bind.complete": "Completar",
         "det.bind.discard": "Descartar",
+        "det.bind.edit": "Editar",
+        "det.bind.restart": "Reiniciar",
         # modal de agentes por tarea
         "roles.title": "Agentes de la tarea · {name}",
         "roles.body": "CLI y modelo que ejecutará cada fase de ESTA tarea.",
@@ -498,6 +516,15 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "det.mark.confirm": "Confirmar",
         "det.marked.done": "Tarea marcada como completada de forma forzada.",
         "det.marked.discarded": "Tarea marcada como descartada.",
+        "det.info_updated": "Tarea actualizada: {name}",
+        "det.restart.title": "¿Reiniciar la tarea desde cero?",
+        "det.restart.body": (
+            "Se abortará cualquier ejecución en curso. La tarea volverá a borrador "
+            "y se borrarán su plan, revisiones e informe final, de modo que el "
+            "próximo arranque planifique de nuevo con el nombre y la descripción "
+            "actuales. Se limpia la programación horaria. Esta acción no se puede deshacer."
+        ),
+        "det.restarted": "Tarea reiniciada: vuelve a borrador; plan, revisiones e informe final borrados.",
         "det.warn.discarded": "La tarea está descartada: las acciones del pipeline están bloqueadas.",
         "det.warn.already_done": "La tarea ya está completada.",
         "det.warn.already_discarded": "La tarea ya está descartada.",
@@ -556,6 +583,11 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "rm.approval": "tú apruebas, ",
         "rm.accept": "Comenzar ciclo",
         "rm.error.empty": "Describe qué necesitas.",
+        # modal editar tarea
+        "et.title": "Editar tarea",
+        "et.name": "Nombre",
+        "et.description": "Descripción",
+        "et.error.name_required": "La tarea necesita un nombre.",
         "orch.unknown_cli": "CLI desconocido: '{cli}'.",
         "orch.cli_missing": "El CLI '{cli}' ({name}) no está instalado o no está en el PATH.",
         "orch.phase_start": "[{phase}] {driver} · modelo: {model}",

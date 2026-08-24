@@ -1071,3 +1071,128 @@ def test_new_task_form_repetitive_interval_validates_and_forces_automode():
             assert app.screen.current_task.automode is True
 
     asyncio.run(scenario())
+
+
+def test_edit_task_info():
+    """La tecla 'E' abre el modal, edita nombre/descripcion y persiste."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task
+        from grafeno.tui.screens.detail import EditTaskScreen, TaskDetailScreen
+        from textual.widgets import Input, TextArea
+
+        task = Task.create("Original", "desc original", "/tmp", Config())
+        models.save(task)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+            await pilot.press("E")
+            await pilot.pause()
+            assert isinstance(app.screen, EditTaskScreen)
+            assert app.screen.query_one("#et-name", Input).value == "Original"
+            app.screen.query_one("#et-name", Input).value = "Renombrada"
+            app.screen.query_one("#et-description", TextArea).text = "nueva desc"
+            app.screen.query_one("#et-save").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#et-save")
+            await pilot.pause()
+            persisted = models.load(task.id)
+            assert persisted.name == "Renombrada"
+            assert persisted.description == "nueva desc"
+
+    asyncio.run(scenario())
+
+
+def test_edit_task_info_requires_name():
+    """El modal no cierra si el nombre queda vacio."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task
+        from grafeno.tui.screens.detail import EditTaskScreen, TaskDetailScreen
+        from textual.widgets import Input
+
+        task = Task.create("Con nombre", "desc", "/tmp", Config())
+        models.save(task)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+            await pilot.press("E")
+            await pilot.pause()
+            app.screen.query_one("#et-name", Input).value = "   "
+            app.screen.query_one("#et-save").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#et-save")
+            await pilot.pause()
+            assert isinstance(app.screen, EditTaskScreen)
+            assert models.load(task.id).name == "Con nombre"
+
+    asyncio.run(scenario())
+
+
+def test_restart_resets_task_to_draft():
+    """La tecla 'R' pide confirmacion y reinicia la tarea a DRAFT."""
+    async def scenario():
+        from grafeno import models, paths
+        from grafeno.config import Config
+        from grafeno.models import Task, TaskState
+        from grafeno.tui.screens.detail import StatusConfirmScreen, TaskDetailScreen
+
+        task = Task.create("Reiniciar", "desc", "/tmp", Config())
+        models.save(task)
+        task.state = TaskState.IMPLEMENTED
+        task.iteration = 2
+        models.save(task)
+        (paths.plan_dir(task.id) / "01-plan.md").write_text("plan", encoding="utf-8")
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+            await pilot.press("R")
+            await pilot.pause()
+            assert isinstance(app.screen, StatusConfirmScreen)
+            app.screen.query_one("#pc-accept").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#pc-accept")
+            for _ in range(10):
+                await pilot.pause(0.1)
+            persisted = models.load(task.id)
+            assert persisted.state is TaskState.DRAFT
+            assert persisted.iteration == 0
+            assert list(paths.plan_dir(task.id).glob("*.md")) == []
+
+    asyncio.run(scenario())
+
+
+def test_restart_blocked_when_discarded():
+    """Una tarea descartada no se puede reiniciar."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task, TaskState
+        from grafeno.tui.screens.detail import StatusConfirmScreen, TaskDetailScreen
+
+        task = Task.create("Descartada", "desc", "/tmp", Config())
+        models.save(task)
+        task.state = TaskState.DISCARDED
+        models.save(task)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+            await pilot.press("R")
+            await pilot.pause()
+            assert not isinstance(app.screen, StatusConfirmScreen)
+            assert models.load(task.id).state is TaskState.DISCARDED
+
+    asyncio.run(scenario())
