@@ -19,8 +19,13 @@ async def _fake_fetch(clis):
     }
 
 
+async def _fake_fetch_variants(clis):
+    return {}
+
+
 def test_config_screen_loads_models_and_saves(monkeypatch):
     monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
 
     async def scenario():
         app = GrafenoApp()
@@ -85,6 +90,7 @@ def test_config_screen_escape_cancels_loading(monkeypatch):
         return {}
 
     monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _slow_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _slow_fetch)
 
     async def scenario():
         # El texto del estado se muestra en el idioma activo; lo cambiamos a
@@ -115,6 +121,7 @@ def test_config_screen_escape_cancels_loading(monkeypatch):
 
 def test_config_screen_escape_goes_back(monkeypatch):
     monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
 
     async def scenario():
         app = GrafenoApp()
@@ -142,6 +149,7 @@ def test_saved_model_survives_mount(monkeypatch):
     cfg.implementer.model = "kimi-code/k3"
     config_module.save(cfg)
     monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
 
     async def scenario():
         app = GrafenoApp()
@@ -167,6 +175,7 @@ def test_saved_model_survives_mount(monkeypatch):
 def test_config_screen_final_prompt_persists(monkeypatch):
     """El TextArea de pasos finales carga el valor global y lo guarda en config."""
     monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
 
     async def scenario():
         app = GrafenoApp()
@@ -208,6 +217,7 @@ def test_config_screen_final_prompt_loads_existing(monkeypatch):
     cfg.final_prompt = "valor previo"
     config_module.save(cfg)
     monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
 
     async def scenario():
         app = GrafenoApp()
@@ -229,6 +239,7 @@ def test_config_screen_hook_persists(monkeypatch):
     from grafeno.pipeline.hooks import HOOK_STAGES
 
     monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
 
     async def scenario():
         app = GrafenoApp()
@@ -270,6 +281,7 @@ def test_editor_section_roundtrip(monkeypatch):
     from textual.widgets import Checkbox
 
     monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
     monkeypatch.setattr(
         "grafeno.tui.screens.config.editor_module.available_editors",
         lambda: ["zed", "tode"],
@@ -308,5 +320,77 @@ def test_editor_section_roundtrip(monkeypatch):
         assert saved.editor.editor == "tode"
         assert saved.editor.mode == "split"
         assert saved.editor.side == "right"
+
+    asyncio.run(scenario())
+
+
+def test_config_screen_effort_select_offers_variants(monkeypatch):
+    """Al fijar CLI+modelo con variantes, el select de esfuerzo las ofrece."""
+    async def _fake_variants(clis):
+        return {"opencode": {"opencode-go/kimi-k3": ["low", "high"]}}
+
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_variants)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 80)) as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfigScreen)
+
+            for _ in range(50):
+                await pilot.pause(0.1)
+                if app.screen.query_one(RolesForm).variants:
+                    break
+
+            planner_model = app.screen.query_one("#planner-model", Select)
+            planner_model.value = "opencode-go/kimi-k3"
+            await pilot.pause()
+
+            planner_effort = app.screen.query_one("#planner-effort", Select)
+            options = [str(value) for value, _ in planner_effort._options]  # noqa: SLF001
+            assert "low" in options
+            assert "high" in options
+
+    asyncio.run(scenario())
+
+
+def test_config_screen_saves_effort_per_role(monkeypatch):
+    """El esfuerzo seleccionado en el formulario persiste en config.toml."""
+    from grafeno.config import Config
+
+    cfg = Config()
+    config_module.save(cfg)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 80)) as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfigScreen)
+
+            for _ in range(20):
+                await pilot.pause(0.1)
+                if app.screen.query_one(RolesForm).models:
+                    break
+            await pilot.pause()
+
+            form = app.screen.query_one(RolesForm)
+            form.set_role("planner", "opencode", "opencode-go/kimi-k3", "high")
+            await pilot.pause()
+
+            app.screen.query_one("#cfg-save").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#cfg-save")
+            await pilot.pause()
+
+        saved = config_module.load()
+        assert saved.planner.effort == "high"
 
     asyncio.run(scenario())

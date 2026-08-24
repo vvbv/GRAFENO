@@ -42,6 +42,18 @@ def test_opencode_command_minimal():
     assert "--session" not in cmd
 
 
+def test_opencode_command_with_effort_flag():
+    """Si ``effort`` está fijado, OpenCode recibe ``--variant <nivel>``."""
+    cmd = OpenCodeDriver().build_command(_request(model="opencode-go/kimi-k3", effort="high"))
+    assert cmd[cmd.index("--variant") + 1] == "high"
+
+
+def test_opencode_command_without_effort_has_no_variant_flag():
+    """Sin ``effort`` no aparece ``--variant`` (compatibilidad con versiones antiguas)."""
+    cmd = OpenCodeDriver().build_command(_request(model="opencode-go/kimi-k3", effort=""))
+    assert "--variant" not in cmd
+
+
 def test_opencode_decode_text_and_session():
     driver = OpenCodeDriver()
     line = json.dumps({"type": "text", "sessionID": "ses_9", "part": {"text": "hola"}})
@@ -96,6 +108,54 @@ def test_kimi_command_minimal():
     cmd = KimiDriver().build_command(_request())
     assert "-m" not in cmd
     assert "-S" not in cmd
+
+
+def test_kimi_command_ignores_effort():
+    """Kimi no soporta nivel de trabajo: su comando no añade ningún flag nuevo."""
+    base = KimiDriver().build_command(_request())
+    with_effort = KimiDriver().build_command(_request(effort="high"))
+    assert base == with_effort
+    assert "high" not in with_effort
+    assert "--variant" not in with_effort
+
+
+def test_opencode_parse_variants_real_output():
+    """Parseo de la salida real de ``opencode models --verbose``.
+
+    Se omiten modelos con ``variants`` vacío y se ordenan los niveles.
+    """
+    sample = (
+        "opencode/big-pickle\n"
+        "{\n"
+        '  "id": "big-pickle",\n'
+        '  "variants": {}\n'
+        "}\n"
+        "opencode/hy3-free\n"
+        "{\n"
+        '  "id": "hy3-free",\n'
+        '  "variants": {\n'
+        '    "low": {"reasoningEffort": "low"},\n'
+        '    "medium": {"reasoningEffort": "medium"},\n'
+        '    "high": {"reasoningEffort": "high"}\n'
+        "  }\n"
+        "}\n"
+    )
+    result = OpenCodeDriver().parse_variants(sample)
+    assert "opencode/big-pickle" not in result  # variants {} se omite
+    assert result["opencode/hy3-free"] == ["high", "low", "medium"]
+
+
+def test_opencode_parse_variants_empty_output():
+    assert OpenCodeDriver().parse_variants("") == {}
+
+
+def test_kimi_variants_command_empty():
+    """Kimi no expone comando de variantes."""
+    assert KimiDriver().variants_command() == []
+
+
+def test_kimi_parse_variants_returns_empty():
+    assert KimiDriver().parse_variants("cualquier cosa") == {}
 
 
 def test_kimi_decode_real_event_shapes():
@@ -339,6 +399,34 @@ def test_fetch_all_models(monkeypatch):
     monkeypatch.setattr(CLIDriver, "list_models_async", _fake)
     result = asyncio.run(drivers.fetch_all_models(["opencode", "kimi"]))
     assert result == {"opencode": ["opencode/m1"], "kimi": ["kimi/m1"]}
+
+
+def test_fetch_all_variants(monkeypatch):
+    """``fetch_all_variants`` agrega por CLI; un fallo devuelve dict vacío."""
+    from grafeno import drivers
+
+    async def _fake(self, timeout=30.0):
+        if self.name == "kimi":
+            raise OSError("kimi no soporta variantes")
+        return {"prov/m1": ["high", "low"]}
+
+    monkeypatch.setattr(CLIDriver, "list_variants_async", _fake)
+    result = asyncio.run(drivers.fetch_all_variants(["opencode", "kimi"]))
+    assert result["opencode"] == {"prov/m1": ["high", "low"]}
+    assert result["kimi"] == {}
+
+
+def test_list_variants_async_spawn_error(monkeypatch):
+    async def _fake_exec(*cmd, **kwargs):
+        raise OSError("no existe")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+    assert asyncio.run(OpenCodeDriver().list_variants_async()) == {}
+
+
+def test_list_variants_async_kimi_no_command():
+    """Kimi no expone ``variants_command``: devuelve ``{}`` sin spawn."""
+    assert asyncio.run(KimiDriver().list_variants_async()) == {}
 
 
 # ---------------------------------------------------------------------- #

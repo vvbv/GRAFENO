@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from grafeno import config, paths
-from grafeno.config import Config
+from grafeno.config import Config, RoleConfig
 
 
 def test_load_creates_defaults():
@@ -142,3 +142,33 @@ def test_resolve_editor_config_none_workdir():
     cfg = Config()
     cfg.editor.editor = "code"
     assert config.resolve_editor_config(cfg, None) is cfg.editor
+
+
+def test_role_config_effort_roundtrip():
+    """RoleConfig serializa y recupera ``effort`` correctamente."""
+    role = RoleConfig("opencode", "p/m", "high")
+    assert role.to_dict() == {"cli": "opencode", "model": "p/m", "effort": "high"}
+    loaded = RoleConfig.from_dict(role.to_dict(), default_cli="opencode")
+    assert loaded.effort == "high"
+
+
+def test_role_config_effort_defaults_to_empty():
+    """``from_dict`` sin la clave ``effort`` carga con valor vacío."""
+    loaded = RoleConfig.from_dict({"cli": "opencode", "model": "m"}, default_cli="opencode")
+    assert loaded.effort == ""
+
+
+def test_config_effort_roundtrip():
+    """Config persiste y recupera ``effort`` por rol vía ``save``/``load``."""
+    cfg = Config()
+    cfg.planner.effort = "high"
+    cfg.implementer.effort = "max"
+    cfg.reviewer.effort = ""
+    cfg.final.effort = "low"
+    config.save(cfg)
+
+    loaded = config.load()
+    assert loaded.planner.effort == "high"
+    assert loaded.implementer.effort == "max"
+    assert loaded.reviewer.effort == ""
+    assert loaded.final.effort == "low"

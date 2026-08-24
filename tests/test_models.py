@@ -236,3 +236,51 @@ def test_reset_to_draft_conserva_tokens_y_rama(tmp_path):
     assert persisted.branch == "grafeno/conservar"
     assert persisted.durations == {"plan": 12}
     assert persisted.tokens == {"plan|opencode|m|input": 100}
+
+
+def test_task_create_copies_effort_from_config(tmp_path):
+    """Task.create propaga ``effort`` desde cada ``RoleConfig`` global."""
+    cfg = Config()
+    cfg.planner.effort = "low"
+    cfg.implementer.effort = "max"
+    cfg.reviewer.effort = "medium"
+    cfg.final.effort = "high"
+    task = Task.create("Demo", "desc", str(tmp_path), cfg)
+    assert task.planner.effort == "low"
+    assert task.implementer.effort == "max"
+    assert task.reviewer.effort == "medium"
+    assert task.final.effort == "high"
+
+
+def test_task_effort_roundtrip(tmp_path):
+    """El esfuerzo de cada rol persiste en task.toml y se recupera."""
+    task = Task.create("Demo", "desc", str(tmp_path), Config())
+    task.planner.effort = "low"
+    task.implementer.effort = "max"
+    task.reviewer.effort = "medium"
+    task.final.effort = "high"
+    models.save(task)
+
+    loaded = models.load(task.id)
+    assert loaded.planner.effort == "low"
+    assert loaded.implementer.effort == "max"
+    assert loaded.reviewer.effort == "medium"
+    assert loaded.final.effort == "high"
+
+
+def test_legacy_task_without_effort_loads_empty(tmp_path):
+    """Tareas antiguas sin clave ``effort`` cargan con valor vacío."""
+    task = Task.create("Demo", "desc", str(tmp_path), Config())
+    models.save(task)
+    meta = paths.task_meta_path(task.id)
+    with meta.open("rb") as handle:
+        data = tomllib.load(handle)
+    for role_key in ("planner", "implementer", "reviewer", "final"):
+        data[role_key].pop("effort", None)
+    meta.write_text(_toml.dumps(data), encoding="utf-8")
+
+    loaded = models.load(task.id)
+    assert loaded.planner.effort == ""
+    assert loaded.implementer.effort == ""
+    assert loaded.reviewer.effort == ""
+    assert loaded.final.effort == ""

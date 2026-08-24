@@ -19,6 +19,10 @@ async def _fake_fetch(clis):
     }
 
 
+async def _fake_fetch_variants(clis):
+    return {}
+
+
 def _make_task():
     from grafeno.config import Config
 
@@ -34,6 +38,7 @@ def _make_task():
 
 def test_task_roles_screen_edits_and_saves(monkeypatch):
     monkeypatch.setattr("grafeno.tui.screens.roles.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.roles.fetch_all_variants", _fake_fetch_variants)
     task = _make_task()
 
     async def scenario():
@@ -77,6 +82,7 @@ def test_task_roles_screen_edits_and_saves(monkeypatch):
 
 def test_task_roles_screen_cancel_keeps_roles(monkeypatch):
     monkeypatch.setattr("grafeno.tui.screens.roles.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.roles.fetch_all_variants", _fake_fetch_variants)
     task = _make_task()
     original_cli = task.planner.cli
 
@@ -112,6 +118,7 @@ def test_task_roles_screen_escape_cancels_loading(monkeypatch):
         return {}
 
     monkeypatch.setattr("grafeno.tui.screens.roles.fetch_all_models", _slow_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.roles.fetch_all_variants", _slow_fetch)
     task = _make_task()
 
     async def scenario():
@@ -140,3 +147,40 @@ def test_task_roles_screen_escape_cancels_loading(monkeypatch):
             assert isinstance(app.screen, TaskDetailScreen)
 
     asyncio.run(scenario())
+
+
+def test_task_roles_screen_persists_effort(monkeypatch):
+    """El esfuerzo seleccionado en el modal se guarda en task.toml."""
+    monkeypatch.setattr("grafeno.tui.screens.roles.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.roles.fetch_all_variants", _fake_fetch_variants)
+    task = _make_task()
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 45)) as pilot:
+            await pilot.pause()
+            app.push_screen(TaskDetailScreen(task))
+            await pilot.pause()
+            await pilot.press("e")
+            await pilot.pause()
+            assert isinstance(app.screen, TaskRolesScreen)
+
+            for _ in range(50):
+                await pilot.pause(0.1)
+                if app.screen.query_one(RolesForm).models:
+                    break
+
+            form = app.screen.query_one(RolesForm)
+            form.set_role("planner", "opencode", "opencode-go/kimi-k3", "low")
+            await pilot.pause()
+
+            app.screen.query_one("#tr-save").scroll_visible()
+            await pilot.pause()
+            await pilot.click("#tr-save")
+            await pilot.pause()
+            assert isinstance(app.screen, TaskDetailScreen)
+
+    asyncio.run(scenario())
+
+    reloaded = models.load(task.id)
+    assert reloaded.planner.effort == "low"

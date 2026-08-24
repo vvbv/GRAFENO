@@ -26,6 +26,7 @@ class FakeDriver(CLIDriver):
         self._available = available
         self._results = deque(results)
         self.prompts: list[str] = []
+        self.requests: list = []
 
     def is_available(self) -> bool:
         return self._available
@@ -38,6 +39,7 @@ class FakeDriver(CLIDriver):
 
     async def run(self, request, on_event=None, on_activity=None):
         self.prompts.append(request.prompt)
+        self.requests.append(request)
         if request.log_path is not None:
             request.log_path.parent.mkdir(parents=True, exist_ok=True)
             with request.log_path.open("a", encoding="utf-8") as handle:
@@ -585,3 +587,40 @@ def test_run_reevaluate_plan_with_existing_files_writes_reevaluate_log(tmp_path)
     assert not (paths.logs_dir(task.id) / "plan.jsonl").exists()
     # El planner recibió el prompt de reevaluación.
     assert "REEVALUACIÓN" in planner.prompts[-1]
+
+
+def test_effort_is_passed_to_run_request(tmp_path):
+    """El orquestador propaga ``effort`` del rol a ``RunRequest``."""
+    task = _make_task(tmp_path)
+    task.implementer.effort = "high"
+    impl = FakeDriver("fake-impl", [_ok("v1")])
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": impl,
+        "fake-rev": FakeDriver(
+            "fake-rev", [_ok("bien\nVERDICT: APPROVED")]
+        ),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_implement())
+
+    assert impl.requests, "FakeDriver debería haber recibido al menos un RunRequest"
+    assert impl.requests[0].effort == "high"
+
+
+def test_effort_empty_is_passed_through(tmp_path):
+    """Sin esfuerzo configurado, ``RunRequest.effort`` es cadena vacía."""
+    task = _make_task(tmp_path)
+    assert task.implementer.effort == ""
+    impl = FakeDriver("fake-impl", [_ok("v1")])
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": impl,
+        "fake-rev": FakeDriver("fake-rev", [_ok("bien\nVERDICT: APPROVED")]),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_implement())
+
+    assert impl.requests[0].effort == ""
