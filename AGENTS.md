@@ -17,7 +17,7 @@ preparada para Codex y Claude Code).
 ```
 src/grafeno/
 ├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas)
-├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo, automode, paleta (tema), prompt de pasos finales
+├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo, automode, paleta (tema), prompt de pasos finales
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
@@ -26,9 +26,9 @@ src/grafeno/
 ├── _toml.py                # Serializador TOML propio (escritura; lectura con tomllib)
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
 ├── drivers/                # Abstracción de CLIs de agentes
-│   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL
+│   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL; expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
 │   ├── opencode.py, kimi.py#   Dialectos concretos
-│   └── __init__.py         #   Registro: get_driver(), available_clis(), fetch_all_models()
+│   └── __init__.py         #   Registro: get_driver(), available_clis(), fetch_all_models(), fetch_all_variants()
 ├── pipeline/
 │   ├── orchestrator.py     # Orquestador de fases (plan/implementar/revisar/final, automode, ciclos)
 │   ├── hooks.py            # Hooks de completado por etapa (comando shell o webhook URL; global + por tarea, mejor esfuerzo)
@@ -74,7 +74,10 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `decode_event`, `extract_usage`) y registrarlo en `drivers/__init__.py`.
   La lectura de streams usa `read_lines` (chunked), nunca el reader de líneas
   de asyncio (bug de 64 KiB). `decode_line` devuelve además del evento el
-  `TokenUsage` acumulado cuando el CLI emite eventos de uso.
+  `TokenUsage` acumulado cuando el CLI emite eventos de uso. El nivel de
+  trabajo del modelo viaja en `RunRequest.effort`; los CLIs sin soporte
+  exponen `variants_command() -> []` y `parse_variants -> {}` (defecto de
+  la base) e ignoran el campo en `build_command`.
 - **Editor**: la apertura automática usa `editor.py` (mejor esfuerzo,
   nunca bloquea la TUI). Config global en `[editor]`, sobreescritura
   por proyecto en `<proyecto>/.grafeno.toml`; el flag `--noeditor`
