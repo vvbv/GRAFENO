@@ -88,8 +88,10 @@ GitHub Release with the `vX.Y.Z` tag and attached artifacts.
 | `a` | Detail | Automode |
 | `m` | Detail | Ask for more (new extension cycle) |
 | `e` | Detail | Change CLI and model of each task agent |
+| `E` | Detail | Edit task name and description |
 | `d` | Detail | Force-close (marks the task as `done`, with confirmation) |
 | `D` | Detail | Discard task (terminal state `discarded`, with confirmation) |
+| `R` | Detail | Restart the task from scratch (aborts the current run if any, then resets to `DRAFT` and clears `plan/`, `review/`, `final/` and the schedule, with confirmation) |
 | `x` | Detail | Cancel execution |
 | `Esc` | Detail/Config | Back |
 | `Ctrl+T` | Global | Theme selector (the chosen palette is persisted in the config) |
