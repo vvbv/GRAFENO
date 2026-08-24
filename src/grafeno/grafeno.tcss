@@ -222,12 +222,21 @@ Markdown {
     margin-top: 1;
 }
 
+.role-row-fields {
+    height: auto;
+    margin: 0;
+}
+
 .role-row .cli-select {
-    width: 24;
+    width: 16;
 }
 
 .role-row .model-select {
     width: 1fr;
+}
+
+.role-row .effort-select {
+    width: 22;
 }
 
 .role-row Select {

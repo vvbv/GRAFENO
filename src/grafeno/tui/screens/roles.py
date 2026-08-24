@@ -15,7 +15,7 @@ from textual.widgets import Button, Label, Static
 
 from ... import models
 from ...config import KNOWN_CLIS
-from ...drivers import fetch_all_models
+from ...drivers import fetch_all_models, fetch_all_variants
 from ...i18n import t
 from ...models import Task
 from ..rolesform import ROLES, RolesForm
@@ -48,7 +48,7 @@ class TaskRolesScreen(ModalScreen[bool]):
         form = self.query_one(RolesForm)
         for role, _ in ROLES:
             role_cfg = self._gtask.role(role)
-            form.set_role(role, role_cfg.cli, role_cfg.model)
+            form.set_role(role, role_cfg.cli, role_cfg.model, role_cfg.effort)
         self._load_models()
 
     # ------------------------------------------------------------------ #
@@ -65,11 +65,19 @@ class TaskRolesScreen(ModalScreen[bool]):
 
     async def _fetch_models(self) -> None:
         models_map = await fetch_all_models(KNOWN_CLIS)
-        self._apply_models(models_map)
+        variants_map = await fetch_all_variants(KNOWN_CLIS)
+        self._apply_models(models_map, variants_map)
 
-    def _apply_models(self, models_map: dict[str, list[str]]) -> None:
+    def _apply_models(
+        self,
+        models_map: dict[str, list[str]],
+        variants_map: dict[str, dict[str, list[str]]] | None = None,
+    ) -> None:
         self._loading = False
-        self.query_one(RolesForm).set_models(models_map)
+        form = self.query_one(RolesForm)
+        form.set_models(models_map)
+        if variants_map is not None:
+            form.set_variants(variants_map)
         summary = " · ".join(
             t("cfg.models.count", cli=cli, count=len(models)) if models else t("cfg.models.unavailable", cli=cli)
             for cli, models in models_map.items()
@@ -104,7 +112,7 @@ class TaskRolesScreen(ModalScreen[bool]):
         form = self.query_one(RolesForm)
         for role, _ in ROLES:
             role_cfg = self._gtask.role(role)
-            role_cfg.cli, role_cfg.model = form.role_values(role)
+            role_cfg.cli, role_cfg.model, role_cfg.effort = form.role_values(role)
         models.save(self._gtask)
         self.notify(t("roles.saved"))
         self.dismiss(True)
