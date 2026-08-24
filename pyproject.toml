@@ -1,14 +1,15 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "grafeno"
-version = "1.10.0"
+version = "1.10.1"
 description = "Multi-CLI TUI orchestrator for programming tasks (plan -> implementation -> review -> final steps)"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 dependencies = [
     "textual>=0.86",
 ]
