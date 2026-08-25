@@ -388,7 +388,7 @@ class TaskDetailScreen(Screen[None]):
             self._render_agents_bar()
 
     def _total_seconds(self) -> float:
-        total = float(sum(self.current_task.durations.values()))
+        total = float(self.current_task.total_duration_seconds())
         if self.runtime.phase_started_at is not None:
             total += time.monotonic() - self.runtime.phase_started_at
         return total

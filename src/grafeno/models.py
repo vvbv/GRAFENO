@@ -239,6 +239,10 @@ class Task:
                 entry[1] += value
         return {label: (pair[0], pair[1]) for label, pair in result.items()}
 
+    def total_duration_seconds(self) -> int:
+        """Total accumulated duration of the task across every phase."""
+        return sum(self.durations.values())
+
     # ------------------------------------------------------------------ #
     def to_dict(self) -> dict[str, Any]:
         return {

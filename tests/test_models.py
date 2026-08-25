@@ -238,6 +238,14 @@ def test_reset_to_draft_conserva_tokens_y_rama(tmp_path):
     assert persisted.tokens == {"plan|opencode|m|input": 100}
 
 
+def test_total_duration_seconds(tmp_path):
+    """total_duration_seconds sums every phase; empty means zero."""
+    task = Task.create("Demo", "desc", str(tmp_path), Config())
+    assert task.total_duration_seconds() == 0
+    task.durations = {"plan": 12, "implement": 30, "tests": 5}
+    assert task.total_duration_seconds() == 47
+
+
 def test_task_create_copies_effort_from_config(tmp_path):
     """Task.create propaga ``effort`` desde cada ``RoleConfig`` global."""
     cfg = Config()
