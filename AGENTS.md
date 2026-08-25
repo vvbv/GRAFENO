@@ -37,7 +37,7 @@ src/grafeno/
 └── tui/
     ├── runtime.py          # TaskRuntime: ejecución en segundo plano por tarea (workers Textual); notifica a la App cuando una ejecución termina en DONE (gancho de encadenamiento/repetición)
     ├── dirpicker.py        # Autocompletado de rutas en el formulario
-    ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol
+    ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol; incluye filtro de texto sobre el selector de modelos
     ├── widgets.py          # Widgets comunes (barra de actividad, confirmaciones)
     └── screens/            # tasks (lista), detail (detalle+acciones), config, roles
 tests/                      # pytest; conftest aísla GRAFENO_HOME e idioma por test
