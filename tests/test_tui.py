@@ -1205,3 +1205,70 @@ def test_quit_bindings_include_cmd_q() -> None:
     keys = {binding.key for binding in GrafenoApp.BINDINGS}
     assert "ctrl+q" in keys
     assert "super+q" in keys
+
+
+def test_new_task_issue_selector_fills_name_and_description(monkeypatch):
+    """Choosing an issue fills the task name and description."""
+    from grafeno import gh as gh_module
+    from grafeno.tui.screens import tasks as tasks_module
+
+    issues = [
+        gh_module.GhIssue(number=7, title="Fix login", body="Steps to reproduce"),
+        gh_module.GhIssue(number=3, title="Write docs", body=""),
+    ]
+    monkeypatch.setattr(tasks_module.gh_module, "gh_available", lambda _wd: True)
+    monkeypatch.setattr(tasks_module.gh_module, "list_issues", lambda _wd, **kw: issues)
+
+    async def scenario():
+        from textual.widgets import Input, Select, TextArea
+
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 60)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            for _ in range(20):
+                await pilot.pause(0.05)  # wait for the background worker
+
+            select = app.screen.query_one("#nt-issue", Select)
+            assert select.display is True
+            # _options includes the blank sentinel of allow_blank=True.
+            assert [opt for opt in select._options if opt[1] is not Select.NULL] == [
+                ("#7 Fix login", "7"),
+                ("#3 Write docs", "3"),
+            ]
+
+            select.value = "7"
+            await pilot.pause()
+            assert app.screen.query_one("#nt-name", Input).value == "Fix login"
+            assert app.screen.query_one("#nt-description", TextArea).text == "Steps to reproduce"
+
+            # Empty body: the description falls back to the title.
+            select.value = "3"
+            await pilot.pause()
+            assert app.screen.query_one("#nt-name", Input).value == "Write docs"
+            assert app.screen.query_one("#nt-description", TextArea).text == "Write docs"
+
+    asyncio.run(scenario())
+
+
+def test_new_task_issue_selector_hidden_without_gh(monkeypatch):
+    """Without gh/repo/access the issue selector is not shown."""
+    from grafeno.tui.screens import tasks as tasks_module
+
+    monkeypatch.setattr(tasks_module.gh_module, "gh_available", lambda _wd: False)
+
+    async def scenario():
+        from textual.widgets import Select
+
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 60)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            for _ in range(20):
+                await pilot.pause(0.05)
+
+            assert app.screen.query_one("#nt-issue", Select).display is False
+
+    asyncio.run(scenario())

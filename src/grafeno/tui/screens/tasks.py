@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from datetime import datetime
@@ -25,6 +26,7 @@ from textual.widgets import (
 )
 
 from ... import config as config_module, scheduler
+from ... import gh as gh_module
 from ... import models
 from ...i18n import t
 from ...models import Task, state_label
@@ -38,6 +40,10 @@ class NewTaskScreen(ModalScreen[Task | None]):
 
     BINDINGS = [Binding("escape", "cancel", t("common.cancel"))]
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._issues: dict[str, gh_module.GhIssue] = {}
+
     def compose(self) -> ComposeResult:
         with Vertical(id="new-task-dialog"):
             yield Label(t("nt.title"), id="new-task-title")
@@ -45,6 +51,8 @@ class NewTaskScreen(ModalScreen[Task | None]):
             yield Input(placeholder=t("nt.name.placeholder"), id="nt-name")
             yield Label(t("nt.description"))
             yield TextArea(id="nt-description")
+            yield Label(t("nt.issue"), id="nt-issue-label")
+            yield Select([], id="nt-issue", allow_blank=True)
             yield Label(t("nt.workdir"))
             yield DirectoryPicker(os.getcwd(), input_id="nt-workdir")
             yield Label(t("nt.schedule"))
@@ -107,6 +115,37 @@ class NewTaskScreen(ModalScreen[Task | None]):
         ]
         parent_select.set_options(parent_options)
         self.query_one("#nt-name", Input).focus()
+        # The issue selector starts hidden until the background load finishes.
+        self.query_one("#nt-issue-label", Label).display = False
+        self.query_one("#nt-issue", Select).display = False
+        self.run_worker(self._load_issues(), exclusive=True, group="nt-issues")
+
+    async def _load_issues(self) -> None:
+        """Load open GitHub issues in the background; show the selector if any."""
+        workdir = Path(self.query_one("#nt-workdir", Input).value.strip() or ".").expanduser()
+        available = await asyncio.to_thread(gh_module.gh_available, workdir)
+        issues = await asyncio.to_thread(gh_module.list_issues, workdir) if available else []
+        if not issues:
+            return
+        self._issues = {str(issue.number): issue for issue in issues}
+        select = self.query_one("#nt-issue", Select)
+        select.set_options([
+            (f"#{issue.number} {issue.title}", str(issue.number))
+            for issue in issues
+        ])
+        self.query_one("#nt-issue-label", Label).display = True
+        select.display = True
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id != "nt-issue" or event.value is Select.BLANK:
+            return
+        issue = self._issues.get(str(event.value))
+        if issue is None:
+            return
+        # Deliberate: picking an issue overwrites name and description even
+        # if the user already typed something; unselecting restores nothing.
+        self.query_one("#nt-name", Input).value = issue.title
+        self.query_one("#nt-description", TextArea).text = issue.body.strip() or issue.title
 
     def action_cancel(self) -> None:
         self.dismiss(None)
