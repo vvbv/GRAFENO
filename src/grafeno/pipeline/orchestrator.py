@@ -17,6 +17,7 @@ from ..config import RoleConfig
 from ..drivers import RunEvent, RunRequest, get_driver
 from ..drivers.base import CLIDriver, EventKind, RunResult
 from ..i18n import t
+from ..mdnorm import normalize_markdown
 from ..models import Task, TaskState
 from ..timefmt import format_duration
 from . import gitops, hooks, prompts
@@ -74,6 +75,23 @@ class Orchestrator:
     def _plan_files(self) -> list[Path]:
         plan_dir = paths.plan_dir(self.task.id, self.task.cycle)
         return sorted(plan_dir.glob("*.md"))
+
+    def _normalize_md_files(self, directory: Path) -> None:
+        """Normalize the .md files of a phase directory in place (best effort)."""
+        try:
+            for md_file in sorted(directory.glob("*.md")):
+                try:
+                    original = md_file.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                normalized = normalize_markdown(original)
+                if normalized != original:
+                    try:
+                        md_file.write_text(normalized, encoding="utf-8")
+                    except OSError:
+                        continue
+        except OSError:
+            pass  # missing directory: nothing to normalize
 
     async def _execute(
         self,
@@ -207,6 +225,7 @@ class Orchestrator:
             TaskState.PLANNING,
             TaskState.PLANNED,
         )
+        self._normalize_md_files(paths.plan_dir(self.task.id, self.task.cycle))
         if not self._plan_files():
             # Fallback: the planner wrote no files; we materialise its output.
             if not result.text.strip():
@@ -214,8 +233,10 @@ class Orchestrator:
                 raise PhaseError(t("orch.no_plan_output"))
             plan_path = paths.plan_dir(self.task.id, self.task.cycle) / "01-plan.md"
             plan_path.write_text(
-                f"{prompts.executor_header(self.task)}\n{prompts.executor_notice(self.task)}\n\n"
-                f"# Plan: {self.task.name}\n\n{result.text.strip()}\n",
+                normalize_markdown(
+                    f"{prompts.executor_header(self.task)}\n{prompts.executor_notice(self.task)}\n\n"
+                    f"# Plan: {self.task.name}\n\n{result.text.strip()}\n"
+                ),
                 encoding="utf-8",
             )
             self._info(t("orch.plan_fallback"))
@@ -238,11 +259,14 @@ class Orchestrator:
             TaskState.PLANNING,
             TaskState.PLANNED,
         )
+        self._normalize_md_files(paths.plan_dir(self.task.id, self.task.cycle))
         if not self._plan_files() and result.text.strip():
             plan_path = paths.plan_dir(self.task.id, self.task.cycle) / "01-plan.md"
             plan_path.write_text(
-                f"{prompts.executor_header(self.task)}\n{prompts.executor_notice(self.task)}\n\n"
-                f"# Plan: {self.task.name}\n\n{result.text.strip()}\n",
+                normalize_markdown(
+                    f"{prompts.executor_header(self.task)}\n{prompts.executor_notice(self.task)}\n\n"
+                    f"# Plan: {self.task.name}\n\n{result.text.strip()}\n"
+                ),
                 encoding="utf-8",
             )
 
@@ -267,10 +291,11 @@ class Orchestrator:
             TaskState.REVIEWING,
             TaskState.IMPLEMENTED,
         )
+        self._normalize_md_files(paths.review_dir(self.task.id, self.task.cycle))
         review_path = paths.review_dir(self.task.id, self.task.cycle) / f"{review_number:02d}-review.md"
         if not review_path.exists() and result.text.strip():
             # Fallback: the reviewer did not write the file; we save its output.
-            review_path.write_text(result.text.strip() + "\n", encoding="utf-8")
+            review_path.write_text(normalize_markdown(result.text), encoding="utf-8")
 
         verdict = parse_verdict(result.text)
         if verdict is None:
@@ -306,10 +331,11 @@ class Orchestrator:
             TaskState.FINALIZING,
             TaskState.DONE,
         )
+        self._normalize_md_files(paths.final_dir(self.task.id, self.task.cycle))
         final_path = paths.final_dir(self.task.id, self.task.cycle) / "01-final.md"
         if not final_path.exists() and result.text.strip():
             # Fallback: the agent did not write the report; we save its output.
-            final_path.write_text(result.text.strip() + "\n", encoding="utf-8")
+            final_path.write_text(normalize_markdown(result.text), encoding="utf-8")
 
     async def run_tests(self) -> bool:
         command = self.task.test_command.strip()

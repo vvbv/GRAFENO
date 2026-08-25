@@ -20,6 +20,7 @@ src/grafeno/
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
+├── mdnorm.py               # Normalización de Markdown: colapsa saltos de línea y compacta listas sueltas en los .md de cada etapa
 ├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
 ├── scheduler.py            # Lógica pura: programación horaria, encadenamiento padre/hija y repetición de tareas
 ├── _toml.py                # Serializador TOML propio (escritura; lectura con tomllib)

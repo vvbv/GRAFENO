@@ -29,6 +29,7 @@ from textual.widgets import (
 
 from ... import models, paths
 from ...i18n import t
+from ...mdnorm import normalize_markdown
 from ...models import Task, TaskState
 from ...pipeline.orchestrator import Orchestrator, phase_label
 from ...timefmt import format_duration
@@ -530,7 +531,7 @@ class TaskDetailScreen(Screen[None]):
         target = event.item.file_path
         view_id = views[list_id]
         try:
-            text = target.read_text(encoding="utf-8")
+            text = normalize_markdown(target.read_text(encoding="utf-8"))
         except OSError as exc:
             self.notify(t("det.error.read", name=target.name, error=exc), severity="error")
             return

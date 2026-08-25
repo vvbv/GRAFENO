@@ -42,6 +42,13 @@ Reglas de código (obligatorias al implementar):
   existente en el proyecto.
 """.strip()
 
+_MD_RULES = """
+Formato Markdown (obligatorio en los archivos .md que generes):
+- Listas compactas: nunca dejes lineas en blanco entre elementos consecutivos
+  de una misma lista (ni con guiones, ni numeradas, ni checkboxes).
+- No uses mas de UNA linea en blanco seguida para separar bloques.
+""".strip()
+
 
 def executor_header(task: Task) -> str:
     return EXECUTOR_HEADER_TEMPLATE.format(cli=task.implementer.cli, model=task.implementer.model or "default")
@@ -125,6 +132,8 @@ tarea de programación orquestada por GRAFENO.
 
 {_CODE_RULES}
 
+{_MD_RULES}
+
 8. Termina tu respuesta con un resumen de 3 líneas y la lista de archivos escritos.
 
 {_COMMON_RULES}
@@ -167,6 +176,8 @@ plan existente, NO una planificación desde cero.
 6. El plan debe incluir literalmente estas reglas para el ejecutor:
 
 {_CODE_RULES}
+
+{_MD_RULES}
 
 7. Termina tu respuesta con un resumen de los cambios (o de "sin cambios").
 
@@ -236,6 +247,8 @@ def review_prompt(task: Task, review_number: int) -> str:
    - `VERDICT: CHANGES_REQUESTED` si falta algo (los problemas numerados del
      archivo de revisión los corregirá el implementador).
 
+{_MD_RULES}
+
 {_COMMON_RULES}
 """.strip()
 
@@ -303,6 +316,8 @@ La tarea ya fue implementada y APROBADA por el revisor. Tu trabajo es el cierre.
    con secciones: Resumen, Acciones realizadas, Documentación actualizada, Observaciones.
 
 {_CODE_RULES}
+
+{_MD_RULES}
 
 Termina tu respuesta con un resumen de las acciones de cierre realizadas.
 
