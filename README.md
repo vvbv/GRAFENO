@@ -20,6 +20,8 @@ Every task follows a pipeline with four configurable roles (CLI + model for each
    of instructions in `config.toml` (`final_prompt`) or override it per task when
    creating it; if empty, the closeout runs as usual.
 
+**Markdown normalization**: every `.md` written by the pipeline (plan, review and final) is normalized on disk after its phase ends, and the same compaction is applied in memory when you open one in the detail view, so legacy artifacts render compactly too. The normalization collapses runs of blank lines into a single one and removes the blank lines between consecutive items of the same list (bullet, ordered or checkbox) — fenced code blocks are preserved verbatim. The on-disk rewrite only touches files the pipeline just produced; older artifacts keep their original bytes.
+
 **Automode**: chains the whole cycle without intervention until the task is approved **and** the tests (if defined) pass, ending with the final steps, or until the maximum iterations are exhausted. With the `confirm_plan` option (global or per task), automode pauses after the plan so you can confirm before implementing.
 
 **Cycles ("Ask for more")**: once the task is completed (or at any pause), the `m` key lets you request extensions on the same project. Each extension starts a new cycle with the same logic (plan -> optional approval -> implementation -> review), keeping the history under `plan/ciclo-NN/` and `review/ciclo-NN/`.
