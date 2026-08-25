@@ -1366,3 +1366,78 @@ def test_header_clock_visible_on_all_screens():
             assert_clock()
 
     asyncio.run(scenario())
+
+
+def test_edit_task_rechains_parent():
+    """The 'E' modal rechains the task without touching its state or name."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task, TaskState
+        from grafeno.tui.screens.detail import EditTaskScreen, TaskDetailScreen
+        from textual.widgets import Select
+
+        parent = Task.create("Padre", "desc", "/tmp", Config())
+        parent.id = "p-rechain"
+        models.save(parent)
+        child = Task.create("Hija", "desc original", "/tmp", Config())
+        child.id = "c-rechain"
+        child.parent_id = ""
+        models.save(child)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(child.id)))
+            await pilot.pause()
+            await pilot.press("E")
+            await pilot.pause()
+            assert isinstance(app.screen, EditTaskScreen)
+
+            screen = app.screen
+            screen.query_one("#et-parent", Select).value = parent.id
+            screen.query_one("#et-save").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#et-save")
+            await pilot.pause()
+
+            loaded = models.load(child.id)
+            assert loaded.parent_id == parent.id
+            assert loaded.state is TaskState.DRAFT
+            assert loaded.name == "Hija"
+
+    asyncio.run(scenario())
+
+
+def test_edit_task_rejects_completed_parent():
+    """The parent selector does not list completed tasks; saving with one rejects."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task, TaskState
+        from grafeno.tui.screens.detail import EditTaskScreen, TaskDetailScreen
+        from textual.widgets import Select
+
+        parent = Task.create("Padre done", "desc", "/tmp", Config())
+        parent.id = "p-done"
+        parent.state = TaskState.DONE
+        models.save(parent)
+        child = Task.create("Hija", "desc", "/tmp", Config())
+        child.id = "c-done"
+        child.parent_id = ""
+        models.save(child)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(child.id)))
+            await pilot.pause()
+            await pilot.press("E")
+            await pilot.pause()
+            assert isinstance(app.screen, EditTaskScreen)
+
+            select = app.screen.query_one("#et-parent", Select)
+            option_values = [value for _, value in select._options]
+            assert "p-done" not in option_values
+            assert select.value is Select.NULL
+
+    asyncio.run(scenario())

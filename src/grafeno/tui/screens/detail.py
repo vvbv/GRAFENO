@@ -21,13 +21,14 @@ from textual.widgets import (
     ListView,
     Markdown,
     RichLog,
+    Select,
     Static,
     TabbedContent,
     TabPane,
     TextArea,
 )
 
-from ... import models, paths
+from ... import models, paths, scheduler
 from ...i18n import t
 from ...mdnorm import normalize_markdown
 from ...models import Task, TaskState
@@ -237,6 +238,8 @@ class EditTaskScreen(ModalScreen[bool]):
             yield Input(self._gtask.name, id="et-name")
             yield Label(t("et.description"))
             yield TextArea(id="et-description")
+            yield Label(t("et.parent"))
+            yield Select([], id="et-parent", allow_blank=True)
             with Horizontal(id="nt-buttons"):
                 yield Button(t("common.save"), variant="primary", id="et-save")
                 yield Button(t("common.cancel"), id="et-cancel")
@@ -244,6 +247,22 @@ class EditTaskScreen(ModalScreen[bool]):
     def on_mount(self) -> None:
         self.query_one("#et-description", TextArea).text = self._gtask.description
         self.query_one("#et-name", Input).focus()
+        # Parent selector: valid rechain positions plus the current parent
+        # (grandfathered even if its position is sealed today).
+        all_tasks = models.list_all()
+        candidates = scheduler.rechain_candidates(self._gtask, all_tasks)
+        options = [(f"{task.name} ({task.id})", task.id) for task in candidates]
+        current = self._gtask.parent_id
+        if current and all(value != current for _, value in options):
+            parent = next((task for task in all_tasks if task.id == current), None)
+            label = f"{parent.name} ({parent.id})" if parent else current
+            options.append((label, current))
+        parent_select = self.query_one("#et-parent", Select)
+        parent_select.set_options(options)
+        # When current is empty the default Select.NULL is already "no parent";
+        # we only assign explicitly when we have a real value to highlight.
+        if current:
+            parent_select.value = current
 
     def action_cancel(self) -> None:
         self.dismiss(False)
@@ -256,8 +275,20 @@ class EditTaskScreen(ModalScreen[bool]):
         if not name:
             self.notify(t("et.error.name_required"), severity="error")
             return
+        parent_value = self.query_one("#et-parent", Select).value
+        # Select.NULL is the sentinel for "no selection"; empty string is the
+        # value we store in Task.parent_id when the task has no parent.
+        parent_id = "" if parent_value is Select.NULL else str(parent_value)
+        if parent_id != self._gtask.parent_id:
+            by_id = {task.id: task for task in models.list_all()}
+            error_key = scheduler.rechain_error(self._gtask, parent_id, by_id)
+            if error_key:
+                self.notify(t(error_key), severity="error")
+                return
         self._gtask.name = name
         self._gtask.description = self.query_one("#et-description", TextArea).text.strip()
+        if parent_id != self._gtask.parent_id:
+            self._gtask.parent_id = parent_id
         models.save(self._gtask)
         self.dismiss(True)
 
@@ -722,6 +753,7 @@ class TaskDetailScreen(Screen[None]):
                 return
         models.reset_to_draft(self.current_task)
         self.runtime.task = self.current_task
+        self.runtime.log.clear()
         self._state_changed(self.current_task)
         self._render_activity()
         self.runtime._cb_info(t("det.restarted"))
@@ -730,6 +762,7 @@ class TaskDetailScreen(Screen[None]):
         if self.runtime.running:
             self.notify(t("det.warn.running"), severity="warning")
             return
+        previous_parent = self.current_task.parent_id
 
         def closed(saved: bool) -> None:
             if not saved:
@@ -741,6 +774,16 @@ class TaskDetailScreen(Screen[None]):
                 self.current_task.description or t("det.desc.empty")
             )
             self.runtime._cb_info(t("det.info_updated", name=self.current_task.name))
+            if self.current_task.parent_id != previous_parent:
+                if self.current_task.parent_id:
+                    try:
+                        parent = models.load(self.current_task.parent_id)
+                        name = parent.name
+                    except Exception:
+                        name = self.current_task.parent_id
+                    self.runtime._cb_info(t("et.rechained", name=name))
+                else:
+                    self.runtime._cb_info(t("et.unchained"))
 
         self.app.push_screen(EditTaskScreen(self.current_task), closed)
 

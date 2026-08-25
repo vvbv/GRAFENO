@@ -280,3 +280,122 @@ def test_prepare_next_iteration_resets_machine(tmp_path):
     assert task.cycle == 1
     assert task.sessions == {}
     assert task.repeat_count == 7  # the increment is done by the caller
+
+
+# ---------------------------------------------------------------------- #
+# Rechain validation: changing the parent_id of an existing task.
+# ---------------------------------------------------------------------- #
+
+
+def _chain_tasks(tmp_path) -> dict[str, Task]:
+    """Four tasks: root -> mid -> leaf, plus a free task."""
+    root = _task(tmp_path)
+    root.id = "root"
+    root.name = "root"
+    mid = _task(tmp_path, parent_id=root.id)
+    mid.id = "mid"
+    mid.name = "mid"
+    leaf = _task(tmp_path, parent_id=mid.id)
+    leaf.id = "leaf"
+    leaf.name = "leaf"
+    free = _task(tmp_path)
+    free.id = "free"
+    free.name = "free"
+    return {t.id: t for t in (root, mid, leaf, free)}
+
+
+def test_rechain_error_blank_parent_always_valid(tmp_path):
+    by_id = _chain_tasks(tmp_path)
+    free = by_id["free"]
+    for state in (
+        TaskState.DRAFT,
+        TaskState.DONE,
+        TaskState.DISCARDED,
+        TaskState.PAUSED,
+        TaskState.FAILED,
+    ):
+        free.state = state
+        assert scheduler.rechain_error(free, "", by_id) == ""
+
+
+def test_rechain_error_missing_parent(tmp_path):
+    by_id = _chain_tasks(tmp_path)
+    free = by_id["free"]
+    assert scheduler.rechain_error(free, "no-existe", by_id) == "et.error.parent_missing"
+
+
+def test_rechain_error_self_parent(tmp_path):
+    by_id = _chain_tasks(tmp_path)
+    free = by_id["free"]
+    assert scheduler.rechain_error(free, free.id, by_id) == "et.error.parent_self"
+
+
+def test_rechain_error_cycle(tmp_path):
+    by_id = _chain_tasks(tmp_path)
+    root = by_id["root"]
+    leaf = by_id["leaf"]
+    assert scheduler.rechain_error(root, leaf.id, by_id) == "et.error.parent_cycle"
+
+
+def test_rechain_error_completed_parent(tmp_path):
+    by_id = _chain_tasks(tmp_path)
+    free = by_id["free"]
+    mid = by_id["mid"]
+    for terminal in (TaskState.DONE, TaskState.DISCARDED):
+        mid.state = terminal
+        assert (
+            scheduler.rechain_error(free, mid.id, by_id) == "et.error.parent_completed"
+        )
+
+
+def test_rechain_error_completed_sibling_seals_position(tmp_path):
+    by_id = _chain_tasks(tmp_path)
+    root = by_id["root"]
+    mid = by_id["mid"]
+    free = by_id["free"]
+    mid.state = TaskState.DONE
+    root.state = TaskState.DRAFT
+    assert (
+        scheduler.rechain_error(free, root.id, by_id) == "et.error.position_completed"
+    )
+
+
+def test_rechain_error_valid_between_unprocessed(tmp_path):
+    by_id = _chain_tasks(tmp_path)
+    root = by_id["root"]
+    mid = by_id["mid"]
+    free = by_id["free"]
+    root.state = TaskState.DRAFT
+    mid.state = TaskState.DRAFT
+    # mid is already a child of root, both unprocessed: making room
+    # between unprocessed tasks is valid.
+    assert scheduler.rechain_error(free, root.id, by_id) == ""
+
+
+def test_rechain_error_valid_after_failed_parent(tmp_path):
+    by_id = _chain_tasks(tmp_path)
+    free = by_id["free"]
+    mid = by_id["mid"]
+    for state in (TaskState.FAILED, TaskState.PAUSED):
+        mid.state = state
+        assert scheduler.rechain_error(free, mid.id, by_id) == ""
+
+
+def test_rechain_candidates_excludes_invalid(tmp_path):
+    by_id = _chain_tasks(tmp_path)
+    root = by_id["root"]
+    mid = by_id["mid"]
+    free = by_id["free"]
+    leaf = by_id["leaf"]
+    # Seal the position under root: mid is DONE.
+    mid.state = TaskState.DONE
+    root.state = TaskState.DRAFT
+
+    candidates = scheduler.rechain_candidates(free, list(by_id.values()))
+    candidate_ids = {item.id for item in candidates}
+    # root's position is sealed, so it must NOT appear.
+    assert root.id not in candidate_ids
+    # free cannot chain after itself.
+    assert free.id not in candidate_ids
+    # leaf is non-terminal: it must appear.
+    assert leaf.id in candidate_ids

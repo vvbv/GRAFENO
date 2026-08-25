@@ -20,6 +20,7 @@ src/grafeno/
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
+├── live_log.py             # Persistencia del log en vivo (Text -> logs/live.jsonl, carga al crear el runtime; best-effort)
 ├── mdnorm.py               # Normalización de Markdown: colapsa saltos de línea y compacta listas sueltas en los .md de cada etapa
 ├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
 ├── timefmt.py              # Formateo de duraciones (42s, 3m 05s, 1h 02m 03s)
@@ -54,7 +55,8 @@ install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), v
 ```
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
-`task.toml`, `plan/`, `review/`, `final/`, `logs/*.jsonl`); no en el repo.
+`task.toml`, `plan/`, `review/`, `final/`, `logs/live.jsonl`, `logs/*.jsonl`); no
+en el repo.
 
 ## Compilar / ejecutar / tests
 
@@ -123,7 +125,15 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   y modo de repetición (`interval`/`infinite`) con política de plan
   (`reuse`/`replan`/`reevaluate`). El arranque desatendido usa siempre el
   pipeline completo (automode) e ignora `confirm_plan`; las pausas
-  manuales (PAUSED) nunca se auto-arrancan.
+  manuales (PAUSED) nunca se auto-arrancan. La reencadenación (cambio de
+  `parent_id` desde la pantalla de edición, sin tocar el estado) valida en
+  `scheduler.rechain_error` que la posición no tenga tareas completadas
+  (padre e hijas del padre fuera de DONE/DISCARDED) y que no haya ciclos.
+- **Log en vivo**: cada entrada formateada del log de la pestaña Log se
+  persiste en `logs/live.jsonl` (`live_log.py`) y se restaura al crear el
+  `TaskRuntime`, de modo que sobrevive al cierre de la app. El fichero
+  guarda todo el historial; en memoria solo se cargan las últimas
+  `_MAX_LOG_ENTRIES` entradas. `reset_to_draft` lo borra.
 - **Tests**: un archivo `test_<modulo>.py` por módulo; fixtures autouse en
   `conftest.py` ya aíslan `GRAFENO_HOME` y fijan idioma inglés; drivers falsos
   para el orquestador; smoke tests TUI con el modo headless de Textual

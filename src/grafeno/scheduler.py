@@ -162,3 +162,61 @@ def prepare_next_iteration(task: Task) -> None:
     task.iteration = 0
     task.cycle = 1
     task.sessions = {}
+
+
+# States that seal a chain position: nothing can be chained after them.
+TERMINAL_STATES = (TaskState.DONE, TaskState.DISCARDED)
+
+
+def rechain_error(task: Task, parent_id: str, by_id: dict[str, Task]) -> str:
+    """Validate chaining ``task`` after ``parent_id``.
+
+    Returns an i18n error key (``"et.error.*"``) when the position is
+    invalid, or ``""`` when the rechain is allowed. ``parent_id == ""``
+    (unchain, become a root) is always valid. The task's own state is never
+    part of the validation: rechaining must not affect it.
+
+    Rules:
+    - the parent must exist and cannot be the task itself;
+    - the parent cannot be a descendant of the task (cycle);
+    - the parent cannot be completed (DONE/DISCARDED): you can only chain
+      right after a task that has not completed yet;
+    - no existing child of the parent can be completed: you cannot chain
+      into a position where completed tasks already sit, only make room
+      between tasks not yet processed.
+    """
+    if not parent_id:
+        return ""
+    parent = by_id.get(parent_id)
+    if parent is None:
+        return "et.error.parent_missing"
+    if parent_id == task.id:
+        return "et.error.parent_self"
+    # Cycle check: walk up the ancestor chain of the candidate parent.
+    seen: set[str] = set()
+    cursor = parent
+    while cursor.parent_id:
+        if cursor.parent_id == task.id:
+            return "et.error.parent_cycle"
+        if cursor.parent_id in seen:
+            break  # pre-existing cycle elsewhere: not ours to fix
+        seen.add(cursor.parent_id)
+        cursor = by_id.get(cursor.parent_id)
+        if cursor is None:
+            break  # orphan chain: no cycle with task
+    if parent.state in TERMINAL_STATES:
+        return "et.error.parent_completed"
+    for candidate in by_id.values():
+        if candidate.parent_id == parent_id and candidate.state in TERMINAL_STATES:
+            return "et.error.position_completed"
+    return ""
+
+
+def rechain_candidates(task: Task, tasks: list[Task]) -> list[Task]:
+    """Tasks that can be the new parent of ``task``, preserving input order."""
+    by_id = {item.id: item for item in tasks}
+    return [
+        item
+        for item in tasks
+        if item.id != task.id and not rechain_error(task, item.id, by_id)
+    ]
