@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import inspect
+from datetime import datetime
+
 from rich.text import Text
-from textual.widgets import Markdown, Static
+from textual.app import ComposeResult
+from textual.widgets import Header, Markdown, Static
+from textual.widgets._header import HeaderIcon, HeaderTitle
 
 from ..i18n import t
 from ..models import TaskState, state_label
 from ..timefmt import format_duration
 
-__all__ = ["PhaseBar", "markdown_set", "format_duration"]
+__all__ = ["DateTimeClock", "GrafenoHeader", "PhaseBar", "markdown_set", "format_duration"]
 
 _PHASE_ORDER = (
     ("plan", "phase.plan"),
@@ -85,3 +89,23 @@ async def markdown_set(widget: Markdown, text: str) -> None:
     result = widget.update(text)
     if inspect.isawaitable(result):
         await result
+
+
+class DateTimeClock(Static):
+    """Clock with date and time (seconds included) for the app header."""
+
+    def on_mount(self) -> None:
+        self._update_clock()
+        self.set_interval(1.0, self._update_clock)
+
+    def _update_clock(self) -> None:
+        self.update(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+
+class GrafenoHeader(Header):
+    """App header that always shows the current date and time on the right."""
+
+    def compose(self) -> ComposeResult:
+        yield HeaderIcon().data_bind(Header.icon)
+        yield HeaderTitle()
+        yield DateTimeClock(id="clock")

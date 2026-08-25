@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 
 from textual.app import ComposeResult
@@ -17,7 +16,6 @@ from textual.widgets import (
     Checkbox,
     DataTable,
     Footer,
-    Header,
     Input,
     Label,
     Select,
@@ -33,6 +31,7 @@ from ...models import Task, state_label
 from ...pipeline.hooks import HOOK_STAGES, format_stages
 from ...tokenfmt import format_tokens
 from ..dirpicker import DirectoryPicker
+from ..widgets import GrafenoHeader
 
 
 class NewTaskScreen(ModalScreen[Task | None]):
@@ -244,10 +243,9 @@ class TaskListScreen(Screen[None]):
         self._tasks: list[Task] = []
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield GrafenoHeader()
         with Horizontal(id="tasks-header"):
             yield Static(t("tasks.subtitle"), id="subtitle")
-            yield Static("", id="clock")
             yield Button(t("tasks.scope.project"), id="scope-toggle")
         yield DataTable(id="tasks-table", cursor_type="row", zebra_stripes=True)
         yield Static("", id="empty-hint")
@@ -268,9 +266,6 @@ class TaskListScreen(Screen[None]):
         table.focus()
         # Periodic refresh: shows progress of background tasks.
         self.set_interval(2.0, self._tick_refresh)
-        # Live clock: one second is enough.
-        self._render_clock()
-        self.set_interval(1.0, self._render_clock)
 
     def on_screen_resume(self) -> None:
         self._reload()
@@ -279,12 +274,6 @@ class TaskListScreen(Screen[None]):
         runtimes = getattr(self.app, "runtimes", {})
         if any(runtime.running for runtime in runtimes.values()):
             self._reload(preserve_cursor=True)
-
-    def _render_clock(self) -> None:
-        """1s clock: current time always visible in the listing."""
-        self.query_one("#clock", Static).update(
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        )
 
     def action_toggle_scope(self) -> None:
         """Toggle between project tasks and all tasks."""

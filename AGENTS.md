@@ -39,7 +39,7 @@ src/grafeno/
     ├── runtime.py          # TaskRuntime: ejecución en segundo plano por tarea (workers Textual); notifica a la App cuando una ejecución termina en DONE (gancho de encadenamiento/repetición)
     ├── dirpicker.py        # Autocompletado de rutas en el formulario
     ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol; incluye filtro de texto sobre el selector de modelos
-    ├── widgets.py          # Widgets comunes (barra de actividad, confirmaciones)
+    ├── widgets.py          # Widgets comunes (cabecera GrafenoHeader con reloj fecha/hora, barra de fases, helpers Markdown)
     └── screens/            # tasks (lista), detail (detalle+acciones), config, roles
 tests/                      # pytest; conftest aísla GRAFENO_HOME e idioma por test
 install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), vía pipx

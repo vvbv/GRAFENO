@@ -1272,3 +1272,46 @@ def test_new_task_issue_selector_hidden_without_gh(monkeypatch):
             assert app.screen.query_one("#nt-issue", Select).display is False
 
     asyncio.run(scenario())
+
+
+def test_header_clock_visible_on_all_screens():
+    """The header clock (date + time with seconds) is on every main screen."""
+    import re
+
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task
+    from grafeno.tui.screens.config import ConfigScreen
+    from grafeno.tui.screens.detail import TaskDetailScreen
+    from grafeno.tui.widgets import DateTimeClock, GrafenoHeader
+
+    task = Task.create("Reloj cabecera", "desc", "/tmp", Config())
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            pattern = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
+
+            def assert_clock():
+                clock = app.screen.query_one("#clock", DateTimeClock)
+                rendered = clock.render()
+                text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
+                assert re.match(pattern, text)
+                assert app.screen.query_one(GrafenoHeader)
+
+            # Task list screen.
+            assert_clock()
+
+            # Task detail screen.
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+            assert_clock()
+
+            # Config screen.
+            app.push_screen(ConfigScreen())
+            await pilot.pause()
+            assert_clock()
+
+    asyncio.run(scenario())

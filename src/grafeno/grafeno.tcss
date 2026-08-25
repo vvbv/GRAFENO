@@ -20,8 +20,10 @@ Footer {
 }
 
 #clock {
+    dock: right;
+    width: auto;
+    padding: 0 1;
     color: #8b949e;
-    padding: 0 2;
 }
 
 #tasks-header {

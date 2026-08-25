@@ -10,7 +10,6 @@ from textual.widgets import (
     Button,
     Checkbox,
     Footer,
-    Header,
     Input,
     Label,
     Select,
@@ -26,13 +25,14 @@ from ...drivers import fetch_all_models, fetch_all_variants
 from ...i18n import LANGUAGES, set_language, t
 from ...pipeline.hooks import HOOK_STAGES, format_stages, parse_stages
 from ..rolesform import ROLES, RolesForm
+from ..widgets import GrafenoHeader
 
 
 class ConfigScreen(Screen[None]):
     BINDINGS = [Binding("escape", "back", t("common.back"))]
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield GrafenoHeader()
         with Vertical(id="config-container"):
             yield Label(t("cfg.title", path=paths.config_path()), id="config-title")
             yield Static(t("cfg.roles"), classes="section-title")

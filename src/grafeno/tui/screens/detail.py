@@ -15,7 +15,6 @@ from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button,
     Footer,
-    Header,
     Input,
     Label,
     ListItem,
@@ -34,7 +33,7 @@ from ...models import Task, TaskState
 from ...pipeline.orchestrator import Orchestrator, phase_label
 from ...timefmt import format_duration
 from ...tokenfmt import format_tokens
-from ..widgets import PhaseBar, markdown_set
+from ..widgets import GrafenoHeader, PhaseBar, markdown_set
 
 _SPINNER = "⠋⠙⠹⠸⠼⠴⦦⣾"
 _WARN_AFTER_S = 90    # no output: yellow warning
@@ -294,7 +293,7 @@ class TaskDetailScreen(Screen[None]):
 
     # ------------------------------------------------------------------ #
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield GrafenoHeader()
         yield Static("", id="task-title")
         yield PhaseBar(self.current_task.state, self.current_task.iteration, id="phase-bar")
         yield Static("", id="agents-bar")
