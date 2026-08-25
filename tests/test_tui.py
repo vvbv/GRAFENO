@@ -533,6 +533,35 @@ def test_token_summary_sorted_by_usage_desc():
     asyncio.run(scenario())
 
 
+def test_task_list_shows_duration_and_global_total():
+    """The task list shows per-task duration and the consolidated total time."""
+    import os
+
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task
+    from textual.widgets import DataTable, Static as StaticWidget
+
+    task = Task.create("Demo duracion", "desc", os.getcwd(), Config())
+    task.durations = {"plan": 65, "implement": 120}
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await pilot.pause()
+            await pilot.pause()  # second pause: _reload runs after on_mount
+            table = app.screen.query_one(DataTable)
+            row = [str(cell) for cell in table.get_row_at(0)]
+            assert any("3m 05s" in cell for cell in row)
+            summary = app.screen.query_one("#token-summary", StaticWidget)
+            content = summary.render()
+            text = content.plain if hasattr(content, "plain") else str(content)
+            assert "3m 05s" in text
+
+    asyncio.run(scenario())
+
+
 def test_detail_tokens_tab_shows_breakdown():
     """The Tokens tab on the detail screen shows total, phase and CLI+model."""
     from grafeno import models

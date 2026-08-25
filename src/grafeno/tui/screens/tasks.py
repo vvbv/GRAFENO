@@ -29,6 +29,7 @@ from ... import models
 from ...i18n import t
 from ...models import Task, state_label
 from ...pipeline.hooks import HOOK_STAGES, format_stages
+from ...timefmt import format_duration
 from ...tokenfmt import format_tokens
 from ..dirpicker import DirectoryPicker
 from ..widgets import GrafenoHeader
@@ -259,6 +260,7 @@ class TaskListScreen(Screen[None]):
             t("tasks.col.state"),
             t("tasks.col.iter"),
             t("tasks.col.tokens"),
+            t("tasks.col.duration"),
             t("tasks.col.updated"),
             t("tasks.col.workdir"),
         )
@@ -319,6 +321,7 @@ class TaskListScreen(Screen[None]):
                 state_label(task.state),
                 str(task.iteration),
                 self._format_task_tokens(task),
+                self._format_task_duration(task, running),
                 task.updated_at.replace("T", " "),
                 task.workdir,
                 key=task.id,
@@ -327,7 +330,7 @@ class TaskListScreen(Screen[None]):
                 table.move_cursor(row=index)
         hint = self.query_one("#empty-hint", Static)
         hint.update("" if self._tasks else t("tasks.empty_hint"))
-        self._render_token_summary()
+        self._render_summary()
 
     @staticmethod
     def _format_task_tokens(task: Task) -> str:
@@ -337,18 +340,25 @@ class TaskListScreen(Screen[None]):
             return ""
         return f"↑{format_tokens(total_in)} ↓{format_tokens(total_out)}"
 
-    def _render_token_summary(self) -> None:
-        """Global summary of tokens by CLI+model (all tasks)."""
+    @staticmethod
+    def _format_task_duration(task: Task, running: bool) -> str:
+        """Total task duration cell; empty if no phase has been recorded."""
+        total = task.total_duration_seconds()
+        if total == 0 and not running:
+            return ""
+        return format_duration(total)
+
+    def _render_summary(self) -> None:
+        """Global summary: tokens by CLI+model plus consolidated total time."""
         summary = self.query_one("#token-summary", Static)
         totals: dict[str, list[int]] = {}
+        total_seconds = 0
         for task in self._tasks:
+            total_seconds += task.total_duration_seconds()
             for label, (label_in, label_out) in task.tokens_by_cli_model().items():
                 entry = totals.setdefault(label, [0, 0])
                 entry[0] += label_in
                 entry[1] += label_out
-        if not totals:
-            summary.update(t("tasks.tokens.empty"))
-            return
         parts = [
             f"{label}: ↑{format_tokens(pair[0])} ↓{format_tokens(pair[1])}"
             for label, pair in sorted(
@@ -356,7 +366,12 @@ class TaskListScreen(Screen[None]):
                 key=lambda item: (-(item[1][0] + item[1][1]), item[0]),
             )
         ]
-        summary.update(t("tasks.tokens.summary", summary=" · ".join(parts)))
+        lines: list[str] = []
+        if parts:
+            lines.append(t("tasks.tokens.summary", summary=" · ".join(parts)))
+        if total_seconds:
+            lines.append(t("tasks.time.summary", duration=format_duration(total_seconds)))
+        summary.update("\n".join(lines))
 
     def _selected_task_id(self) -> str | None:
         table = self.query_one(DataTable)
