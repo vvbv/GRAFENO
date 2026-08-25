@@ -101,3 +101,16 @@ def test_config_screen_language_select_persists():
         assert i18n.current_language() == "es"
 
     asyncio.run(scenario())
+
+
+def test_quit_hint_uses_platform_key() -> None:
+    """El aviso de salida interpola la etiqueta de tecla de la plataforma."""
+    from grafeno.i18n import t
+
+    assert "Cmd+Q" in t("tasks.quit_hint", key="Cmd+Q")
+    assert "Ctrl+Q" in t("tasks.quit_hint", key="Ctrl+Q")
+
+    # Misma comprobación en español para garantizar la interpolación en ambos idiomas.
+    i18n.set_language("es")
+    assert "Cmd+Q" in t("tasks.quit_hint", key="Cmd+Q")
+    assert "Ctrl+Q" in t("tasks.quit_hint", key="Ctrl+Q")

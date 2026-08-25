@@ -94,7 +94,7 @@ GitHub Release with the `vX.Y.Z` tag and attached artifacts.
 | `x` | Detail | Cancel execution |
 | `Esc` | Detail/Config | Back |
 | `Ctrl+T` | Global | Theme selector (the chosen palette is persisted in the config) |
-| `Ctrl+Q` | Global | Quit (pressing `q` in the list only shows this hint; it does not quit) |
+| `Ctrl+Q` / `Cmd+Q` (macOS) | Global | Quit (pressing `q` in the list only shows this hint; it does not quit) |
 
 ## Data
 

@@ -24,11 +24,16 @@ def current_language() -> str:
     return _current
 
 
-def t(key: str, **kwargs: object) -> str:
-    """Traduce ``key`` al idioma activo, interpolando ``kwargs`` si se dan."""
-    text = _MESSAGES.get(_current, {}).get(key)
+def t(key_id: str, **kwargs: object) -> str:
+    """Traduce ``key_id`` al idioma activo, interpolando ``kwargs`` si se dan.
+
+    El primer parámetro se llama ``key_id`` (no ``key``) para no colisionar con
+    el kwarg ``key=`` que los mensajes pueden necesitar interpolar (p.ej.
+    ``{key}`` en ``tasks.quit_hint``).
+    """
+    text = _MESSAGES.get(_current, {}).get(key_id)
     if text is None:
-        text = _MESSAGES[DEFAULT_LANGUAGE].get(key, key)
+        text = _MESSAGES[DEFAULT_LANGUAGE].get(key_id, key_id)
     return text.format(**kwargs) if kwargs else text
 
 
@@ -84,7 +89,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tasks.bind.scope": "Scope",
         "tasks.scope.project": "Project tasks",
         "tasks.scope.all": "All tasks",
-        "tasks.quit_hint": "Closing with q is disabled: press Ctrl+Q to quit",
+        "tasks.quit_hint": "Closing with q is disabled: press {key} to quit",
         "tasks.error.load": "Could not load task: {error}",
         # modal nueva tarea
         "nt.title": "New task",
@@ -390,7 +395,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tasks.bind.scope": "Ámbito",
         "tasks.scope.project": "Tareas del proyecto",
         "tasks.scope.all": "Todas las tareas",
-        "tasks.quit_hint": "No se puede salir con q: pulsa Ctrl+Q para cerrar",
+        "tasks.quit_hint": "No se puede salir con q: pulsa {key} para cerrar",
         "tasks.error.load": "No se pudo cargar la tarea: {error}",
         "nt.title": "Nueva tarea",
         "nt.name": "Nombre",

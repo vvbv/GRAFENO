@@ -681,7 +681,7 @@ def test_main_noeditor_flag(monkeypatch):
 
 
 def test_q_does_not_quit_task_list():
-    """Regresión: q no cierra la app; solo Ctrl+Q puede hacerlo."""
+    """Regresión: q no cierra la app; solo el atajo de salida (Ctrl+Q / Cmd+Q) puede hacerlo."""
     async def scenario():
         app = GrafenoApp()
         async with app.run_test() as pilot:
@@ -1196,3 +1196,12 @@ def test_restart_blocked_when_discarded():
             assert models.load(task.id).state is TaskState.DISCARDED
 
     asyncio.run(scenario())
+
+
+def test_quit_bindings_include_cmd_q() -> None:
+    """El cierre funciona con Ctrl+Q y con Cmd+Q (super) en macOS."""
+    from grafeno.app import GrafenoApp
+
+    keys = {binding.key for binding in GrafenoApp.BINDINGS}
+    assert "ctrl+q" in keys
+    assert "super+q" in keys

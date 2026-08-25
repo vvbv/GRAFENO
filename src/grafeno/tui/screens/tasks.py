@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -181,6 +182,9 @@ class NewTaskScreen(ModalScreen[Task | None]):
         self.dismiss(task)
 
 
+_QUIT_KEY_LABEL = "Cmd+Q" if sys.platform == "darwin" else "Ctrl+Q"
+
+
 class TaskListScreen(Screen[None]):
     """Listado principal de tareas."""
 
@@ -354,8 +358,8 @@ class TaskListScreen(Screen[None]):
         self._reload()
 
     def action_quit_hint(self) -> None:
-        """Bloquea el cierre con q: salir solo es posible con Ctrl+Q."""
-        self.notify(t("tasks.quit_hint"), severity="warning")
+        """Bloquea el cierre con q: salir solo es posible con el atajo de salida."""
+        self.notify(t("tasks.quit_hint", key=_QUIT_KEY_LABEL), severity="warning")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.row_key.value:

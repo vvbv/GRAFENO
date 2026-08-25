@@ -20,6 +20,7 @@ class GrafenoApp(App):
     CSS_PATH = "grafeno.tcss"
     BINDINGS = [
         Binding("ctrl+q", "quit", t("common.quit"), show=False),
+        Binding("super+q", "quit", t("common.quit"), show=False),  # Cmd+Q en macOS
         Binding("ctrl+t", "change_theme", t("app.bind.theme")),
     ]
 
