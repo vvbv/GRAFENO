@@ -24,6 +24,7 @@ src/grafeno/
 ├── scheduler.py            # Lógica pura: programación horaria, encadenamiento padre/hija y repetición de tareas
 ├── _toml.py                # Serializador TOML propio (escritura; lectura con tomllib)
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
+├── gh.py                   # Integración con GitHub CLI: detección de disponibilidad (repo + gh + acceso) y listado de issues abiertos (best-effort, nunca lanza)
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL; expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
 │   ├── opencode.py, kimi.py, codex.py, claude.py#   Dialectos concretos
@@ -81,8 +82,13 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
 - **Editor**: la apertura automática usa `editor.py` (mejor esfuerzo,
   nunca bloquea la TUI). Config global en `[editor]`, sobreescritura
   por proyecto en `<proyecto>/.grafeno.toml`; el flag `--noeditor`
-  la desactiva. Por defecto desactivado: sin editor configurado solo
-  se abre la TUI.
+   la desactiva. Por defecto desactivado: sin editor configurado solo
+   se abre la TUI.
+- **GitHub (gh)**: el formulario de nueva tarea muestra un selector
+  opcional de issues abiertos cuando el directorio es un repositorio con
+  `gh` instalado y acceso autenticado (`gh.py`); al elegir un issue se
+  rellenan nombre y descripción de la tarea. La carga se hace en segundo
+  plano y nunca bloquea ni rompe el formulario.
 - **Planificador**: las tareas pueden tener `scheduled_at`, `parent_id`
   y modo de repetición (`interval`/`infinite`) con política de plan
   (`reuse`/`replan`/`reevaluate`). El arranque desatendido usa siempre el
