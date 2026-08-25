@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from . import _toml, paths
+from . import _toml, live_log, paths
 from .config import Config, RoleConfig
 from .i18n import t
 
@@ -367,6 +367,7 @@ def reset_to_draft(task: Task) -> None:
         paths.final_dir(task.id),
     ):
         shutil.rmtree(directory, ignore_errors=True)
+    live_log.clear(task.id)
     save(task)
 
 

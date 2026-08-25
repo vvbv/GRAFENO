@@ -15,7 +15,7 @@ from typing import Awaitable, Callable
 from rich.text import Text
 from textual.worker import Worker
 
-from .. import models
+from .. import live_log, models
 from ..drivers.base import EventKind, RunEvent
 from ..i18n import t
 from ..models import Task, TaskState
@@ -56,7 +56,7 @@ class TaskRuntime:
         self._app = None
         self.worker: Worker | None = None
         self.running = False
-        self.log: list[Text] = []
+        self.log: list[Text] = live_log.load(task.id, _MAX_LOG_ENTRIES)  # persisted history
         self.phase_label = ""
         self.phase_started_at: float | None = None
         self.last_activity = 0.0
@@ -102,6 +102,7 @@ class TaskRuntime:
         self.log.append(entry)
         if len(self.log) > _MAX_LOG_ENTRIES:
             del self.log[: _MAX_LOG_ENTRIES // 2]
+        live_log.append(self.task.id, entry)  # survives app restarts
         self._emit("log", entry)
 
     # ------------------------------------------------------------ #

@@ -238,6 +238,24 @@ def test_reset_to_draft_conserva_tokens_y_rama(tmp_path):
     assert persisted.tokens == {"plan|opencode|m|input": 100}
 
 
+def test_reset_to_draft_removes_live_log(tmp_path):
+    """reset_to_draft deletes the persisted live.jsonl file."""
+    from rich.text import Text
+
+    from grafeno import live_log
+
+    task = Task.create("Limpiar log", "desc", str(tmp_path), Config())
+    models.save(task)
+    live_log.append(task.id, Text("primera entrada"))
+    live_log.append(task.id, Text("segunda entrada", style="bold red"))
+    log_path = paths.logs_dir(task.id) / "live.jsonl"
+    assert log_path.is_file()
+
+    reset_to_draft(task)
+
+    assert not log_path.exists()
+
+
 def test_total_duration_seconds(tmp_path):
     """total_duration_seconds sums every phase; empty means zero."""
     task = Task.create("Demo", "desc", str(tmp_path), Config())
