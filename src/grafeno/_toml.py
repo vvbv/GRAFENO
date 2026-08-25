@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-_HEADER = "# GRAFENO — generated automatically. Manual editing allowed.\n"
+_HEADER = "# GRAFENO — generado automáticamente. Edición manual permitida.\n"
 
 _BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -32,7 +32,7 @@ def _format_value(value: Any) -> str:
         escaped = value.replace("\\", "\\\\").replace('"', '\\"')
         escaped = escaped.replace("\n", "\\n").replace("\t", "\\t")
         return f'"{escaped}"'
-    raise TypeError(f"Unsupported TOML type: {type(value)!r}")
+    raise TypeError(f"Tipo no soportado en TOML: {type(value)!r}")
 
 
 def dumps(data: dict[str, Any]) -> str:

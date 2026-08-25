@@ -27,7 +27,7 @@ def parse_schedule(text: str) -> str:
         dt = datetime.strptime(candidate, SCHEDULE_FORMAT)
     except ValueError as exc:
         raise ValueError(
-            f"Invalid date/time ({text!r}); use the YYYY-MM-DD HH:MM format"
+            f"Fecha/hora no válida ({text!r}); usa el formato YYYY-MM-DD HH:MM"
         ) from exc
     return dt.isoformat(timespec="minutes")
 

@@ -31,7 +31,7 @@ _DRIVERS: dict[str, CLIDriver] = {
 def get_driver(name: str) -> CLIDriver:
     if name in _DRIVERS:
         return _DRIVERS[name]
-    raise KeyError(f"Unknown CLI: '{name}'. Available: {', '.join(_DRIVERS)}")
+    raise KeyError(f"CLI desconocido: '{name}'. Disponibles: {', '.join(_DRIVERS)}")
 
 
 def available_clis() -> list[str]:

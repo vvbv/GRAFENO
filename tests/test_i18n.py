@@ -59,8 +59,8 @@ def test_used_keys_are_defined_in_catalog():
     defined_es = set(i18n._MESSAGES["es"])
     missing_en = sorted(used - defined_en)
     missing_es = sorted(used - defined_es)
-    assert not missing_en, f"Keys used in src but NOT defined in en: {missing_en}"
-    assert not missing_es, f"Keys used in src but NOT defined in es: {missing_es}"
+    assert not missing_en, f"Claves usadas en src y NO definidas en en: {missing_en}"
+    assert not missing_es, f"Claves usadas en src y NO definidas en es: {missing_es}"
 
 
 def test_config_language_roundtrip():

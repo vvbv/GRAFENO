@@ -597,9 +597,7 @@ def test_effort_is_passed_to_run_request(tmp_path):
     drivers = {
         "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
         "fake-impl": impl,
-        "fake-rev": FakeDriver(
-            "fake-rev", [_ok("bien\nVERDICT: APPROVED")]
-        ),
+        "fake-rev": FakeDriver("fake-rev", [_ok("bien\nVERDICT: APPROVED")]),
         "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
     }
     orch = Orchestrator(task, drivers=drivers)
@@ -617,9 +615,7 @@ def test_effort_empty_is_passed_through(tmp_path):
     drivers = {
         "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
         "fake-impl": impl,
-        "fake-rev": FakeDriver(
-            "fake-rev", [_ok("bien\nVERDICT: APPROVED")]
-        ),
+        "fake-rev": FakeDriver("fake-rev", [_ok("bien\nVERDICT: APPROVED")]),
         "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
     }
     orch = Orchestrator(task, drivers=drivers)
