@@ -1,15 +1,15 @@
-"""Driver para OpenCode CLI (https://opencode.ai).
+"""Driver for OpenCode CLI (https://opencode.ai).
 
-Modo no-interactivo:
+Non-interactive mode:
     opencode run "<prompt>" -m <provider/model> --format json --auto \
-        --dir <workdir> [--variant <nivel>] [--session <id>] [--title <título>]
+        --dir <workdir> [--variant <level>] [--session <id>] [--title <title>]
 
-Con ``--format json`` emite eventos JSONL con campos como ``sessionID``,
-``type`` ("text", "tool_use", "step_start", "error", …) y ``part``.
-El parseo es defensivo: eventos desconocidos se muestran como INFO.
+With ``--format json`` it emits JSONL events with fields like ``sessionID``,
+``type`` ("text", "tool_use", "step_start", "error", ...) and ``part``.
+The parsing is defensive: unknown events are shown as INFO.
 
-Las variantes de esfuerzo por modelo se listan con ``opencode models --verbose``
-(cabecera ``proveedor/modelo`` seguida de un bloque JSON multilínea).
+Effort variants per model are listed with ``opencode models --verbose``
+(header ``provider/model`` followed by a multi-line JSON block).
 """
 
 from __future__ import annotations
@@ -53,12 +53,12 @@ class OpenCodeDriver(CLIDriver):
         return ["opencode", "models", "--verbose"]
 
     def parse_variants(self, output: str) -> dict[str, list[str]]:
-        """Extrae ``variants`` por modelo de la salida de ``opencode models --verbose``.
+        """Extract ``variants`` per model from the output of ``opencode models --verbose``.
 
-        La salida alterna una línea ``proveedor/modelo`` con un bloque JSON
-        multilínea que puede incluir ``"variants": {nivel: {...}, ...}``. NO
-        es JSONL: cada bloque hay que parsearlo entero. Se omiten los modelos
-        cuyo ``variants`` está vacío.
+        The output alternates a ``provider/model`` line with a multi-line JSON
+        block that may include ``"variants": {level: {...}, ...}``. It is NOT
+        JSONL: each block has to be parsed whole. Models whose ``variants``
+        are empty are omitted.
         """
         result: dict[str, list[str]] = {}
         current_model = ""
@@ -121,7 +121,7 @@ class OpenCodeDriver(CLIDriver):
             return RunEvent(EventKind.ERROR, str(message)[:500]), session_id
 
         if event_type in {"step_start", "step_finish", "session_start", "session_end"}:
-            return None, session_id  # ruido interno: se registra en el log crudo
+            return None, session_id  # internal noise: recorded in the raw log
 
         return RunEvent(EventKind.INFO, f"[{event_type or 'evento'}]"), session_id
 

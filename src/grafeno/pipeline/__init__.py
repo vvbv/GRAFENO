@@ -1,1 +1,1 @@
-"""Pipeline de GRAFENO: prompts, veredicto, git y orquestador."""
+"""GRAFENO pipeline: prompts, verdict, git and orchestrator."""

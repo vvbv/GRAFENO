@@ -1,4 +1,4 @@
-"""Tests de los drivers (sin subprocesos reales)."""
+"""Tests of the drivers (no real subprocesses)."""
 
 from __future__ import annotations
 
@@ -45,13 +45,13 @@ def test_opencode_command_minimal():
 
 
 def test_opencode_command_with_effort_flag():
-    """Si ``effort`` está fijado, OpenCode recibe ``--variant <nivel>``."""
+    """If ``effort`` is set, OpenCode receives ``--variant <level>``."""
     cmd = OpenCodeDriver().build_command(_request(model="opencode-go/kimi-k3", effort="high"))
     assert cmd[cmd.index("--variant") + 1] == "high"
 
 
 def test_opencode_command_without_effort_has_no_variant_flag():
-    """Sin ``effort`` no aparece ``--variant`` (compatibilidad con versiones antiguas)."""
+    """Without ``effort`` there is no ``--variant`` (compatibility with old versions)."""
     cmd = OpenCodeDriver().build_command(_request(model="opencode-go/kimi-k3", effort=""))
     assert "--variant" not in cmd
 
@@ -98,7 +98,7 @@ def test_kimi_command_full():
     cmd = driver.build_command(_request(model="kimi-code/k3", session_id="s1"))
     assert cmd[0] == "kimi"
     assert cmd[cmd.index("-p") + 1] == "hola"
-    # kimi -p no admite --auto ni -y (verificado contra kimi 0.37)
+    # kimi -p does not accept --auto or -y (verified against kimi 0.37)
     assert "--auto" not in cmd
     assert "-y" not in cmd
     assert cmd[cmd.index("--output-format") + 1] == "stream-json"
@@ -113,7 +113,7 @@ def test_kimi_command_minimal():
 
 
 def test_kimi_command_ignores_effort():
-    """Kimi no soporta nivel de trabajo: su comando no añade ningún flag nuevo."""
+    """Kimi does not support an effort level: its command does not add any new flag."""
     base = KimiDriver().build_command(_request())
     with_effort = KimiDriver().build_command(_request(effort="high"))
     assert base == with_effort
@@ -122,9 +122,9 @@ def test_kimi_command_ignores_effort():
 
 
 def test_opencode_parse_variants_real_output():
-    """Parseo de la salida real de ``opencode models --verbose``.
+    """Parsing of the real output of ``opencode models --verbose``.
 
-    Se omiten modelos con ``variants`` vacío y se ordenan los niveles.
+    Models with empty ``variants`` are skipped and levels are sorted.
     """
     sample = (
         "opencode/big-pickle\n"
@@ -143,7 +143,7 @@ def test_opencode_parse_variants_real_output():
         "}\n"
     )
     result = OpenCodeDriver().parse_variants(sample)
-    assert "opencode/big-pickle" not in result  # variants {} se omite
+    assert "opencode/big-pickle" not in result  # variants {} is skipped
     assert result["opencode/hy3-free"] == ["high", "low", "medium"]
 
 
@@ -152,7 +152,7 @@ def test_opencode_parse_variants_empty_output():
 
 
 def test_kimi_variants_command_empty():
-    """Kimi no expone comando de variantes."""
+    """Kimi does not expose a variants command."""
     assert KimiDriver().variants_command() == []
 
 
@@ -161,7 +161,7 @@ def test_kimi_parse_variants_returns_empty():
 
 
 def test_kimi_decode_real_event_shapes():
-    """Eventos reales capturados de kimi 0.37 --output-format stream-json."""
+    """Real events captured from kimi 0.37 --output-format stream-json."""
     driver = KimiDriver()
 
     event, _, _ = driver.decode_line('{"role":"assistant","content":"ok"}')
@@ -232,19 +232,19 @@ def test_codex_command_full():
     assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="high"'
     assert cmd[cmd.index("-C") + 1] == "/tmp/x"
     assert cmd[cmd.index("resume") + 1] == "abc-123"
-    # Las opciones de exec van antes del subcomando resume.
+    # exec options go before the resume subcommand.
     assert cmd.index("--json") < cmd.index("resume")
 
 
 def test_codex_command_minimal():
     cmd = CodexDriver().build_command(_request())
-    assert cmd[-1] == "hola"          # prompt al final
+    assert cmd[-1] == "hola"          # prompt at the end
     assert "-m" not in cmd
     assert "resume" not in cmd
 
 
 def test_codex_decode_real_event_shapes():
-    """Eventos capturados de ``codex exec --json``."""
+    """Events captured from ``codex exec --json``."""
     driver = CodexDriver()
     event, session, _ = driver.decode_line(
         '{"type":"thread.started","thread_id":"t-1"}'
@@ -271,7 +271,7 @@ def test_codex_decode_real_event_shapes():
 
 
 def test_codex_extract_usage_ignores_cache_and_reasoning():
-    """``usage`` puede traer cached/reasoning tokens: se ignoran."""
+    """``usage`` may include cached/reasoning tokens: they are ignored."""
     driver = CodexDriver()
     _, _, usage = driver.decode_line(json.dumps({
         "type": "turn.completed",
@@ -318,7 +318,7 @@ def test_claude_command_minimal():
 
 
 def test_claude_decode_real_event_shapes():
-    """Eventos capturados de ``claude -p ... --output-format stream-json``."""
+    """Events captured from ``claude -p ... --output-format stream-json``."""
     driver = ClaudeDriver()
     event, session, _ = driver.decode_line(
         '{"type":"system","subtype":"init","session_id":"s-9"}'
@@ -350,7 +350,7 @@ def test_claude_decode_real_event_shapes():
 
 
 def test_claude_decode_system_hook_is_noise():
-    """Los ``system`` con subtypes distintos a ``init`` no generan evento."""
+    """``system`` events with subtypes other than ``init`` do not generate an event."""
     driver = ClaudeDriver()
     event, _, _ = driver.decode_line(
         '{"type":"system","subtype":"hook_started","session_id":"s-1"}'
@@ -359,7 +359,7 @@ def test_claude_decode_system_hook_is_noise():
 
 
 def test_claude_extract_usage_ignores_cache():
-    """``usage`` puede traer cache_creation/cache_read: se ignoran."""
+    """``usage`` may include cache_creation/cache_read: they are ignored."""
     driver = ClaudeDriver()
     _, _, usage = driver.decode_line(json.dumps({
         "type": "result", "subtype": "success",
@@ -379,7 +379,7 @@ def test_claude_static_models_and_variants():
 
 
 # ---------------------------------------------------------------------- #
-# Registro
+# Registry
 # ---------------------------------------------------------------------- #
 def test_registry():
     assert get_driver("opencode").name == "opencode"
@@ -406,7 +406,7 @@ def test_agents_md_prompt_opencode():
 
 
 def test_agents_md_prompt_kimi():
-    """kimi no expone init nativo: el prompt no menciona `/init` propio."""
+    """kimi exposes no native init: the prompt does not mention its own ``/init``."""
     driver = KimiDriver()
     assert driver.init_command == ""
     prompt = driver.build_agents_md_prompt()
@@ -477,7 +477,7 @@ def test_run_with_cli_line_beyond_64k(tmp_path):
         def build_command(self, request: RunRequest) -> list[str]:
             return [sys.executable, "-c", "print('x' * 200000)"]
 
-        def decode_event(self, payload):  # no se usa: la salida no es JSON
+        def decode_event(self, payload):  # unused: the output is not JSON
             raise NotImplementedError
 
         def list_models(self) -> list[str]:
@@ -491,7 +491,7 @@ def test_run_with_cli_line_beyond_64k(tmp_path):
 
 
 # ---------------------------------------------------------------------- #
-# Listado asíncrono de modelos
+# Async model listing
 # ---------------------------------------------------------------------- #
 def test_list_models_async_success(monkeypatch):
     class _Proc:
@@ -562,7 +562,7 @@ def test_fetch_all_models(monkeypatch):
 
 
 def test_fetch_all_variants(monkeypatch):
-    """``fetch_all_variants`` agrega por CLI; un fallo devuelve dict vacío."""
+    """``fetch_all_variants`` aggregates by CLI; a failure returns an empty dict."""
     from grafeno import drivers
 
     async def _fake(self, timeout=30.0):
@@ -585,7 +585,7 @@ def test_list_variants_async_spawn_error(monkeypatch):
 
 
 def test_list_variants_async_kimi_no_command():
-    """Kimi no expone ``variants_command``: devuelve ``{}`` sin spawn."""
+    """Kimi does not expose ``variants_command``: returns ``{}`` without spawning."""
     assert asyncio.run(KimiDriver().list_variants_async()) == {}
 
 
@@ -600,7 +600,7 @@ def test_opencode_extract_usage_step_finish():
         "part": {"tokens": {"input": 1200, "output": 340, "reasoning": 5}},
     })
     event, session, usage = driver.decode_line(line)
-    assert event is None            # step_finish sigue siendo ruido
+    assert event is None            # step_finish remains noise
     assert session == "ses_1"
     assert usage is not None
     assert usage.input == 1200

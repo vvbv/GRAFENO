@@ -1,4 +1,4 @@
-"""Tests del scheduler de la App: tick, task_finished y reinicio de repeticiones."""
+"""Tests of the App scheduler: tick, task_finished and repetition restart."""
 
 from __future__ import annotations
 
@@ -10,14 +10,14 @@ from grafeno.app import GrafenoApp
 from grafeno.config import Config
 from grafeno.models import Task, TaskState
 
-# Estado compartido entre invocaciones del orquestador (cada _wrap crea una
-# nueva instancia, pero podemos contar cuántas veces se ha llamado).
+# Shared state between orchestrator invocations (each _wrap creates a new
+# instance, but we can count how many times it has been called).
 _REEVALUATE_CALL_COUNT = 0
 _REEVALUATE_GATE: asyncio.Event | None = None
 
 
 class _FakeOrchestrator:
-    """Orquestador de prueba: marca la tarea como DONE y notifica el callback."""
+    """Test orchestrator: marks the task as DONE and fires the callback."""
 
     def __init__(self, task, **callbacks):
         self.task = task
@@ -30,11 +30,10 @@ class _FakeOrchestrator:
 
 
 class _FakeOrchestratorReevaluate:
-    """Orquestador que ejecuta run_reevaluate_plan + run_automode_continue.
+    """Orchestrator that runs run_reevaluate_plan + run_automode_continue.
 
-    La primera invocación completa marca la tarea como DONE. Las siguientes
-    esperan en el gate global ``_REEVALUATE_GATE`` para no entrar en bucle
-    infinito en los tests.
+    The first invocation marks the task as DONE. Subsequent ones wait on the
+    global gate ``_REEVALUATE_GATE`` to avoid infinite loops in the tests.
     """
 
     def __init__(self, task, **callbacks):
@@ -179,7 +178,7 @@ def test_scheduler_tick_skips_paused_task():
 
 
 def test_infinite_repetition_restarts_draft():
-    """Modo infinite: al completarse la cadena, la tarea vuelve a DRAFT y se relanza."""
+    """Infinite mode: when the chain completes, the task returns to DRAFT and relaunches."""
     from grafeno.tui.runtime import TaskRuntime
 
     async def scenario():
@@ -201,7 +200,7 @@ def test_infinite_repetition_restarts_draft():
             app.runtimes[parent.id] = rt
 
             app.task_finished(parent)
-            # Espera a que la repetición se haya reiniciado al menos una vez.
+            # Wait until the repetition has been restarted at least once.
             for _ in range(40):
                 await pilot.pause(0.05)
                 reloaded = models.load(parent.id)
@@ -210,7 +209,7 @@ def test_infinite_repetition_restarts_draft():
             reloaded = models.load(parent.id)
             assert reloaded.state is TaskState.DRAFT
             assert reloaded.repeat_count >= 1
-            # Cierra el gate para detener el bucle de iteraciones.
+            # Close the gate to stop the iteration loop.
             _REEVALUATE_GATE.set()
             await pilot.pause()
             for _ in range(20):
@@ -225,7 +224,7 @@ def test_infinite_repetition_restarts_draft():
 
 
 def test_replan_removes_existing_plan_files():
-    """Al reiniciar con plan_reuse=replan, los archivos .md del plan se borran."""
+    """When restarting with plan_reuse=replan, the existing .md plan files are deleted."""
     from grafeno.tui.runtime import TaskRuntime
 
     async def scenario():
@@ -250,7 +249,7 @@ def test_replan_removes_existing_plan_files():
 
 
 def test_reevaluate_repetition_uses_reevaluate_runner():
-    """En modo reevaluate, task_finished arranca la repetición con reevaluate_plan_prompt."""
+    """In reevaluate mode, task_finished starts the repetition with reevaluate_plan_prompt."""
     from grafeno.tui.runtime import TaskRuntime
 
     async def scenario():
@@ -270,7 +269,7 @@ def test_reevaluate_repetition_uses_reevaluate_runner():
             app.runtimes[task.id] = rt
 
             app.task_finished(task)
-            # Espera al primer ciclo del runner (run_reevaluate_plan + continue).
+            # Wait for the first cycle of the runner (run_reevaluate_plan + continue).
             for _ in range(40):
                 await pilot.pause(0.05)
                 reloaded = models.load(task.id)
@@ -286,4 +285,3 @@ def test_reevaluate_repetition_uses_reevaluate_runner():
         _REEVALUATE_GATE = None
 
     asyncio.run(scenario())
-

@@ -1,4 +1,4 @@
-"""Smoke tests de la TUI (Textual headless)."""
+"""Smoke tests of the TUI (Textual headless)."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def test_create_task_via_modal():
             await pilot.click("#nt-create")
             await pilot.pause()
 
-            # Tras crear, se abre el detalle de la tarea.
+            # After creation, the task detail is opened.
             assert isinstance(app.screen, TaskDetailScreen)
             await pilot.press("escape")
             await pilot.pause()
@@ -66,7 +66,7 @@ def test_open_task_detail():
             await pilot.pause()
 
             assert isinstance(app.screen, TaskDetailScreen)
-            # Volvemos a la lista.
+            # Back to the list.
             await pilot.press("escape")
             await pilot.pause()
             assert isinstance(app.screen, TaskListScreen)
@@ -75,7 +75,7 @@ def test_open_task_detail():
 
 
 def test_detail_screen_with_dotted_filenames():
-    """Regresión: nombres como `01-modulo-cache.md` no deben romper el detalle."""
+    """Regression: names like `01-modulo-cache.md` must not break the detail screen."""
     async def scenario():
         from grafeno import models, paths
         from grafeno.config import Config
@@ -102,7 +102,7 @@ def test_detail_screen_with_dotted_filenames():
 
 
 def test_phase_actions_require_confirmation():
-    """Las teclas de fase abren un modal de confirmación; nada arranca directo."""
+    """Phase keys open a confirmation modal; nothing starts directly."""
     async def scenario():
         from grafeno import models
         from grafeno.config import Config
@@ -125,13 +125,13 @@ def test_phase_actions_require_confirmation():
             assert isinstance(app.screen, PhaseConfirmScreen)
             assert started == []
 
-            # Cancelar no ejecuta nada.
+            # Cancel does not run anything.
             await pilot.press("escape")
             await pilot.pause()
             assert isinstance(app.screen, TaskDetailScreen)
             assert started == []
 
-            # Aceptar sí ejecuta.
+            # Accept does run.
             await pilot.press("p")
             await pilot.pause()
             await pilot.click("#pc-accept")
@@ -143,7 +143,7 @@ def test_phase_actions_require_confirmation():
 
 
 def test_ask_more_starts_new_cycle():
-    """'Pedir más' registra la ampliación y arranca el ciclo con la misma lógica."""
+    """'Ask for more' records the extension and starts the cycle with the same logic."""
     async def scenario():
         from grafeno import models
         from grafeno.config import Config
@@ -183,7 +183,7 @@ def test_ask_more_starts_new_cycle():
 
 
 def test_activity_bar_renders_phase_and_time():
-    """La barra de actividad muestra fase en curso, eventos y tiempos."""
+    """The activity bar shows current phase, events and times."""
     async def scenario():
         import time
 
@@ -204,11 +204,11 @@ def test_activity_bar_renders_phase_and_time():
             screen = app.screen
             runtime = screen.runtime
 
-            # En espera: muestra el total acumulado.
+            # Idle: shows the accumulated total.
             content = screen.query_one("#activity-bar", Static).render()
             assert "1m 05s" in (content.plain if hasattr(content, "plain") else str(content))
 
-            # Fase en curso: muestra etiqueta, contador y totales.
+            # Current phase: shows label, counter and totals.
             runtime.running = True
             runtime.phase_label = "Implementación"
             runtime.phase_started_at = time.monotonic()
@@ -232,7 +232,7 @@ def test_activity_bar_renders_phase_and_time():
 
 
 def test_new_task_branch_checkbox_defaults_and_persists():
-    """El checkbox de rama toma el valor global y se guarda por tarea."""
+    """The branch checkbox takes the global value and is saved per task."""
     async def scenario():
         from grafeno import config as config_module, models
         from textual.widgets import Checkbox
@@ -266,7 +266,7 @@ def test_new_task_branch_checkbox_defaults_and_persists():
 
 
 def test_new_task_final_prompt_inherits_and_overrides():
-    """El modal precarga final_prompt global y guarda el override en la tarea."""
+    """The modal preloads the global final_prompt and saves the override on the task."""
     async def scenario():
         from grafeno import config as config_module, models
 
@@ -337,18 +337,18 @@ def test_navigation_does_not_interrupt_pipeline():
             runtime = app.runtimes[task.id]
             assert runtime.running
 
-            # Volver a la lista NO interrumpe.
+            # Going back to the list does NOT interrupt.
             await pilot.press("escape")
             await pilot.pause()
             assert isinstance(app.screen, TaskListScreen)
             assert runtime.running
 
-            # La lista marca la tarea en ejecución con ▶.
+            # The list marks the running task with ▶.
             app.screen._reload()
             table = app.screen.query_one(DataTable)
             assert "▶" in str(table.get_row_at(0)[0])
 
-            # Reabrir: se reconecta al mismo runtime con el log acumulado.
+            # Reopen: reconnects to the same runtime with the accumulated log.
             app.push_screen(TaskDetailScreen(models.load(task.id)))
             await pilot.pause()
             assert app.screen.runtime is runtime
@@ -365,7 +365,7 @@ def test_navigation_does_not_interrupt_pipeline():
 
 
 def test_phase_status_includes_final():
-    """La barra de fases refleja la fase `final` en FINALIZING (active) y DONE (done)."""
+    """The phase bar reflects the `final` phase in FINALIZING (active) and DONE (done)."""
     from grafeno.models import TaskState
     from grafeno.tui.widgets import _phase_status
 
@@ -382,7 +382,7 @@ def test_phase_status_includes_final():
 
 
 def test_detail_screen_has_final_tab_and_binding():
-    """La pantalla de detalle expone la pestaña #tab-final y el binding `s`."""
+    """The detail screen exposes the #tab-final tab and the `s` binding."""
     from grafeno import models
     from grafeno.config import Config
     from grafeno.models import Task
@@ -398,18 +398,18 @@ def test_detail_screen_has_final_tab_and_binding():
             app.push_screen(TaskDetailScreen(models.load(task.id)))
             await pilot.pause()
 
-            # El binding 's' está registrado y lanza action_run_final.
+            # The 's' binding is registered and triggers action_run_final.
             keys = {b.key for b in TaskDetailScreen.BINDINGS if isinstance(b.key, str)}
             assert "s" in keys
 
-            # La pestaña de pasos finales existe.
+            # The final-steps tab exists.
             assert app.screen.query("#tab-final") is not None
 
     asyncio.run(scenario())
 
 
 def test_detail_screen_shows_description():
-    """La pantalla de detalle muestra la descripción original de la tarea."""
+    """The detail screen shows the task's original description."""
     from grafeno import models
     from grafeno.config import Config
     from grafeno.models import Task
@@ -434,7 +434,7 @@ def test_detail_screen_shows_description():
 
 
 def test_markdown_views_are_scrollable():
-    """Regresión: un plan largo debe poder hacer scroll en el visor Markdown."""
+    """Regression: a long plan must scroll in the Markdown viewer."""
     async def scenario():
         from grafeno import models, paths
         from grafeno.config import Config
@@ -453,7 +453,7 @@ def test_markdown_views_are_scrollable():
             app.push_screen(TaskDetailScreen(models.load(task.id)))
             await pilot.pause()
 
-            # Seleccionar el archivo en la lista de planes.
+            # Select the file in the plans list.
             plan_list = app.screen.query_one("#plan-files", ListView)
             plan_list.focus()
             plan_list.index = 0
@@ -465,7 +465,7 @@ def test_markdown_views_are_scrollable():
                 if scroll.max_scroll_y > 0:
                     break
 
-            # Hay contenido desbordado y, con foco, el teclado hace scroll.
+            # There is overflow content and, focused, the keyboard scrolls.
             assert scroll.max_scroll_y > 0
             assert scroll.can_focus
             scroll.focus()
@@ -478,7 +478,7 @@ def test_markdown_views_are_scrollable():
 
 
 def test_task_list_shows_global_token_summary():
-    """La lista agrega tokens por modelo en #token-summary."""
+    """The list aggregates tokens by model in #token-summary."""
     import os
 
     from grafeno import models
@@ -495,7 +495,7 @@ def test_task_list_shows_global_token_summary():
         app = GrafenoApp()
         async with app.run_test(size=(100, 50)) as pilot:
             await pilot.pause()
-            await pilot.pause()  # segundo pause: se ejecuta _reload tras on_mount
+            await pilot.pause()  # second pause: _reload runs after on_mount
             widget = app.screen.query_one("#token-summary", StaticWidget)
             rendered = widget.render()
             text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
@@ -506,7 +506,7 @@ def test_task_list_shows_global_token_summary():
 
 
 def test_token_summary_sorted_by_usage_desc():
-    """El resumen de tokens ordena los modelos de mayor a menor consumo."""
+    """The tokens summary sorts models from highest to lowest usage."""
     import os
 
     from grafeno import models
@@ -524,7 +524,7 @@ def test_token_summary_sorted_by_usage_desc():
         app = GrafenoApp()
         async with app.run_test(size=(100, 50)) as pilot:
             await pilot.pause()
-            await pilot.pause()  # segundo pause: se ejecuta _reload tras on_mount
+            await pilot.pause()  # second pause: _reload runs after on_mount
             widget = app.screen.query_one("#token-summary", StaticWidget)
             rendered = widget.render()
             text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
@@ -534,7 +534,7 @@ def test_token_summary_sorted_by_usage_desc():
 
 
 def test_detail_tokens_tab_shows_breakdown():
-    """La pestaña Tokens del detalle muestra total, fase y CLI+modelo."""
+    """The Tokens tab on the detail screen shows total, phase and CLI+model."""
     from grafeno import models
     from grafeno.config import Config
     from grafeno.drivers.base import TokenUsage
@@ -563,7 +563,7 @@ def test_detail_tokens_tab_shows_breakdown():
 
 
 def test_mark_done_forced():
-    """La tecla 'd' pide confirmación y fuerza el estado done."""
+    """The 'd' key asks for confirmation and forces the state to done."""
     async def scenario():
         from grafeno import models
         from grafeno.config import Config
@@ -591,7 +591,7 @@ def test_mark_done_forced():
 
 
 def test_mark_discarded():
-    """La tecla 'D' pide confirmación y marca la tarea como descartada."""
+    """The 'D' key asks for confirmation and marks the task as discarded."""
     async def scenario():
         from grafeno import models
         from grafeno.config import Config
@@ -619,7 +619,7 @@ def test_mark_discarded():
 
 
 def test_discarded_blocks_pipeline_actions():
-    """Una tarea descartada no abre el modal de confirmación de fases."""
+    """A discarded task does not open the phase confirmation modal."""
     async def scenario():
         from grafeno import models
         from grafeno.config import Config
@@ -642,7 +642,7 @@ def test_discarded_blocks_pipeline_actions():
 
 
 def test_main_noeditor_flag(monkeypatch):
-    """El flag --noeditor desactiva la apertura automática del editor."""
+    """The --noeditor flag turns off the automatic editor opening."""
     from unittest.mock import MagicMock
 
     from grafeno import app as app_module
@@ -665,13 +665,13 @@ def test_main_noeditor_flag(monkeypatch):
     monkeypatch.setattr(editor_module, "maybe_open_editor", editor_mock)
     monkeypatch.setattr(app_module, "GrafenoApp", app_mock)
 
-    # --noeditor: el editor NO debe invocarse.
+    # --noeditor: the editor must NOT be invoked.
     monkeypatch.setattr("sys.argv", ["grafeno", "--noeditor"])
     app_module.main()
     assert calls["editor"] == 0
     assert calls["run"] == 1
 
-    # Sin flag: el editor SÍ se invoca una vez.
+    # No flag: the editor IS invoked once.
     calls["editor"] = 0
     calls["run"] = 0
     monkeypatch.setattr("sys.argv", ["grafeno"])
@@ -681,7 +681,7 @@ def test_main_noeditor_flag(monkeypatch):
 
 
 def test_q_does_not_quit_task_list():
-    """Regresión: q no cierra la app; solo el atajo de salida (Ctrl+Q / Cmd+Q) puede hacerlo."""
+    """Regression: q does not close the app; only the quit shortcut (Ctrl+Q / Cmd+Q) can."""
     async def scenario():
         app = GrafenoApp()
         async with app.run_test() as pilot:
@@ -689,7 +689,7 @@ def test_q_does_not_quit_task_list():
             assert isinstance(app.screen, TaskListScreen)
             await pilot.press("q")
             await pilot.pause()
-            # La app sigue viva en la lista de tareas.
+            # The app is still alive in the task list.
             assert isinstance(app.screen, TaskListScreen)
             assert app.is_running
 
@@ -697,7 +697,7 @@ def test_q_does_not_quit_task_list():
 
 
 def test_theme_selection_persists():
-    """Cambiar app.theme guarda la paleta en la config global."""
+    """Changing app.theme persists the palette in the global config."""
     async def scenario():
         app = GrafenoApp()
         async with app.run_test() as pilot:
@@ -712,7 +712,7 @@ def test_theme_selection_persists():
 
 
 def test_saved_theme_is_applied_on_boot():
-    """La paleta guardada se aplica al arrancar la app."""
+    """The saved palette is applied on app startup."""
     from grafeno import config as config_module
 
     cfg = config_module.load()
@@ -729,7 +729,7 @@ def test_saved_theme_is_applied_on_boot():
 
 
 def test_automode_status_updates_immediately():
-    """Regresión: al lanzar automode el estado se refresca sin salir de la tarea."""
+    """Regression: when launching automode, the state refreshes without leaving the task."""
     from grafeno import models
     from grafeno.drivers.base import CLIDriver, EventKind, RunEvent, RunResult
     from grafeno.models import TaskState
@@ -776,7 +776,7 @@ def test_automode_status_updates_immediately():
                 await pilot.click("#pc-accept")
                 for _ in range(10):
                     await pilot.pause(0.1)
-                # Sin salir de la pantalla: el estado ya no es DRAFT.
+                # Without leaving the screen: the state is no longer DRAFT.
                 assert app.screen.query_one(PhaseBar)._state is not TaskState.DRAFT
                 assert app.screen.runtime.running or app.screen.query_one(PhaseBar)._state is TaskState.DONE
             finally:
@@ -786,7 +786,7 @@ def test_automode_status_updates_immediately():
 
 
 def test_detail_agents_bar_shows_phase_agents_and_tokens():
-    """Bajo la barra de fases se ve el agente de cada fase y su consumo."""
+    """Under the phase bar you see each phase's agent and its consumption."""
     from grafeno import models
     from grafeno.config import Config
     from grafeno.drivers.base import TokenUsage
@@ -818,7 +818,7 @@ def test_detail_agents_bar_shows_phase_agents_and_tokens():
 
 
 def test_detail_agents_bar_reflects_role_changes():
-    """Al cambiar los roles de la tarea la barra se actualiza."""
+    """When the task's roles change, the bar updates."""
     from grafeno import models
     from grafeno.config import Config
     from grafeno.models import Task
@@ -849,14 +849,14 @@ def test_detail_agents_bar_reflects_role_changes():
 
 
 def test_task_list_clock_shows_current_time():
-    """La lista muestra un reloj con formato YYYY-MM-DD HH:MM:SS."""
+    """The list shows a clock formatted as YYYY-MM-DD HH:MM:SS."""
     import re
 
     async def scenario():
         app = GrafenoApp()
         async with app.run_test() as pilot:
             await pilot.pause()
-            await pilot.pause()  # segundo pause: el reloj ya se renderizó
+            await pilot.pause()  # second pause: the clock is already rendered
             from textual.widgets import Static
 
             clock = app.screen.query_one("#clock", Static).render()
@@ -867,7 +867,7 @@ def test_task_list_clock_shows_current_time():
 
 
 def test_task_list_filter_default_only_project():
-    """Por defecto solo se listan las tareas del proyecto actual."""
+    """By default only the tasks of the current project are listed."""
     import os
 
     async def scenario():
@@ -888,7 +888,7 @@ def test_task_list_filter_default_only_project():
             table = app.screen.query_one(DataTable)
             assert table.row_count == 1
 
-            # Pulsa `v` para mostrar todas.
+            # Press `v` to show all.
             await pilot.press("v")
             await pilot.pause()
             assert table.row_count == 2
@@ -897,7 +897,7 @@ def test_task_list_filter_default_only_project():
 
 
 def test_task_list_sublist_indents_children():
-    """Las hijas se muestran debajo de su padre e indentadas."""
+    """Children are shown below their parent and indented."""
     import os
 
     async def scenario():
@@ -920,10 +920,10 @@ def test_task_list_sublist_indents_children():
             table = app.screen.query_one(DataTable)
             assert table.row_count == 2
 
-            # Primera fila: el padre, sin indentación (o solo prefijo de root).
+            # First row: the parent, no indentation (or only root prefix).
             first = str(table.get_row_at(0)[0])
             assert first.endswith("Padre")
-            # Segunda fila: la hija, indentada con dos espacios y `+ `.
+            # Second row: the child, indented with two spaces and `+ `.
             second = str(table.get_row_at(1)[0])
             assert second.startswith("  + ")
             assert "Hija" in second
@@ -932,7 +932,7 @@ def test_task_list_sublist_indents_children():
 
 
 def test_new_task_form_accepts_schedule():
-    """El formulario acepta una fecha futura y la persiste como ISO local."""
+    """The form accepts a future date and persists it as local ISO."""
     async def scenario():
         from grafeno import models
         from grafeno.tui.screens.detail import TaskDetailScreen
@@ -962,7 +962,7 @@ def test_new_task_form_accepts_schedule():
 
 
 def test_new_task_form_rejects_invalid_schedule():
-    """Una fecha inválida deja el modal abierto sin crear la tarea."""
+    """An invalid date leaves the modal open without creating the task."""
     async def scenario():
         from grafeno import models
         from grafeno.tui.screens.tasks import NewTaskScreen
@@ -983,7 +983,7 @@ def test_new_task_form_rejects_invalid_schedule():
             await pilot.click("#nt-create")
             await pilot.pause()
 
-            # Sigue en el modal y no se ha creado ninguna tarea.
+            # It stays in the modal and no task was created.
             assert isinstance(app.screen, NewTaskScreen)
             assert not models.list_all()
 
@@ -991,7 +991,7 @@ def test_new_task_form_rejects_invalid_schedule():
 
 
 def test_new_task_form_persists_parent_id():
-    """Elegir tarea padre en el selector lo persiste en parent_id."""
+    """Choosing a parent task in the selector persists it in parent_id."""
     import os
 
     async def scenario():
@@ -1030,7 +1030,7 @@ def test_new_task_form_persists_parent_id():
 
 
 def test_new_task_form_repetitive_interval_validates_and_forces_automode():
-    """Modo repetitivo interval exige minutos válidos y fuerza automode."""
+    """Interval repetition mode requires valid minutes and forces automode."""
     async def scenario():
         from grafeno import models
         from grafeno.tui.screens.detail import TaskDetailScreen
@@ -1043,7 +1043,7 @@ def test_new_task_form_repetitive_interval_validates_and_forces_automode():
             await pilot.pause()
             screen = app.screen
 
-            # Intervalo vacío: debe rechazar.
+            # Empty interval: must reject.
             screen.query_one("#nt-name", Input).value = "Repetitiva"
             screen.query_one("#nt-repeat", Select).value = "interval"
             screen.query_one("#nt-repeat-minutes", Input).value = ""
@@ -1058,7 +1058,7 @@ def test_new_task_form_repetitive_interval_validates_and_forces_automode():
             assert isinstance(app.screen, NewTaskScreen)
             assert not models.list_all()
 
-            # Intervalo válido: crea la tarea, fuerza automode.
+            # Valid interval: creates the task, forces automode.
             screen.query_one("#nt-repeat-minutes", Input).value = "30"
             screen.query_one("#nt-create").scroll_visible()
             for _ in range(5):
@@ -1074,7 +1074,7 @@ def test_new_task_form_repetitive_interval_validates_and_forces_automode():
 
 
 def test_edit_task_info():
-    """La tecla 'E' abre el modal, edita nombre/descripcion y persiste."""
+    """The 'E' key opens the modal, edits name/description and persists."""
     async def scenario():
         from grafeno import models
         from grafeno.config import Config
@@ -1108,7 +1108,7 @@ def test_edit_task_info():
 
 
 def test_edit_task_info_requires_name():
-    """El modal no cierra si el nombre queda vacio."""
+    """The modal does not close if the name is left empty."""
     async def scenario():
         from grafeno import models
         from grafeno.config import Config
@@ -1138,7 +1138,7 @@ def test_edit_task_info_requires_name():
 
 
 def test_restart_resets_task_to_draft():
-    """La tecla 'R' pide confirmacion y reinicia la tarea a DRAFT."""
+    """The 'R' key asks for confirmation and resets the task to DRAFT."""
     async def scenario():
         from grafeno import models, paths
         from grafeno.config import Config
@@ -1174,7 +1174,7 @@ def test_restart_resets_task_to_draft():
 
 
 def test_restart_blocked_when_discarded():
-    """Una tarea descartada no se puede reiniciar."""
+    """A discarded task cannot be restarted."""
     async def scenario():
         from grafeno import models
         from grafeno.config import Config
@@ -1199,7 +1199,7 @@ def test_restart_blocked_when_discarded():
 
 
 def test_quit_bindings_include_cmd_q() -> None:
-    """El cierre funciona con Ctrl+Q y con Cmd+Q (super) en macOS."""
+    """Quitting works with Ctrl+Q and with Cmd+Q (super) on macOS."""
     from grafeno.app import GrafenoApp
 
     keys = {binding.key for binding in GrafenoApp.BINDINGS}

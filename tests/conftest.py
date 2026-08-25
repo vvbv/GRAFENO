@@ -1,4 +1,4 @@
-"""Fixtures comunes: GRAFENO_HOME aislado por test + idioma por defecto."""
+"""Common fixtures: GRAFENO_HOME isolated per test + default language."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ def grafeno_home(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def default_language():
-    """Garantiza que cada test arranca con idioma inglés (estado global)."""
+    """Guarantee each test starts with English language (global state)."""
     from grafeno import i18n
 
     i18n.set_language("en")

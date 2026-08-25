@@ -1,4 +1,4 @@
-"""Tests del formulario de roles: filtrado del selector de modelos."""
+"""Tests of the roles form: model selector filtering."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ async def _fake_fetch_variants(clis):
 
 
 def _visible_values(select: Select) -> list[str]:
-    """Devuelve los values visibles del Select, excluyendo el sentinel NULL."""
+    """Return the visible values of the Select, excluding the NULL sentinel."""
     return [opt[1] for opt in select._options if opt[1] is not Select.NULL]
 
 

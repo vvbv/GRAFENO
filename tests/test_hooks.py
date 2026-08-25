@@ -1,4 +1,4 @@
-"""Tests del motor de hooks de completado."""
+"""Tests of the completion hooks engine."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _run(coro):
 def test_parse_and_format_stages_roundtrip():
     assert hooks.parse_stages("final, plan,review") == ["plan", "review", "final"]
     assert hooks.parse_stages("") == []
-    assert hooks.parse_stages("plan,inventada") == ["plan"]  # ignora desconocidas
+    assert hooks.parse_stages("plan,inventada") == ["plan"]  # unknown stages are ignored
     assert hooks.format_stages(["review", "plan"]) == "plan,review"
 
 
@@ -46,7 +46,7 @@ def test_resolve_global_only(tmp_path):
 def test_resolve_task_override(tmp_path):
     _save_global(command="echo g", stages="plan")
     task = _make_task(tmp_path, hook_command="echo t", hook_stages="plan")
-    assert hooks.resolve_commands(task, "plan") == ["echo t"]  # override por defecto
+    assert hooks.resolve_commands(task, "plan") == ["echo t"]  # override by default
 
 
 def test_resolve_task_both_order(tmp_path):
@@ -82,7 +82,7 @@ def test_run_stage_hooks_never_raises_on_failure(tmp_path):
         task, "plan", "ok",
         on_event=lambda phase, event: None,
         on_info=infos.append,
-    ))  # no lanza aunque el hook falle
+    ))  # does not raise even if the hook fails
     assert any("{code}" not in m and "3" in m for m in infos)
 
 
@@ -152,7 +152,7 @@ def test_run_stage_hooks_webhook_never_raises(tmp_path, monkeypatch):
         task, "plan", "ok",
         on_event=lambda phase, event: None,
         on_info=infos.append,
-    ))  # no lanza aunque el webhook falle
+    ))  # does not raise even if the webhook fails
     assert any("sin red" in m for m in infos)
 
 

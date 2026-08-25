@@ -1,4 +1,4 @@
-"""Operaciones git del proyecto destino (rama por tarea). Nunca lanza."""
+"""Git operations on the target project (branch per task). Never raises."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def is_git_repo(workdir: Path) -> bool:
 
 
 def create_branch(workdir: Path, branch: str) -> tuple[bool, str]:
-    """Crea (o cambia a) la rama de la tarea. Devuelve (éxito, mensaje)."""
+    """Create (or switch to) the task branch. Returns (success, message)."""
     ok, output = _git(workdir, "checkout", "-b", branch)
     if ok:
         return True, t("git.branch_created", branch=branch)

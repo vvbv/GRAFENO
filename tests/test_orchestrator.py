@@ -1,4 +1,4 @@
-"""Tests del orquestador con drivers falsos inyectados."""
+"""Tests of the orchestrator with injected fake drivers."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from grafeno.pipeline.orchestrator import Orchestrator, PhaseError
 
 
 class FakeDriver(CLIDriver):
-    """Driver de prueba: devuelve resultados en cola, sin subprocesos."""
+    """Test driver: returns queued results, no subprocesses."""
 
     def __init__(self, name: str, results: list[RunResult], available: bool = True):
         self.name = name
@@ -83,7 +83,7 @@ def test_automode_happy_path(tmp_path):
 
     assert task.state is TaskState.DONE
     assert task.iteration == 0
-    # El plan se materializó con la cabecera de ejecutor (fallback de salida).
+    # The plan was materialised with the executor header (output fallback).
     plans = list(paths.plan_dir(task.id).glob("*.md"))
     assert len(plans) == 1
     content = plans[0].read_text(encoding="utf-8")
@@ -108,7 +108,7 @@ def test_automode_fix_loop_until_approved(tmp_path):
 
     assert task.state is TaskState.DONE
     assert task.iteration == 1
-    # La corrección recibió el prompt de fix que referencia la revisión 01.
+    # The fix received the fix prompt that references review 01.
     assert "01-review.md" in drivers["fake-impl"].prompts[-1]
 
 
@@ -116,8 +116,8 @@ def test_automode_max_iterations_exhausted(tmp_path):
     task = _make_task(tmp_path, max_iterations=2)
     drivers = {
         "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
-        "fake-impl": FakeDriver("fake-impl", []),  # siempre ok
-        "fake-rev": FakeDriver("fake-rev", []),    # sin veredicto -> CHANGES_REQUESTED
+        "fake-impl": FakeDriver("fake-impl", []),  # always ok
+        "fake-rev": FakeDriver("fake-rev", []),    # no verdict -> CHANGES_REQUESTED
         "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
     }
     orch = Orchestrator(task, drivers=drivers)
@@ -154,7 +154,7 @@ def test_missing_cli_marks_failed(tmp_path):
 
 def test_unknown_cli_marks_failed(tmp_path):
     task = _make_task(tmp_path)
-    task.planner.cli = "inexistente"  # CLI desconocido: el orquestador falla
+    task.planner.cli = "inexistente"  # unknown CLI: the orchestrator fails
     orch = Orchestrator(task, drivers={})
     try:
         _run(orch.run_plan())
@@ -174,7 +174,7 @@ def test_approved_but_failing_tests_requests_changes(tmp_path):
     }
     orch = Orchestrator(task, drivers=drivers)
     _run(orch.run_automode())
-    # Aprobado pero tests fallando -> corrección -> agota iteraciones -> FAILED
+    # Approved but tests failing -> fix -> exhausts iterations -> FAILED
     assert task.state is TaskState.FAILED
     assert task.iteration == 1
 
@@ -203,7 +203,7 @@ def test_session_ids_are_reused(tmp_path):
 
 
 def test_automode_split_plan_and_continue(tmp_path):
-    """Automode con punto de confirmación: plan -> (pausa) -> continuar."""
+    """Automode with a confirmation point: plan -> (pause) -> continue."""
     task = _make_task(tmp_path)
     drivers = {
         "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
@@ -216,7 +216,7 @@ def test_automode_split_plan_and_continue(tmp_path):
     _run(orch.run_automode_plan())
     assert task.state is TaskState.PLANNED
     assert list(paths.plan_dir(task.id).glob("*.md"))
-    # Aún no se ha implementado nada.
+    # Nothing implemented yet.
     assert drivers["fake-impl"].prompts == []
 
     _run(orch.run_automode_continue())
@@ -234,7 +234,7 @@ def test_automode_continue_requires_plan(tmp_path):
 
 
 def test_second_cycle_uses_cycle_dirs(tmp_path):
-    """'Pedir más': un ciclo nuevo planifica en plan/ciclo-02 y conserva el 1."""
+    """'Ask for more': a new cycle plans in plan/ciclo-02 and keeps cycle 1."""
     task = _make_task(tmp_path)
     planner = FakeDriver("fake-planner", [_ok("plan ciclo 1"), _ok("plan ciclo 2")])
     drivers = {
@@ -264,17 +264,17 @@ def test_second_cycle_uses_cycle_dirs(tmp_path):
     cycle2_plans = list(paths.plan_dir(task.id, 2).glob("*.md"))
     assert cycle2_plans and "ciclo-02" in str(cycle2_plans[0])
     assert list(paths.review_dir(task.id, 2).glob("*.md"))
-    # El prompt del ciclo 2 incluye la petición de ampliación.
+    # The cycle 2 prompt includes the extension request.
     assert "añade más cosas" in planner.prompts[-1]
     assert "Ampliación" in planner.prompts[-1]
-    # El ciclo 1 sigue intacto.
+    # Cycle 1 remains untouched.
     assert list(paths.plan_dir(task.id, 1).glob("*.md"))
     cycle2_final = list(paths.final_dir(task.id, 2).glob("*.md"))
     assert cycle2_final and "ciclo-02" in str(cycle2_final[0])
 
 
 def test_agents_md_se_genera_antes_del_plan(tmp_path):
-    """Sin AGENTS.md en el proyecto, el planner lo genera antes de planificar."""
+    """Without AGENTS.md in the project, the planner generates it before planning."""
     task = _make_task(tmp_path)
     planner = FakeDriver("fake-planner", [_ok("init hecho"), _ok("plan")])
     drivers = {
@@ -287,8 +287,8 @@ def test_agents_md_se_genera_antes_del_plan(tmp_path):
 
     assert task.state is TaskState.PLANNED
     assert len(planner.prompts) == 2
-    assert "AGENTS.md" in planner.prompts[0]   # primero el init
-    assert "PLANIFICADOR" in planner.prompts[1]  # después el plan
+    assert "AGENTS.md" in planner.prompts[0]   # first the init
+    assert "PLANIFICADOR" in planner.prompts[1]  # then the plan
 
 
 def test_agents_md_se_omite_si_ya_existe(tmp_path):
@@ -300,11 +300,11 @@ def test_agents_md_se_omite_si_ya_existe(tmp_path):
     _run(orch.run_plan())
 
     assert task.state is TaskState.PLANNED
-    assert len(planner.prompts) == 1  # solo el prompt de plan
+    assert len(planner.prompts) == 1  # only the plan prompt
 
 
 def test_agents_md_fallo_no_falla_la_tarea(tmp_path):
-    """Si la generación de AGENTS.md falla, el plan sigue adelante."""
+    """If AGENTS.md generation fails, the plan continues."""
     task = _make_task(tmp_path)
     planner = FakeDriver(
         "fake-planner", [RunResult(ok=False, error="boom"), _ok("plan")]
@@ -334,13 +334,13 @@ def test_durations_are_recorded_and_persisted(tmp_path):
     _run(orch.run_automode())
 
     assert task.state is TaskState.DONE
-    # Cada fase por la que pasó tiene duración registrada.
+    # Every phase the task went through has a recorded duration.
     for phase in ("plan", "implement", "review", "fix", "final"):
         assert phase in task.durations
         assert task.durations[phase] >= 0
-    # El callback de actividad se propaga.
+    # The activity callback propagates.
     assert activities
-    # Persisten en task.toml.
+    # Persisted in task.toml.
     from grafeno import models
 
     reloaded = models.load(task.id)
@@ -348,7 +348,7 @@ def test_durations_are_recorded_and_persisted(tmp_path):
 
 
 def test_automode_runs_final_steps_after_approval(tmp_path):
-    """Tras la aprobación, el automode ejecuta los pasos finales y escribe el informe."""
+    """After approval, automode runs the final steps and writes the report."""
     task = _make_task(tmp_path)
     final = FakeDriver("fake-final", [_ok("informe de cierre")])
     drivers = {
@@ -362,9 +362,9 @@ def test_automode_runs_final_steps_after_approval(tmp_path):
 
     assert task.state is TaskState.DONE
     assert len(final.prompts) == 1
-    # El prompt de cierre apunta al directorio final del ciclo.
+    # The final prompt points to the cycle's final directory.
     assert str(paths.final_dir(task.id)) in final.prompts[0]
-    # Respaldo: la salida se materializó como 01-final.md.
+    # Fallback: the output was materialised as 01-final.md.
     report = paths.final_dir(task.id) / "01-final.md"
     assert report.exists()
     assert "informe de cierre" in report.read_text(encoding="utf-8")
@@ -402,7 +402,7 @@ def test_tokens_recorded_per_phase_and_cli_model(tmp_path):
     assert task.tokens_by_phase()["implement"] == (1000, 200)
     assert task.tokens_by_cli_model()["fake-impl/prov/Impl-Model"] == (1000, 200)
     assert task.token_totals() == (1000, 200)
-    # Persistido: se recarga de task.toml sin pérdida.
+    # Persisted: it is reloaded from task.toml without loss.
     assert models.load(task.id).tokens == task.tokens
 
 
@@ -452,7 +452,7 @@ def test_hooks_fire_per_phase_and_on_each_iteration(tmp_path):
     _run(orch.run_automode())
 
     lines = (tmp_path / "hooks.log").read_text(encoding="utf-8").splitlines()
-    # review y fix se repiten por iteración: el hook se dispara en cada una.
+    # review and fix repeat per iteration: the hook fires on each one.
     assert lines.count("review:ok") == 2
     assert lines.count("fix:ok") == 1
     assert "implement:ok" in lines
@@ -511,7 +511,7 @@ def test_repetition_runner_replan_calls_run_automode(tmp_path):
 
 
 def test_repetition_runner_reevaluate_runs_reevaluate_then_continue(tmp_path):
-    """Con plan_reuse=reevaluate, primero reevalúa el plan y luego ejecuta el resto."""
+    """With plan_reuse=reevaluate, first re-evaluate the plan and then run the rest."""
     from grafeno.pipeline.orchestrator import repetition_runner
 
     task = _make_task(tmp_path, plan_reuse="reevaluate")
@@ -533,7 +533,7 @@ def test_repetition_runner_reevaluate_runs_reevaluate_then_continue(tmp_path):
 
 
 def test_repetition_runner_reevaluate_stops_when_plan_failed(tmp_path):
-    """Si la reevaluación falla (state=FAILED), no se ejecuta la continuación."""
+    """If the re-evaluation fails (state=FAILED), the continuation is not run."""
     from grafeno.pipeline.orchestrator import repetition_runner
 
     task = _make_task(tmp_path, plan_reuse="reevaluate")
@@ -556,7 +556,7 @@ def test_repetition_runner_reevaluate_stops_when_plan_failed(tmp_path):
 
 
 def test_run_reevaluate_plan_without_existing_files_falls_back_to_run_plan(tmp_path):
-    """Sin archivos de plan, run_reevaluate_plan delega en run_plan."""
+    """Without plan files, run_reevaluate_plan delegates to run_plan."""
     task = _make_task(tmp_path, plan_reuse="reevaluate")
     planner = FakeDriver("fake-planner", [_ok("plan nuevo")])
     drivers = {"fake-planner": planner}
@@ -564,15 +564,15 @@ def test_run_reevaluate_plan_without_existing_files_falls_back_to_run_plan(tmp_p
     _run(orch.run_reevaluate_plan())
 
     assert task.state is TaskState.PLANNED
-    # Se usó plan.jsonl, no reevaluate.jsonl.
+    # plan.jsonl was used, not reevaluate.jsonl.
     assert (paths.logs_dir(task.id) / "plan.jsonl").exists()
     assert not (paths.logs_dir(task.id) / "reevaluate.jsonl").exists()
 
 
 def test_run_reevaluate_plan_with_existing_files_writes_reevaluate_log(tmp_path):
-    """Con plan existente, run_reevaluate_plan escribe reevaluate.jsonl."""
+    """With an existing plan, run_reevaluate_plan writes reevaluate.jsonl."""
     task = _make_task(tmp_path, plan_reuse="reevaluate")
-    # Crea un archivo de plan previo.
+    # Create a previous plan file.
     (paths.plan_dir(task.id) / "01-previo.md").write_text(
         f"{prompts.executor_header(task)}\n# Plan previo\n", encoding="utf-8"
     )
@@ -582,15 +582,15 @@ def test_run_reevaluate_plan_with_existing_files_writes_reevaluate_log(tmp_path)
     _run(orch.run_reevaluate_plan())
 
     assert task.state is TaskState.PLANNED
-    # Log específico de reevaluación (no plan).
+    # Re-evaluation specific log (not plan).
     assert (paths.logs_dir(task.id) / "reevaluate.jsonl").exists()
     assert not (paths.logs_dir(task.id) / "plan.jsonl").exists()
-    # El planner recibió el prompt de reevaluación.
+    # The planner received the re-evaluation prompt.
     assert "REEVALUACIÓN" in planner.prompts[-1]
 
 
 def test_effort_is_passed_to_run_request(tmp_path):
-    """El orquestador propaga ``effort`` del rol a ``RunRequest``."""
+    """The orchestrator propagates ``effort`` from the role to ``RunRequest``."""
     task = _make_task(tmp_path)
     task.implementer.effort = "high"
     impl = FakeDriver("fake-impl", [_ok("v1")])
@@ -605,19 +605,21 @@ def test_effort_is_passed_to_run_request(tmp_path):
     orch = Orchestrator(task, drivers=drivers)
     _run(orch.run_implement())
 
-    assert impl.requests, "FakeDriver debería haber recibido al menos un RunRequest"
+    assert impl.requests, "FakeDriver should have received at least one RunRequest"
     assert impl.requests[0].effort == "high"
 
 
 def test_effort_empty_is_passed_through(tmp_path):
-    """Sin esfuerzo configurado, ``RunRequest.effort`` es cadena vacía."""
+    """Without a configured effort, ``RunRequest.effort`` is the empty string."""
     task = _make_task(tmp_path)
     assert task.implementer.effort == ""
     impl = FakeDriver("fake-impl", [_ok("v1")])
     drivers = {
         "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
         "fake-impl": impl,
-        "fake-rev": FakeDriver("fake-rev", [_ok("bien\nVERDICT: APPROVED")]),
+        "fake-rev": FakeDriver(
+            "fake-rev", [_ok("bien\nVERDICT: APPROVED")]
+        ),
         "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
     }
     orch = Orchestrator(task, drivers=drivers)

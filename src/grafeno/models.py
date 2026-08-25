@@ -1,4 +1,4 @@
-"""Modelo de datos de una tarea GRAFENO y su máquina de estados."""
+"""Data model of a GRAFENO task and its state machine."""
 
 from __future__ import annotations
 
@@ -35,36 +35,36 @@ class TaskState(str, Enum):
 
 
 def state_label(state: "TaskState") -> str:
-    """Etiqueta localizada de un estado de tarea."""
+    """Localized label for a task state."""
     return t(f"state.{state.value}")
 
 
-# Fases visibles en la barra de progreso del detalle.
+# Phases shown in the detail progress bar.
 PHASES = ("plan", "implement", "review", "final", "done")
 
 TOKEN_KEY_SEP = "|"
-DEFAULT_MODEL_LABEL = "default"  # clave cuando el rol no fija modelo
-LEGACY_PHASE = "legacy"          # fase de usos guardados con el formato antiguo
-# Orden de las fases con tokens (para mostrar el desglose).
+DEFAULT_MODEL_LABEL = "default"  # key when the role does not set a model
+LEGACY_PHASE = "legacy"          # phase for usage records stored with the old format
+# Order of the phases with tokens (used to display the breakdown).
 TOKEN_PHASES = ("plan", "implement", "review", "fix", "final")
 
-# Modos válidos de repetición de tareas (vacío = no repetitiva).
+# Valid task repetition modes (empty = not repetitive).
 REPEAT_MODES = ("", "interval", "infinite")
-# Política de reutilización del plan entre repeticiones.
+# Plan reuse policy between repetitions.
 PLAN_REUSE_MODES = ("reuse", "replan", "reevaluate")
 
 
 def _token_key(phase: str, cli: str, model: str, kind: str) -> str:
-    """Compone la clave plana ``"{fase}|{cli}|{modelo}|{input|output}"``."""
+    """Compose the flat key ``"{phase}|{cli}|{model}|{input|output}"``."""
     return f"{phase}{TOKEN_KEY_SEP}{cli}{TOKEN_KEY_SEP}{model}{TOKEN_KEY_SEP}{kind}"
 
 
 def _parse_token_key(key: str) -> tuple[str, str, str, str]:
-    """Descompone una clave de tokens en (fase, cli, modelo, kind).
+    """Decompose a token key into (phase, cli, model, kind).
 
-    El formato legado ``"{modelo}|{kind}"`` se interpreta como fase
-    ``legacy`` y cli vacío. ``kind`` se separa con ``rpartition`` para que
-    los modelos con ``|`` en su nombre no rompan el parseo.
+    The legacy format ``"{model}|{kind}"`` is interpreted as phase
+    ``legacy`` and empty cli. ``kind`` is split with ``rpartition`` so that
+    models whose name contains ``|`` do not break parsing.
     """
     prefix, _, kind = key.rpartition(TOKEN_KEY_SEP)
     parts = prefix.split(TOKEN_KEY_SEP)
@@ -77,7 +77,7 @@ def _parse_token_key(key: str) -> tuple[str, str, str, str]:
 
 
 def cli_model_label(cli: str, model: str) -> str:
-    """Etiqueta de agente: ``"cli/modelo"``; solo el modelo si no hay cli."""
+    """Agent label: ``"cli/model"``; just the model if there is no cli."""
     return f"{cli}/{model}" if cli else model
 
 
@@ -107,26 +107,26 @@ class Task:
     max_iterations: int = 5
     test_command: str = ""
     create_branch: bool = True
-    confirm_plan: bool = False  # en automode, pedir confirmación tras el plan
-    final_prompt: str = ""  # instrucciones extra para los pasos finales
-    hook_command: str = ""  # vacío = sin hook propio de tarea
-    hook_stages: str = ""   # etapas separadas por comas; vacío = ninguna
-    hook_mode: str = "override"  # "override" (sustituye al global) | "both"
+    confirm_plan: bool = False  # in automode, ask for confirmation after the plan
+    final_prompt: str = ""  # extra instructions for the final steps
+    hook_command: str = ""  # empty = no task-specific hook
+    hook_stages: str = ""   # comma-separated stages; empty = none
+    hook_mode: str = "override"  # "override" (replaces the global) | "both"
     branch: str = ""
     iteration: int = 0
-    cycle: int = 1  # ciclo actual (≥2 = ampliaciones "pedir más")
-    extensions: dict[str, str] = field(default_factory=dict)  # ciclo -> petición
-    sessions: dict[str, str] = field(default_factory=dict)  # rol -> session id
-    durations: dict[str, int] = field(default_factory=dict)  # fase -> segundos acumulados
-    tokens: dict[str, int] = field(default_factory=dict)  # "{fase}|{cli}|{modelo}|{input|output}" -> tokens acumulados
-    # Programación horaria y repetición (ver scheduler.py).
-    scheduled_at: str = ""        # ISO local "YYYY-MM-DDTHH:MM"; vacío = no programada
-    parent_id: str = ""           # id de la tarea padre (encadenada); vacío = raíz
+    cycle: int = 1  # current cycle (>=2 = "ask for more" extensions)
+    extensions: dict[str, str] = field(default_factory=dict)  # cycle -> request
+    sessions: dict[str, str] = field(default_factory=dict)  # role -> session id
+    durations: dict[str, int] = field(default_factory=dict)  # phase -> accumulated seconds
+    tokens: dict[str, int] = field(default_factory=dict)  # "{phase}|{cli}|{model}|{input|output}" -> accumulated tokens
+    # Time scheduling and repetition (see scheduler.py).
+    scheduled_at: str = ""        # local ISO "YYYY-MM-DDTHH:MM"; empty = unscheduled
+    parent_id: str = ""           # id of the parent task (chained); empty = root
     repeat_mode: str = ""         # "" | "interval" | "infinite"
-    repeat_interval_minutes: int = 60  # solo si repeat_mode == "interval"
+    repeat_interval_minutes: int = 60  # only if repeat_mode == "interval"
     plan_reuse: str = "reuse"     # "reuse" | "replan" | "reevaluate"
-    repeat_count: int = 0         # repeticiones ya ejecutadas (0 = primera ejecución)
-    last_completed_at: str = ""   # ISO local de la última vez que llegó a DONE
+    repeat_count: int = 0         # repetitions already executed (0 = first execution)
+    last_completed_at: str = ""   # local ISO of the last time it reached DONE
     created_at: str = ""
     updated_at: str = ""
 
@@ -186,18 +186,18 @@ class Task:
 
     @property
     def current_extension(self) -> str:
-        """Petición de ampliación del ciclo actual (vacía en el ciclo 1)."""
+        """Extension request for the current cycle (empty in cycle 1)."""
         return self.extensions.get(str(self.cycle), "")
 
     def start_new_cycle(self, request: str) -> None:
-        """Registra una ampliación y reinicia la máquina de estados del ciclo."""
+        """Record an extension and reset the state machine for the cycle."""
         self.cycle += 1
         self.extensions[str(self.cycle)] = request
         self.iteration = 0
         self.state = TaskState.DRAFT
 
     def record_tokens(self, cli: str, model: str, phase: str, usage: "TokenUsage") -> None:
-        """Acumula el uso de tokens de una ejecución bajo su fase y CLI+modelo."""
+        """Accumulate the token usage of a run under its phase and CLI+model."""
         key = model or DEFAULT_MODEL_LABEL
         self.tokens[_token_key(phase, cli, key, "input")] = (
             self.tokens.get(_token_key(phase, cli, key, "input"), 0) + usage.input
@@ -207,7 +207,7 @@ class Task:
         )
 
     def token_totals(self) -> tuple[int, int]:
-        """Totales (input, output) de la tarea sumando todos los modelos."""
+        """Totals (input, output) of the task summing every model."""
         suffix_in = f"{TOKEN_KEY_SEP}input"
         suffix_out = f"{TOKEN_KEY_SEP}output"
         total_in = sum(v for k, v in self.tokens.items() if k.endswith(suffix_in))
@@ -215,7 +215,7 @@ class Task:
         return total_in, total_out
 
     def tokens_by_phase(self) -> dict[str, tuple[int, int]]:
-        """Desglose fase -> (input, output)."""
+        """Breakdown phase -> (input, output)."""
         result: dict[str, list[int]] = {}
         for key, value in self.tokens.items():
             phase, _, _, kind = _parse_token_key(key)
@@ -227,7 +227,7 @@ class Task:
         return {phase: (pair[0], pair[1]) for phase, pair in result.items()}
 
     def tokens_by_cli_model(self) -> dict[str, tuple[int, int]]:
-        """Desglose etiqueta ``cli/modelo`` -> (input, output)."""
+        """Breakdown ``cli/model`` label -> (input, output)."""
         result: dict[str, list[int]] = {}
         for key, value in self.tokens.items():
             _, cli, model, kind = _parse_token_key(key)
@@ -334,13 +334,13 @@ def save(task: Task) -> None:
 
 
 def reset_to_draft(task: Task) -> None:
-    """Reinicia la tarea a DRAFT para relanzarla desde cero.
+    """Reset the task to DRAFT so it can be launched from scratch.
 
-    Limpia la máquina de estados (estado, iteración, ciclo, sesiones y
-    ampliaciones), desprograma el arranque desatendido y borra los
-    artefactos del pipeline (``plan/``, ``review/``, ``final/``) para que el
-    siguiente arranque vuelva a planificar con el nombre y la descripción
-    actuales. Conserva tokens, duraciones, hooks y la rama git ya creada.
+    Clears the state machine (state, iteration, cycle, sessions and
+    extensions), unschedules unattended startup and deletes the pipeline
+    artifacts (``plan/``, ``review/``, ``final/``) so that the next run
+    re-plans with the current name and description. Keeps tokens, durations,
+    hooks and the already-created git branch.
     """
     task.state = TaskState.DRAFT
     task.iteration = 0
@@ -370,5 +370,5 @@ def list_all() -> list[Task]:
             try:
                 tasks.append(load(entry.name))
             except Exception:
-                continue  # tarea corrupta: se ignora en el listado
+                continue  # corrupt task: ignored in the listing
     return tasks

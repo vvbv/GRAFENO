@@ -1,4 +1,4 @@
-"""Registro de drivers de CLI disponibles en GRAFENO."""
+"""Registry of CLI drivers available in GRAFENO."""
 
 from __future__ import annotations
 
@@ -31,19 +31,19 @@ _DRIVERS: dict[str, CLIDriver] = {
 def get_driver(name: str) -> CLIDriver:
     if name in _DRIVERS:
         return _DRIVERS[name]
-    raise KeyError(f"CLI desconocido: '{name}'. Disponibles: {', '.join(_DRIVERS)}")
+    raise KeyError(f"Unknown CLI: '{name}'. Available: {', '.join(_DRIVERS)}")
 
 
 def available_clis() -> list[str]:
-    """CLIs soportados cuyo ejecutable existe en el sistema."""
+    """Supported CLIs whose executable is present on the system."""
     return [name for name, driver in _DRIVERS.items() if driver.is_available()]
 
 
 async def fetch_all_models(clis: Iterable[str]) -> dict[str, list[str]]:
-    """Lista los modelos de cada CLI; un CLI que falla devuelve lista vacía.
+    """List the models of each CLI; a failing CLI returns an empty list.
 
-    Cancelable: si la corrutina se cancela, la cancelación se propaga al
-    ``list_models_async`` en curso, que mata el subproceso del CLI.
+    Cancelable: if the coroutine is cancelled, cancellation propagates to the
+    in-flight ``list_models_async``, which kills the CLI's subprocess.
     """
     result: dict[str, list[str]] = {}
     for cli in clis:
@@ -55,8 +55,8 @@ async def fetch_all_models(clis: Iterable[str]) -> dict[str, list[str]]:
 
 
 async def fetch_all_variants(clis: Iterable[str]) -> dict[str, dict[str, list[str]]]:
-    """Variantes de esfuerzo por modelo de cada CLI; un CLI que falla
-    devuelve dict vacío. Cancelable igual que ``fetch_all_models``."""
+    """Effort variants per model for each CLI; a failing CLI returns an
+    empty dict. Cancelable just like ``fetch_all_models``."""
     result: dict[str, dict[str, list[str]]] = {}
     for cli in clis:
         try:

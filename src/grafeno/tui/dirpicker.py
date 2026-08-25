@@ -1,4 +1,4 @@
-"""Selector de directorio con autocompletado para la TUI."""
+"""Directory selector with autocomplete for the TUI."""
 
 from __future__ import annotations
 
@@ -13,17 +13,17 @@ from textual.widgets.option_list import Option
 
 
 def directory_matches(value: str, *, limit: int = 15) -> list[str]:
-    """Devuelve rutas de directorios existentes que completan ``value``.
+    """Return paths of existing directories that complete ``value``.
 
-    Reglas:
-    - Solo directorios (nunca archivos).
-    - ``~`` se expande al home del usuario.
-    - Si ``value`` termina en separador, se listan los hijos de ese directorio.
-    - Si no, se completa el último segmento por prefijo (insensible a mayúsculas).
-    - Los directorios ocultos solo aparecen si el prefijo empieza por ".".
-    - Las rutas devueltas conservan la forma tecleada (no se resuelven) y
-      terminan en separador para permitir seguir profundizando.
-    - Errores de permisos o rutas inexistentes devuelven lista vacía.
+    Rules:
+    - Directories only (never files).
+    - ``~`` expands to the user's home.
+    - If ``value`` ends in a separator, list the children of that directory.
+    - Otherwise complete the last segment by prefix (case-insensitive).
+    - Hidden directories only appear if the prefix starts with ``.``.
+    - Returned paths preserve the typed shape (not resolved) and end with
+      a separator so the user can keep going deeper.
+    - Permission errors or non-existent paths return an empty list.
     """
     raw = value if value else "."
     expanded = os.path.expanduser(raw)
@@ -52,12 +52,13 @@ def directory_matches(value: str, *, limit: int = 15) -> list[str]:
 
 
 class DirectoryPicker(Widget):
-    """Input de ruta con lista desplegable de directorios candidatos.
+    """Path input with a dropdown list of candidate directories.
 
-    El Input interior lleva el id que indique el llamador (p. ej. "nt-workdir");
-    el desplegable se muestra al teclear y se rellena con ``directory_matches``.
-    Teclas: flecha abajo (desde el input) entra en la lista; Enter/click elige;
-    Escape (en la lista) vuelve al input. Tab cambia de foco como siempre.
+    The inner Input carries the id given by the caller (e.g. ``nt-workdir``);
+    the dropdown is shown while typing and is filled with
+    ``directory_matches``. Keys: down-arrow (from the input) enters the list;
+    Enter/click selects; Escape (in the list) returns to the input. Tab
+    changes focus as usual.
     """
 
     DEFAULT_CSS = """
@@ -75,7 +76,7 @@ class DirectoryPicker(Widget):
     """
 
     class Changed(Message):
-        """Reenvía los cambios del Input interior (burbujea como Input.Changed)."""
+        """Forwards the inner Input's changes (bubbles like Input.Changed)."""
 
         def __init__(self, value: str) -> None:
             super().__init__()
@@ -109,7 +110,7 @@ class DirectoryPicker(Widget):
         self.post_message(self.Changed(event.value))
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        # Enter o click sobre una opción: fija la ruta y vuelve al input.
+        # Enter or click on an option: fix the path and return to the input.
         self._pick(self._matches[event.option_index])
 
     def _pick(self, path: str) -> None:
@@ -117,7 +118,7 @@ class DirectoryPicker(Widget):
         input_widget.value = path
         input_widget.cursor_position = len(path)
         input_widget.focus()
-        # _refresh_options() se dispara vía Input.Changed y muestra los hijos.
+        # _refresh_options() is triggered via Input.Changed and shows the children.
 
     def _refresh_options(self) -> None:
         options = self.query_one("#dir-options", OptionList)

@@ -1,4 +1,4 @@
-"""Tests del catálogo i18n y del selector de idioma."""
+"""Tests of the i18n catalogue and the language selector."""
 
 from __future__ import annotations
 
@@ -34,17 +34,17 @@ def test_t_invalid_language_falls_back_to_default():
 
 
 def test_catalog_parity():
-    """Ambos idiomas definen exactamente las mismas claves."""
+    """Both languages define exactly the same keys."""
     assert set(i18n._MESSAGES["en"]) == set(i18n._MESSAGES["es"])
 
 
 def test_used_keys_are_defined_in_catalog():
-    """Todas las claves ``t("...")`` usadas en ``src/`` están en el catálogo.
+    """Every ``t("...")`` key used in ``src/`` is in the catalogue.
 
-    Recorre los ``.py`` bajo ``src/grafeno/`` y extrae los primeros argumentos
-    literales de ``t(...)`` para detectar claves que el código usa pero que
-    faltan en ``_MESSAGES``. Evita regresiones del estilo "se añade la clave
-    en código pero se olvida su traducción".
+    Walks the ``.py`` files under ``src/grafeno/`` and extracts the literal
+    first arguments of ``t(...)`` to detect keys the code uses but that are
+    missing from ``_MESSAGES``. Avoids regressions of the kind "the key is
+    added in code but its translation is forgotten".
     """
     import re
     from pathlib import Path
@@ -59,13 +59,13 @@ def test_used_keys_are_defined_in_catalog():
     defined_es = set(i18n._MESSAGES["es"])
     missing_en = sorted(used - defined_en)
     missing_es = sorted(used - defined_es)
-    assert not missing_en, f"Claves usadas en src y NO definidas en en: {missing_en}"
-    assert not missing_es, f"Claves usadas en src y NO definidas en es: {missing_es}"
+    assert not missing_en, f"Keys used in src but NOT defined in en: {missing_en}"
+    assert not missing_es, f"Keys used in src but NOT defined in es: {missing_es}"
 
 
 def test_config_language_roundtrip():
     cfg = config_module.load()
-    assert cfg.language == "en"  # defecto
+    assert cfg.language == "en"  # default
     cfg.language = "es"
     config_module.save(cfg)
     assert config_module.load().language == "es"
@@ -91,7 +91,7 @@ def test_config_screen_language_select_persists():
             select.value = "es"
             await pilot.pause()
             app.screen.query_one("#cfg-save").scroll_visible()
-            # Deja tiempo a que el scroll deje el botón en el viewport visible.
+            # Give time for the scroll to bring the button into the visible viewport.
             for _ in range(5):
                 await pilot.pause(0.05)
             await pilot.click("#cfg-save")
@@ -104,13 +104,13 @@ def test_config_screen_language_select_persists():
 
 
 def test_quit_hint_uses_platform_key() -> None:
-    """El aviso de salida interpola la etiqueta de tecla de la plataforma."""
+    """The quit hint interpolates the platform key label."""
     from grafeno.i18n import t
 
     assert "Cmd+Q" in t("tasks.quit_hint", key="Cmd+Q")
     assert "Ctrl+Q" in t("tasks.quit_hint", key="Ctrl+Q")
 
-    # Misma comprobación en español para garantizar la interpolación en ambos idiomas.
+    # Same check in Spanish to guarantee interpolation in both languages.
     i18n.set_language("es")
     assert "Cmd+Q" in t("tasks.quit_hint", key="Cmd+Q")
     assert "Ctrl+Q" in t("tasks.quit_hint", key="Ctrl+Q")

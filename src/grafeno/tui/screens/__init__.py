@@ -1,1 +1,1 @@
-"""Pantallas de la TUI de GRAFENO."""
+"""GRAFENO TUI screens."""

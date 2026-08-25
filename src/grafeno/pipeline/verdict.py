@@ -1,4 +1,4 @@
-"""Parseo del veredicto estructurado del revisor."""
+"""Parsing of the structured reviewer verdict."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ _PATTERN = re.compile(r"VERDICT:\s*\*{0,2}\s*(APPROVED|CHANGES_REQUESTED)", re.I
 
 
 def parse_verdict(text: str) -> Verdict | None:
-    """Busca el veredicto desde el final del texto (tolera markdown `**`)."""
+    """Search for the verdict from the end of the text (tolerates markdown `**`)."""
     matches = _PATTERN.findall(text or "")
     if not matches:
         return None

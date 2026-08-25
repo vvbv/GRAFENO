@@ -60,9 +60,10 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
 
 ## Convenciones
 
-- **Idioma del código**: español para docstrings, comentarios, mensajes de
-  usuario y claves i18n; identificadores en inglés. Todo texto de UI pasa por
-  `t("clave")` en `i18n.py` (añadir la clave en ambos idiomas).
+- **Idioma del código**: docstrings y comentarios en INGLÉS; mensajes de
+  usuario vía `t("clave")` en `i18n.py` (añadir la clave en ambos idiomas);
+  identificadores en inglés. Todo texto de UI pasa por `t("clave")` y se
+  traduce en el catálogo de `i18n.py`.
 - **Estilo**: `from __future__ import annotations` en cada módulo; docstring de
   módulo en la primera línea; dataclasses con `to_dict`/`from_dict` para
   persistencia; type hints modernos (`str | None`); async/await con

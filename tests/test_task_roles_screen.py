@@ -1,4 +1,4 @@
-"""Tests del modal de agentes por tarea (modelos mockeados, sin CLIs reales)."""
+"""Tests of the per-task agents modal (mocked models, no real CLIs)."""
 
 from __future__ import annotations
 
@@ -53,13 +53,13 @@ def test_task_roles_screen_edits_and_saves(monkeypatch):
             await pilot.pause()
             assert isinstance(app.screen, TaskRolesScreen)
 
-            # Espera a que llegue el catálogo de modelos.
+            # Wait for the model catalogue to arrive.
             for _ in range(50):
                 await pilot.pause(0.1)
                 if app.screen.query_one(RolesForm).models:
                     break
 
-            # Cambia el planificador a kimi + modelo concreto.
+            # Switch the planner to kimi + a concrete model.
             app.screen.query_one("#planner-cli", Select).value = "kimi"
             await pilot.pause()
             app.screen.query_one("#planner-model", Select).value = "kimi-code/k3"
@@ -75,7 +75,7 @@ def test_task_roles_screen_edits_and_saves(monkeypatch):
     reloaded = models.load(task.id)
     assert reloaded.planner.cli == "kimi"
     assert reloaded.planner.model == "kimi-code/k3"
-    # El resto de roles no se tocan.
+    # The remaining roles are not touched.
     assert reloaded.implementer.cli == task.implementer.cli
     assert reloaded.reviewer.model == task.reviewer.model
 
@@ -122,7 +122,7 @@ def test_task_roles_screen_escape_cancels_loading(monkeypatch):
     task = _make_task()
 
     async def scenario():
-        # Forzamos español para que la aserción del texto sea estable.
+        # Force Spanish so the text assertion is stable.
         i18n.set_language("es")
         app = GrafenoApp()
         async with app.run_test(size=(110, 45)) as pilot:
@@ -134,7 +134,7 @@ def test_task_roles_screen_escape_cancels_loading(monkeypatch):
             assert isinstance(app.screen, TaskRolesScreen)
             await asyncio.wait_for(started.wait(), timeout=2)
 
-            await pilot.press("escape")  # cancela la carga, NO cierra
+            await pilot.press("escape")  # cancels the load, does NOT close
             await pilot.pause()
             assert isinstance(app.screen, TaskRolesScreen)
             status = app.screen.query_one("#roles-status", Static).render()
@@ -142,7 +142,7 @@ def test_task_roles_screen_escape_cancels_loading(monkeypatch):
             assert "cancelada" in status_text
             release.set()
 
-            await pilot.press("escape")  # ahora sí cierra sin guardar
+            await pilot.press("escape")  # now closes without saving
             await pilot.pause()
             assert isinstance(app.screen, TaskDetailScreen)
 
@@ -150,7 +150,7 @@ def test_task_roles_screen_escape_cancels_loading(monkeypatch):
 
 
 def test_task_roles_screen_persists_effort(monkeypatch):
-    """El esfuerzo seleccionado en el modal se guarda en task.toml."""
+    """The effort selected in the modal is saved into task.toml."""
     monkeypatch.setattr("grafeno.tui.screens.roles.fetch_all_models", _fake_fetch)
     monkeypatch.setattr("grafeno.tui.screens.roles.fetch_all_variants", _fake_fetch_variants)
     task = _make_task()

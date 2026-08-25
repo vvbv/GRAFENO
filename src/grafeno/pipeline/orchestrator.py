@@ -1,8 +1,8 @@
-"""Orquestador del pipeline: plan -> implementación -> revisión ⇄ corrección -> pasos finales.
+"""Pipeline orchestrator: plan -> implementation -> review ⇄ fix -> final steps.
 
-Es independiente de la TUI: recibe callbacks y puede usarse en modo headless,
-lo que lo hace testeable y reutilizable. Los drivers se inyectan para poder
-sustituirlos por dobles en los tests.
+It is independent of the TUI: it receives callbacks and can be used in
+headless mode, which makes it testable and reusable. Drivers are injected
+so they can be replaced by doubles in tests.
 """
 
 from __future__ import annotations
@@ -24,12 +24,12 @@ from .verdict import Verdict, parse_verdict
 
 
 def phase_label(phase: str) -> str:
-    """Etiqueta localizada de una fase del pipeline."""
+    """Localized label for a pipeline phase."""
     return t(f"phase.{phase}")
 
 
 class PhaseError(Exception):
-    """Una fase del pipeline ha fallado (el estado ya quedó en FAILED)."""
+    """A pipeline phase failed (the state has already been set to FAILED)."""
 
 
 class Orchestrator:
@@ -51,7 +51,7 @@ class Orchestrator:
         self._on_activity = on_activity or (lambda phase: None)
 
     # ------------------------------------------------------------------ #
-    # Utilidades internas
+    # Internal helpers
     # ------------------------------------------------------------------ #
     def _driver(self, cli_name: str) -> CLIDriver:
         if self._drivers is not None:
@@ -135,31 +135,32 @@ class Orchestrator:
         models.save(self.task)
 
     def _record_tokens(self, phase: str, role: RoleConfig, result: RunResult) -> None:
-        """Acumula en la tarea los tokens de la ejecución, por fase y CLI+modelo."""
+        """Accumulate the tokens of the run on the task, by phase and CLI+model."""
         if result.tokens.empty:
             return
         self.task.record_tokens(role.cli, role.model, phase, result.tokens)
         models.save(self.task)
 
     async def _run_hooks(self, stage: str, outcome: str) -> None:
-        """Dispara los hooks configurados para la etapa (nunca falla)."""
+        """Fire the hooks configured for the stage (never fails)."""
         try:
             await hooks.run_stage_hooks(
                 self.task, stage, outcome,
                 on_event=self._on_event, on_info=self._info,
             )
-        except Exception as exc:  # noqa: BLE001 — los hooks nunca rompen el pipeline
+        except Exception as exc:  # noqa: BLE001 - hooks never break the pipeline
             self._info(t("hook.exec_error", error=exc))
 
     # ------------------------------------------------------------------ #
-    # Fases
+    # Phases
     # ------------------------------------------------------------------ #
     async def ensure_agents_md(self) -> None:
-        """Genera AGENTS.md en el proyecto si no existe (mejor esfuerzo).
+        """Generate AGENTS.md in the project if missing (best effort).
 
-        Usa el rol planner (su CLI y modelo). Un fallo aquí NO falla la tarea:
-        solo se informa y se continúa; los problemas reales del CLI del
-        planner ya los gestiona la fase de plan con su manejo habitual.
+        Uses the planner role (its CLI and model). A failure here does NOT
+        fail the task: it is only reported and continued; the actual
+        planner CLI problems are already handled by the plan phase with
+        its usual error handling.
         """
         workdir = Path(self.task.workdir)
         if (workdir / "AGENTS.md").exists():
@@ -196,7 +197,7 @@ class Orchestrator:
             self._info(t("orch.agents_md.failed", error=result.error or "?"))
 
     async def run_plan(self) -> None:
-        self._set_state(TaskState.PLANNING)  # incluye la generación de AGENTS.md
+        self._set_state(TaskState.PLANNING)  # includes AGENTS.md generation
         await self.ensure_agents_md()
         result = await self._execute(
             "planner",
@@ -207,7 +208,7 @@ class Orchestrator:
             TaskState.PLANNED,
         )
         if not self._plan_files():
-            # Respaldo: el planificador no escribió archivos; materializamos su salida.
+            # Fallback: the planner wrote no files; we materialise its output.
             if not result.text.strip():
                 self._set_state(TaskState.FAILED)
                 raise PhaseError(t("orch.no_plan_output"))
@@ -220,11 +221,11 @@ class Orchestrator:
             self._info(t("orch.plan_fallback"))
 
     async def run_reevaluate_plan(self) -> None:
-        """Reevalúa el plan existente (tareas repetitivas con plan_reuse=reevaluate).
+        """Re-evaluate the existing plan (repetitive tasks with plan_reuse=reevaluate).
 
-        Igual que ``run_plan`` pero sin generar AGENTS.md (ya existe) y con
-        el prompt de reevaluación. Si no hay archivos de plan, cae a
-        ``run_plan`` normal.
+        Same as ``run_plan`` but without generating AGENTS.md (already
+        present) and with the re-evaluation prompt. If there are no plan
+        files, it falls back to ``run_plan``.
         """
         if not self._plan_files():
             await self.run_plan()
@@ -268,7 +269,7 @@ class Orchestrator:
         )
         review_path = paths.review_dir(self.task.id, self.task.cycle) / f"{review_number:02d}-review.md"
         if not review_path.exists() and result.text.strip():
-            # Respaldo: el revisor no escribió el archivo; guardamos su salida.
+            # Fallback: the reviewer did not write the file; we save its output.
             review_path.write_text(result.text.strip() + "\n", encoding="utf-8")
 
         verdict = parse_verdict(result.text)
@@ -307,7 +308,7 @@ class Orchestrator:
         )
         final_path = paths.final_dir(self.task.id, self.task.cycle) / "01-final.md"
         if not final_path.exists() and result.text.strip():
-            # Respaldo: el agente no escribió el informe; guardamos su salida.
+            # Fallback: the agent did not write the report; we save its output.
             final_path.write_text(result.text.strip() + "\n", encoding="utf-8")
 
     async def run_tests(self) -> bool:
@@ -347,14 +348,14 @@ class Orchestrator:
     # Automode
     # ------------------------------------------------------------------ #
     async def run_automode(self) -> None:
-        """Pipeline completo sin pausas: plan → implementación → revisión ⇄ fix."""
+        """Full pipeline without pauses: plan -> implementation -> review ⇄ fix."""
         await self.run_automode_plan()
         if self.task.state is TaskState.FAILED:
             return
         await self.run_automode_continue()
 
     async def run_automode_plan(self) -> None:
-        """Solo la fase de plan (punto de confirmación cuando confirm_plan)."""
+        """Only the plan phase (confirmation point when confirm_plan)."""
         self.task.automode = True
         models.save(self.task)
         try:
@@ -368,7 +369,7 @@ class Orchestrator:
             self._info(str(exc))
 
     async def run_automode_continue(self) -> None:
-        """Implementación + ciclo de revisión (requiere plan existente)."""
+        """Implementation + review loop (requires an existing plan)."""
         self.task.automode = True
         models.save(self.task)
         if not self._plan_files():
@@ -413,14 +414,14 @@ class Orchestrator:
 
 # ---------------------------------------------------------------------- #
 def repetition_runner(task: Task) -> Callable[[Orchestrator], Awaitable[None]]:
-    """Runner de una repetición según ``task.plan_reuse``.
+    """Runner for a repetition according to ``task.plan_reuse``.
 
-    - ``reuse``:      ``run_automode`` (reutiliza los planes existentes).
-    - ``replan``:     ``run_automode`` (los planes ya los borró el llamador).
+    - ``reuse``:      ``run_automode`` (reuses the existing plans).
+    - ``replan``:     ``run_automode`` (the caller has already deleted the plans).
     - ``reevaluate``: ``run_reevaluate_plan`` + ``run_automode_continue``.
 
-    Se devuelve una corrutina para que ``TaskRuntime`` la ejecute como cualquier
-    otro runner del pipeline.
+    A coroutine is returned so that ``TaskRuntime`` runs it just like any
+    other pipeline runner.
     """
     if task.plan_reuse == "reevaluate":
 

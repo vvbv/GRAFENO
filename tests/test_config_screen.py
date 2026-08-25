@@ -1,4 +1,4 @@
-"""Tests de la pantalla de configuración (modelos mockeados, sin CLIs reales)."""
+"""Tests of the settings screen (mocked models, no real CLIs)."""
 
 from __future__ import annotations
 
@@ -35,31 +35,31 @@ def test_config_screen_loads_models_and_saves(monkeypatch):
             await pilot.pause()
             assert isinstance(app.screen, ConfigScreen)
 
-            # Espera a que el worker asíncrono cargue los modelos.
+            # Wait for the async worker to load the models.
             for _ in range(50):
                 await pilot.pause(0.1)
                 if app.screen.query_one(RolesForm).models:
                     break
             assert set(app.screen.query_one(RolesForm).models) == {"opencode", "kimi"}
 
-            # El planificador (opencode) tiene sus modelos desplegables.
+            # The planner (opencode) has its models expanded.
             planner_model = app.screen.query_one("#planner-model", Select)
-            assert planner_model.value is Select.NULL  # sin modelo guardado
+            assert planner_model.value is Select.NULL  # no saved model
             planner_model.value = "opencode-go/kimi-k3"
 
-            # Cambiar el CLI del implementador a kimi repuebla sus opciones.
+            # Changing the implementer's CLI to kimi repopulates its options.
             impl_cli = app.screen.query_one("#implementer-cli", Select)
             impl_cli.value = "kimi"
             await pilot.pause()
             impl_model = app.screen.query_one("#implementer-model", Select)
             impl_model.value = "kimi-code/k3"
 
-            # La fila del rol final existe con su CLI por defecto.
+            # The final role row exists with its default CLI.
             final_cli = app.screen.query_one("#final-cli", Select)
             assert str(final_cli.value) == "opencode"
 
             app.screen.query_one("#cfg-save").scroll_visible()
-            # Da tiempo a que el scroll asiente antes de pulsar.
+            # Give the scroll time to settle before clicking.
             for _ in range(5):
                 await pilot.pause(0.05)
             await pilot.click("#cfg-save")
@@ -78,7 +78,7 @@ def test_config_screen_loads_models_and_saves(monkeypatch):
 
 
 def test_config_screen_escape_cancels_loading(monkeypatch):
-    """El primer Esc cancela la carga de modelos; el segundo cierra."""
+    """The first Esc cancels model loading; the second one closes."""
     from grafeno import i18n
 
     started = asyncio.Event()
@@ -93,8 +93,8 @@ def test_config_screen_escape_cancels_loading(monkeypatch):
     monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _slow_fetch)
 
     async def scenario():
-        # El texto del estado se muestra en el idioma activo; lo cambiamos a
-        # español para que la aserción sea estable independiente del idioma.
+        # The status text is shown in the active language; we switch to
+        # Spanish so the assertion is stable regardless of language.
         i18n.set_language("es")
         app = GrafenoApp()
         async with app.run_test(size=(110, 80)) as pilot:
@@ -104,7 +104,7 @@ def test_config_screen_escape_cancels_loading(monkeypatch):
             assert isinstance(app.screen, ConfigScreen)
             await asyncio.wait_for(started.wait(), timeout=2)
 
-            await pilot.press("escape")  # cancela la carga, NO cierra
+            await pilot.press("escape")  # cancels the load, does NOT close
             await pilot.pause()
             assert isinstance(app.screen, ConfigScreen)
             status = app.screen.query_one("#models-status", Static).render()
@@ -112,7 +112,7 @@ def test_config_screen_escape_cancels_loading(monkeypatch):
             assert "cancelada" in status_text
             release.set()
 
-            await pilot.press("escape")  # ahora sí cierra
+            await pilot.press("escape")  # now closes
             await pilot.pause()
             assert isinstance(app.screen, TaskListScreen)
 
@@ -139,8 +139,8 @@ def test_config_screen_escape_goes_back(monkeypatch):
 
 
 def test_saved_model_survives_mount(monkeypatch):
-    """Regresión: al montar, el evento Changed del Select de CLI no debe
-    borrar el modelo guardado en config.toml."""
+    """Regression: on mount, the Select of CLI's Changed event must not
+    clear the model saved in config.toml."""
     from grafeno.config import Config
 
     cfg = Config()
@@ -157,7 +157,7 @@ def test_saved_model_survives_mount(monkeypatch):
             await pilot.pause()
             await pilot.press("c")
             await pilot.pause()
-            # Deja procesar los Changed asíncronos del montaje y la carga.
+            # Let the async Changed events of mount and load settle.
             for _ in range(20):
                 await pilot.pause(0.1)
                 if app.screen.query_one(RolesForm).models:
@@ -173,7 +173,7 @@ def test_saved_model_survives_mount(monkeypatch):
 
 
 def test_config_screen_final_prompt_persists(monkeypatch):
-    """El TextArea de pasos finales carga el valor global y lo guarda en config."""
+    """The final steps TextArea loads the global value and saves it to config."""
     monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
     monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
 
@@ -185,7 +185,7 @@ def test_config_screen_final_prompt_persists(monkeypatch):
             await pilot.pause()
             assert isinstance(app.screen, ConfigScreen)
 
-            # Espera a que el worker de modelos termine antes de tocar el save.
+            # Wait for the models worker to finish before touching save.
             for _ in range(20):
                 await pilot.pause(0.1)
                 if app.screen.query_one(RolesForm).models:
@@ -193,11 +193,11 @@ def test_config_screen_final_prompt_persists(monkeypatch):
             await pilot.pause()
 
             area = app.screen.query_one("#cfg-final-prompt", TextArea)
-            assert area.text == ""  # sin valor guardado por defecto
+            assert area.text == ""  # no saved value by default
 
             area.text = "Revisa el CHANGELOG\ny actualiza README"
             app.screen.query_one("#cfg-save").scroll_visible()
-            # Deja tiempo a que la posición se actualice tras el scroll.
+            # Give time for the position to update after scrolling.
             for _ in range(5):
                 await pilot.pause(0.05)
             await pilot.click("#cfg-save")
@@ -210,7 +210,7 @@ def test_config_screen_final_prompt_persists(monkeypatch):
 
 
 def test_config_screen_final_prompt_loads_existing(monkeypatch):
-    """Si la config ya define final_prompt, el TextArea lo muestra al montar."""
+    """If config already defines final_prompt, the TextArea shows it on mount."""
     from grafeno.config import Config
 
     cfg = Config()
@@ -233,7 +233,7 @@ def test_config_screen_final_prompt_loads_existing(monkeypatch):
 
 
 def test_config_screen_hook_persists(monkeypatch):
-    """El Input de hook y los checkboxes de etapas guardan y restauran valores."""
+    """The hook Input and stage checkboxes save and restore values."""
     from textual.widgets import Checkbox
 
     from grafeno.pipeline.hooks import HOOK_STAGES
@@ -249,7 +249,7 @@ def test_config_screen_hook_persists(monkeypatch):
             await pilot.pause()
             assert isinstance(app.screen, ConfigScreen)
 
-            # Espera a que el worker de modelos termine antes de tocar el save.
+            # Wait for the models worker to finish before touching save.
             for _ in range(20):
                 await pilot.pause(0.1)
                 if app.screen.query_one(RolesForm).models:
@@ -277,7 +277,7 @@ def test_config_screen_hook_persists(monkeypatch):
 
 
 def test_editor_section_roundtrip(monkeypatch):
-    """La sección de editor persiste enabled/editor/mode/side en config.toml."""
+    """The editor section persists enabled/editor/mode/side in config.toml."""
     from textual.widgets import Checkbox
 
     monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
@@ -295,7 +295,7 @@ def test_editor_section_roundtrip(monkeypatch):
             await pilot.pause()
             assert isinstance(app.screen, ConfigScreen)
 
-            # Espera a que el worker de modelos termine antes de tocar el save.
+            # Wait for the models worker to finish before touching save.
             for _ in range(20):
                 await pilot.pause(0.1)
                 if app.screen.query_one(RolesForm).models:
@@ -325,7 +325,7 @@ def test_editor_section_roundtrip(monkeypatch):
 
 
 def test_config_screen_effort_select_offers_variants(monkeypatch):
-    """Al fijar CLI+modelo con variantes, el select de esfuerzo las ofrece."""
+    """When CLI+model with variants is set, the effort select offers them."""
     async def _fake_variants(clis):
         return {"opencode": {"opencode-go/kimi-k3": ["low", "high"]}}
 
@@ -358,7 +358,7 @@ def test_config_screen_effort_select_offers_variants(monkeypatch):
 
 
 def test_config_screen_saves_effort_per_role(monkeypatch):
-    """El esfuerzo seleccionado en el formulario persiste en config.toml."""
+    """The effort selected in the form persists in config.toml."""
     from grafeno.config import Config
 
     cfg = Config()

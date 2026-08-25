@@ -1,7 +1,7 @@
-"""Rutas de GRAFENO en el home del usuario (~/.grafeno).
+"""GRAFENO paths under the user's home (~/.grafeno).
 
-El directorio base puede sobreescribirse con la variable de entorno
-``GRAFENO_HOME`` (útil para tests).
+The base directory can be overridden with the ``GRAFENO_HOME`` environment
+variable (useful for tests).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ ENV_HOME = "GRAFENO_HOME"
 
 
 def home() -> Path:
-    """Directorio base de GRAFENO (por defecto ``~/.grafeno``)."""
+    """GRAFENO base directory (defaults to ``~/.grafeno``)."""
     override = os.environ.get(ENV_HOME)
     base = Path(override) if override else Path.home() / ".grafeno"
     base.mkdir(parents=True, exist_ok=True)
@@ -39,8 +39,8 @@ def task_meta_path(task_id: str) -> Path:
 
 
 def plan_dir(task_id: str, cycle: int = 1) -> Path:
-    """Directorio de planes del ciclo. El ciclo 1 usa la raíz (compatibilidad);
-    los ciclos de ampliación usan ``plan/ciclo-NN/``."""
+    """Plan directory for a cycle. Cycle 1 uses the root (backwards
+    compatibility); extension cycles use ``plan/ciclo-NN/``."""
     path = task_dir(task_id) / "plan"
     if cycle > 1:
         path = path / f"ciclo-{cycle:02d}"

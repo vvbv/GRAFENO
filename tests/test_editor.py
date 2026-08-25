@@ -1,4 +1,4 @@
-"""Tests del módulo de detección y apertura del editor."""
+"""Tests of the editor detection and launching module."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from grafeno.config import EditorConfig
 
 @pytest.fixture
 def fake_which(monkeypatch):
-    """Parchea shutil.which para devolver una ruta solo para los nombres dados."""
+    """Patch shutil.which to return a path only for the given names."""
 
     def _set(available: set[str], path_prefix: str = "/usr/bin/") -> None:
         def fake_which(name: str) -> str | None:
@@ -78,7 +78,7 @@ def test_build_command_console_window_fallback(fake_which):
     fake_which({"tode"})
     cfg = EditorConfig(enabled=True, editor="tode", mode="split", side="left")
     cmd = editor.build_launch_command(cfg, editor.detect_terminal({}), "/tmp/work")
-    # Terminal unknown: ni split ni window -> None
+    # Unknown terminal: neither split nor window -> None
     assert cmd is None
 
 
@@ -92,7 +92,7 @@ def test_build_command_disabled(fake_which):
 
 
 def test_build_command_no_editor_configured(monkeypatch, fake_which):
-    """Sin editor configurado no se abre nada (aunque haya editores instalados)."""
+    """Without a configured editor nothing is opened (even if editors are installed)."""
     fake_which({"zed"})
     cfg = EditorConfig(editor="", mode="window")
     cmd = editor.build_launch_command(cfg, editor.detect_terminal({}), "/tmp/work")

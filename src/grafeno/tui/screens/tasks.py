@@ -1,4 +1,4 @@
-"""Pantalla de lista de tareas + formulario de nueva tarea."""
+"""Task list screen + new-task form."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ from ..dirpicker import DirectoryPicker
 
 
 class NewTaskScreen(ModalScreen[Task | None]):
-    """Formulario modal para crear una tarea."""
+    """Modal form to create a task."""
 
     BINDINGS = [Binding("escape", "cancel", t("common.cancel"))]
 
@@ -100,7 +100,7 @@ class NewTaskScreen(ModalScreen[Task | None]):
         self.query_one("#nt-automode", Checkbox).value = cfg.automode.enabled
         self.query_one("#nt-confirm-plan", Checkbox).value = cfg.automode.confirm_plan
         self.query_one("#nt-branch", Checkbox).value = cfg.automode.create_branch
-        # Rellena el selector de tarea padre con las tareas existentes.
+        # Fill the parent-task selector with the existing tasks.
         parent_select = self.query_one("#nt-parent", Select)
         parent_options = [
             (f"{task.name} ({task.id})", task.id) for task in models.list_all()
@@ -151,8 +151,8 @@ class NewTaskScreen(ModalScreen[Task | None]):
         plan_reuse = str(self.query_one("#nt-plan-reuse", Select).value)
         cfg = config_module.load()
         automode_value = self.query_one("#nt-automode", Checkbox).value
-        # Las tareas repetitivas se ejecutan en automode: si el usuario lo
-        # dejó desactivado, lo activamos silenciosamente y avisamos.
+        # Repetitive tasks run in automode: if the user left it off, we turn
+        # it on silently and notify.
         if repeat_mode and not automode_value:
             automode_value = True
             self.notify(t("nt.repeat.forces_automode"), severity="information")
@@ -186,7 +186,7 @@ _QUIT_KEY_LABEL = "Cmd+Q" if sys.platform == "darwin" else "Ctrl+Q"
 
 
 class TaskListScreen(Screen[None]):
-    """Listado principal de tareas."""
+    """Main task listing."""
 
     BINDINGS = [
         Binding("n", "new_task", t("tasks.bind.new")),
@@ -199,7 +199,7 @@ class TaskListScreen(Screen[None]):
 
     def __init__(self) -> None:
         super().__init__()
-        # Por defecto: solo tareas del proyecto actual.
+        # By default: only tasks of the current project.
         self._show_all = False
         self._all_tasks: list[Task] = []
         self._tasks: list[Task] = []
@@ -227,9 +227,9 @@ class TaskListScreen(Screen[None]):
         )
         self._reload()
         table.focus()
-        # Refresco periódico: muestra el progreso de tareas en segundo plano.
+        # Periodic refresh: shows progress of background tasks.
         self.set_interval(2.0, self._tick_refresh)
-        # Reloj en vivo: un segundo basta.
+        # Live clock: one second is enough.
         self._render_clock()
         self.set_interval(1.0, self._render_clock)
 
@@ -242,13 +242,13 @@ class TaskListScreen(Screen[None]):
             self._reload(preserve_cursor=True)
 
     def _render_clock(self) -> None:
-        """Reloj de 1s: hora actual siempre visible en el listado."""
+        """1s clock: current time always visible in the listing."""
         self.query_one("#clock", Static).update(
             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
     def action_toggle_scope(self) -> None:
-        """Alterna entre tareas del proyecto y todas las tareas."""
+        """Toggle between project tasks and all tasks."""
         self._show_all = not self._show_all
         self.query_one("#scope-toggle", Button).label = t(
             "tasks.scope.all" if self._show_all else "tasks.scope.project"
@@ -303,14 +303,14 @@ class TaskListScreen(Screen[None]):
 
     @staticmethod
     def _format_task_tokens(task: Task) -> str:
-        """Celda 'in/out' compacta; vacía si la tarea no tiene uso aún."""
+        """Compact in/out cell; empty if the task has no usage yet."""
         total_in, total_out = task.token_totals()
         if total_in == 0 and total_out == 0:
             return ""
         return f"↑{format_tokens(total_in)} ↓{format_tokens(total_out)}"
 
     def _render_token_summary(self) -> None:
-        """Resumen global de tokens por CLI+modelo (todas las tareas)."""
+        """Global summary of tokens by CLI+model (all tasks)."""
         summary = self.query_one("#token-summary", Static)
         totals: dict[str, list[int]] = {}
         for task in self._tasks:
@@ -358,7 +358,7 @@ class TaskListScreen(Screen[None]):
         self._reload()
 
     def action_quit_hint(self) -> None:
-        """Bloquea el cierre con q: salir solo es posible con el atajo de salida."""
+        """Block closing with q: you can only quit via the quit shortcut."""
         self.notify(t("tasks.quit_hint", key=_QUIT_KEY_LABEL), severity="warning")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:

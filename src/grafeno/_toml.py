@@ -1,8 +1,8 @@
-"""Mini serializador TOML para las estructuras simples de GRAFENO.
+"""Mini TOML serializer for the simple structures used by GRAFENO.
 
-Soporta: str, int, float, bool y tablas anidadas (dict). La lectura se hace
-siempre con ``tomllib`` de la stdlib; este módulo solo cubre la escritura,
-evitando dependencias extra para un formato de configuración plano.
+Supports: str, int, float, bool and nested tables (dict). Reading always uses
+``tomllib`` from the stdlib; this module only covers writing, avoiding extra
+dependencies for a flat configuration format.
 """
 
 from __future__ import annotations
@@ -10,13 +10,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
-_HEADER = "# GRAFENO — generado automáticamente. Edición manual permitida.\n"
+_HEADER = "# GRAFENO — generated automatically. Manual editing allowed.\n"
 
 _BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def _format_key(key: str) -> str:
-    """Clave TOML: bare si es segura; entrecomillada en caso contrario."""
+    """TOML key: bare if safe; quoted otherwise."""
     if _BARE_KEY.match(key):
         return key
     escaped = key.replace("\\", "\\\\").replace('"', '\\"')
@@ -32,11 +32,11 @@ def _format_value(value: Any) -> str:
         escaped = value.replace("\\", "\\\\").replace('"', '\\"')
         escaped = escaped.replace("\n", "\\n").replace("\t", "\\t")
         return f'"{escaped}"'
-    raise TypeError(f"Tipo no soportado en TOML: {type(value)!r}")
+    raise TypeError(f"Unsupported TOML type: {type(value)!r}")
 
 
 def dumps(data: dict[str, Any]) -> str:
-    """Serializa un dict de tablas (y valores planos) a TOML."""
+    """Serialize a dict of tables (and flat values) to TOML."""
     lines: list[str] = [_HEADER]
     scalars = {k: v for k, v in data.items() if not isinstance(v, dict)}
     tables = {k: v for k, v in data.items() if isinstance(v, dict)}

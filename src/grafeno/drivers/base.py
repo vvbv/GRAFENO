@@ -1,10 +1,10 @@
-"""Abstracción de CLIs de agentes de programación.
+"""Abstraction for coding-agent CLIs.
 
-Un ``CLIDriver`` sabe construir el comando no-interactivo de su CLI,
-interpretar sus eventos de salida (JSONL), listar sus modelos y construir
-el prompt de generación de AGENTS.md. El orquestador solo habla con esta
-interfaz, por lo que añadir un CLI nuevo (p.ej. un futuro) implica crear un
-único archivo en ``drivers/`` y registrarlo en ``drivers/__init__.py``.
+A ``CLIDriver`` knows how to build the non-interactive command of its CLI,
+interpret its output events (JSONL), list its models and build the prompt
+that generates AGENTS.md. The orchestrator only talks to this interface,
+so adding a new CLI (e.g. in the future) means creating a single file in
+``drivers/`` and registering it in ``drivers/__init__.py``.
 """
 
 from __future__ import annotations
@@ -50,10 +50,10 @@ async def read_lines(stream: asyncio.StreamReader) -> AsyncIterator[str]:
 
 
 class EventKind(Enum):
-    TEXT = "text"    # texto del asistente
-    TOOL = "tool"    # uso de herramienta (lectura/escritura/comandos)
-    INFO = "info"    # mensajes internos de estado
-    ERROR = "error"  # errores reportados por el CLI
+    TEXT = "text"    # assistant text
+    TOOL = "tool"    # tool usage (read/write/commands)
+    INFO = "info"    # internal status messages
+    ERROR = "error"  # errors reported by the CLI
 
 
 @dataclass
@@ -64,7 +64,7 @@ class RunEvent:
 
 @dataclass
 class TokenUsage:
-    """Tokens consumidos por una ejecución (o por un evento suelto)."""
+    """Tokens consumed by a run (or by a single event)."""
 
     input: int = 0
     output: int = 0
@@ -81,35 +81,35 @@ class TokenUsage:
 @dataclass
 class RunRequest:
     prompt: str
-    model: str  # vacío = modelo por defecto del CLI
+    model: str  # empty = CLI default model
     workdir: Path
-    session_id: str | None = None  # continuar sesión previa (mejor esfuerzo)
-    log_path: Path | None = None   # dónde volcar la salida cruda
+    session_id: str | None = None  # continue a previous session (best effort)
+    log_path: Path | None = None   # where to dump the raw output
     title: str = ""
-    effort: str = ""               # nivel de trabajo del modelo; vacío = default del CLI
+    effort: str = ""               # model effort level; empty = CLI default
 
 
 @dataclass
 class RunResult:
     ok: bool
-    text: str = ""                 # texto agregado del asistente
+    text: str = ""                 # aggregated assistant text
     session_id: str | None = None
     error: str = ""
     returncode: int | None = None
-    tokens: TokenUsage = field(default_factory=TokenUsage)  # uso agregado
+    tokens: TokenUsage = field(default_factory=TokenUsage)  # aggregated usage
 
 
 EventCallback = Callable[[RunEvent], None]
 
 
 class CLIDriver:
-    """Clase base: implementa el ciclo de subproceso; las subclases el dialecto."""
+    """Base class: implements the subprocess loop; subclasses implement the dialect."""
 
     name: str = ""
     display_name: str = ""
     executable: str = ""
-    # Comando nativo del CLI para generar AGENTS.md (p.ej. "/init").
-    # Vacío si el CLI no tiene uno: se usa el prompt genérico.
+    # Native CLI command for generating AGENTS.md (e.g. "/init").
+    # Empty if the CLI has none: the generic prompt is used instead.
     init_command: str = ""
 
     # ------------------------------------------------------------ #
@@ -120,20 +120,20 @@ class CLIDriver:
         raise NotImplementedError
 
     def models_command(self) -> list[str]:
-        """Comando del CLI que lista los modelos disponibles."""
+        """CLI command that lists the available models."""
         raise NotImplementedError
 
     def parse_models(self, output: str) -> list[str]:
-        """Interpreta la salida de ``models_command`` y devuelve los modelos."""
+        """Interpret the output of ``models_command`` and return the models."""
         raise NotImplementedError
 
     def list_models(self) -> list[str]:
-        """Versión síncrona (bloqueante): para uso fuera de la TUI."""
+        """Synchronous (blocking) version: for use outside the TUI."""
         output = self._run_sync(self.models_command())
         return self.parse_models(output) if output else []
 
     async def list_models_async(self, timeout: float = 30.0) -> list[str]:
-        """Versión asíncrona y cancelable: al cancelar se mata el subproceso."""
+        """Async and cancelable version: cancelling kills the subprocess."""
         try:
             process = await asyncio.create_subprocess_exec(
                 *self.models_command(),
@@ -157,21 +157,21 @@ class CLIDriver:
         return self.parse_models(stdout.decode("utf-8", errors="replace"))
 
     def variants_command(self) -> list[str]:
-        """Comando del CLI que lista las variantes de esfuerzo por modelo.
+        """CLI command that lists the effort variants per model.
 
-        Vacío = el CLI no soporta niveles de trabajo configurables.
+        Empty = the CLI does not support configurable effort levels.
         """
         return []
 
     def parse_variants(self, output: str) -> dict[str, list[str]]:
-        """Interpreta la salida de ``variants_command``.
+        """Interpret the output of ``variants_command``.
 
-        Devuelve ``{modelo: [niveles...]}``; vacío si no hay soporte.
+        Returns ``{model: [levels...]}``; empty if there is no support.
         """
         return {}
 
     async def list_variants_async(self, timeout: float = 30.0) -> dict[str, list[str]]:
-        """Versión asíncrona y cancelable, espejo de ``list_models_async``."""
+        """Async and cancelable version, mirror of ``list_models_async``."""
         command = self.variants_command()
         if not command:
             return {}
@@ -198,10 +198,11 @@ class CLIDriver:
         return self.parse_variants(stdout.decode("utf-8", errors="replace"))
 
     def build_agents_md_prompt(self) -> str:
-        """Construye el prompt para generar el AGENTS.md del proyecto.
+        """Build the prompt for generating the project's AGENTS.md.
 
-        Si el CLI tiene un comando nativo de inicialización (``init_command``),
-        el prompt pide ejecutar su equivalente; si no, pide el análisis manual.
+        If the CLI has a native init command (``init_command``), the prompt
+        asks to run its equivalent; otherwise it asks for the manual
+        analysis.
         """
         if self.init_command:
             instruccion = (
@@ -234,7 +235,7 @@ Reglas:
 """
 
     def decode_line(self, line: str) -> tuple[RunEvent | None, str | None, TokenUsage | None]:
-        """Interpreta una línea. Devuelve (evento, session_id|None, uso|None)."""
+        """Interpret a line. Returns (event, session_id|None, usage|None)."""
         try:
             payload = json.loads(line)
         except json.JSONDecodeError:
@@ -244,20 +245,20 @@ Reglas:
         return event, session_id, self.extract_usage(payload)
 
     def extract_usage(self, payload: dict) -> TokenUsage | None:
-        """Extrae el uso de tokens de un evento JSON ya parseado.
+        """Extract token usage from an already-parsed JSON event.
 
-        Las subclases lo sobreescriben según el dialecto del CLI.
-        ``None`` = el evento no lleva información de uso.
+        Subclasses override this according to the CLI's dialect.
+        ``None`` = the event carries no usage information.
         """
         return None
 
     def decode_event(self, payload: dict) -> tuple[RunEvent | None, str | None]:
-        """Interpreta un evento JSON ya parseado (dialecto del CLI)."""
+        """Interpret an already-parsed JSON event (CLI dialect)."""
         raise NotImplementedError
 
     # ------------------------------------------------------------ #
     def _run_sync(self, command: list[str]) -> str | None:
-        """Ejecuta un comando auxiliar corto (p.ej. listar modelos)."""
+        """Run a short auxiliary command (e.g. listing models)."""
         try:
             completed = subprocess.run(
                 command, capture_output=True, text=True, timeout=30, check=False
@@ -300,7 +301,7 @@ Reglas:
                     log_handle.write(line + "\n")
                     log_handle.flush()
                 if on_activity:
-                    on_activity()  # latido: el CLI sigue emitiendo salida
+                    on_activity()  # heartbeat: the CLI is still emitting output
                 event, found_session, usage = self.decode_line(line)
                 if found_session:
                     session_id = found_session

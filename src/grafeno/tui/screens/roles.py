@@ -1,8 +1,8 @@
-"""Modal de configuración de agentes (CLI + modelo) de una tarea concreta.
+"""Modal for configuring the agents (CLI + model) of a specific task.
 
-Edita los roles planner / implementer / reviewer de la tarea y los persiste
-en ``task.toml``. La carga de modelos es cancelable con Esc (primer Esc
-cancela la carga; el segundo cierra sin guardar).
+Edits the planner/implementer/reviewer roles of the task and persists them
+in ``task.toml``. Model loading is cancelable with Esc (first Esc cancels
+the load; the second one closes without saving).
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from ..rolesform import ROLES, RolesForm
 
 
 class TaskRolesScreen(ModalScreen[bool]):
-    """Devuelve True si se guardaron cambios en la tarea."""
+    """Returns True if changes were saved to the task."""
 
     BINDINGS = [Binding("escape", "cancel", t("common.cancel"))]
 
@@ -52,7 +52,7 @@ class TaskRolesScreen(ModalScreen[bool]):
         self._load_models()
 
     # ------------------------------------------------------------------ #
-    # Carga de modelos (worker async: cancelable con Esc)
+    # Model loading (async worker: cancelable with Esc)
     # ------------------------------------------------------------------ #
     def _load_models(self) -> None:
         self._loading = True
@@ -85,7 +85,7 @@ class TaskRolesScreen(ModalScreen[bool]):
         self.query_one("#roles-status", Static).update(summary)
 
     def _cancel_loading(self) -> bool:
-        """Cancela la carga de modelos si seguía en curso. True si canceló."""
+        """Cancel model loading if still in progress. True if cancelled."""
         if self._loading:
             self._models_worker.cancel()
             self._loading = False
@@ -95,7 +95,7 @@ class TaskRolesScreen(ModalScreen[bool]):
 
     # ------------------------------------------------------------------ #
     def action_cancel(self) -> None:
-        # Con una carga en curso, el primer Esc la cancela; el segundo cierra.
+        # With a load in progress, the first Esc cancels it; the second closes.
         if self._cancel_loading():
             return
         self.dismiss(False)

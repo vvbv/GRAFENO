@@ -1,4 +1,4 @@
-"""Configuración global de GRAFENO (~/.grafeno/config.toml)."""
+"""Global GRAFENO configuration (~/.grafeno/config.toml)."""
 
 from __future__ import annotations
 
@@ -15,11 +15,11 @@ PROJECT_CONFIG_FILE = ".grafeno.toml"
 
 @dataclass
 class RoleConfig:
-    """CLI + modelo asignados a un rol del pipeline."""
+    """CLI + model assigned to a pipeline role."""
 
     cli: str = "opencode"
-    model: str = ""  # vacío = modelo por defecto del CLI
-    effort: str = ""  # vacío = nivel de trabajo por defecto del CLI/modelo
+    model: str = ""  # empty = CLI default model
+    effort: str = ""  # empty = default effort level of the CLI/model
 
     def to_dict(self) -> dict[str, Any]:
         return {"cli": self.cli, "model": self.model, "effort": self.effort}
@@ -37,9 +37,9 @@ class RoleConfig:
 class AutomodeConfig:
     enabled: bool = False
     max_iterations: int = 5
-    test_command: str = ""  # vacío = sin tests
+    test_command: str = ""  # empty = no tests
     create_branch: bool = True
-    confirm_plan: bool = False  # pausar tras el plan para confirmación manual
+    confirm_plan: bool = False  # pause after the plan waiting for manual confirmation
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -63,10 +63,10 @@ class AutomodeConfig:
 
 @dataclass
 class HookConfig:
-    """Hook de completado: comando shell disparado al terminar etapas."""
+    """Completion hook: shell command fired when stages finish."""
 
-    command: str = ""  # vacío = hook desactivado
-    stages: str = ""   # etapas separadas por comas; vacío = ninguna
+    command: str = ""  # empty = hook disabled
+    stages: str = ""   # comma-separated stages; empty = none
 
     def to_dict(self) -> dict[str, Any]:
         return {"command": self.command, "stages": self.stages}
@@ -81,14 +81,14 @@ class HookConfig:
 
 @dataclass
 class EditorConfig:
-    """Editor opcional que se abre al lanzar GRAFENO cuando el usuario
-    lo activa desde la pantalla de configuración. Por defecto desactivado:
-    sin editor configurado solo se abre la TUI."""
+    """Optional editor that opens when launching GRAFENO when the user
+    enables it from the settings screen. Disabled by default: with no editor
+    configured only the TUI is opened."""
 
     enabled: bool = False
-    editor: str = ""        # vacío = ninguno (por defecto solo se abre grafeno)
-    mode: str = "window"    # window | split | none (solo editores de consola)
-    side: str = "left"      # left = editor a la izquierda, grafeno a la derecha
+    editor: str = ""        # empty = none (by default only grafeno opens)
+    mode: str = "window"    # window | split | none (console editors only)
+    side: str = "left"      # left = editor on the left, grafeno on the right
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -118,8 +118,8 @@ class Config:
     automode: AutomodeConfig = field(default_factory=AutomodeConfig)
     hook: HookConfig = field(default_factory=HookConfig)
     editor: EditorConfig = field(default_factory=EditorConfig)
-    final_prompt: str = ""  # instrucciones extra para la fase de pasos finales
-    theme: str = ""  # paleta de Textual; vacío = tema por defecto
+    final_prompt: str = ""  # extra instructions for the final-steps phase
+    theme: str = ""  # Textual palette; empty = default theme
 
     def role(self, name: str) -> RoleConfig:
         return getattr(self, name)
@@ -170,7 +170,7 @@ def save(config: Config) -> None:
 
 
 def _project_overrides(workdir: Path) -> dict[str, Any]:
-    """Lee <workdir>/.grafeno.toml y devuelve su sección [editor] o {}."""
+    """Read ``<workdir>/.grafeno.toml`` and return its ``[editor]`` section or ``{}``."""
     path = workdir / PROJECT_CONFIG_FILE
     try:
         with path.open("rb") as handle:
@@ -182,8 +182,8 @@ def _project_overrides(workdir: Path) -> dict[str, Any]:
 
 
 def resolve_editor_config(config: Config, workdir: Path | None) -> EditorConfig:
-    """Config de editor efectiva: la global, sobreescrita por `.grafeno.toml`
-    del proyecto si existe (solo sección [editor])."""
+    """Effective editor config: the global one, overridden by the project's
+    ``.grafeno.toml`` if it exists (only the ``[editor]`` section)."""
     if workdir is None:
         return config.editor
     overrides = _project_overrides(workdir)

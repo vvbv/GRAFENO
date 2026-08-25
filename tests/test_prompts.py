@@ -1,4 +1,4 @@
-"""Tests de las plantillas de prompts y sus contratos."""
+"""Tests of the prompt templates and their contracts."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def test_plan_prompt_includes_executor_contract(tmp_path):
     assert "model: kimi-code/k3" in prompt
     assert str(paths.plan_dir(task.id)) in prompt
     assert "NN-slug.md" in prompt
-    assert "OPTIMIZA el plan" in prompt  # optimización para el ejecutor
+    assert "OPTIMIZA el plan" in prompt  # optimisation for the executor
 
 
 def test_plan_prompt_mentions_tests_when_defined(tmp_path):
@@ -64,25 +64,25 @@ def test_plan_prompt_cycle_includes_extension(tmp_path):
     assert "Ampliación" in prompt
     assert "añade caché también a los precios" in prompt
     assert str(paths.plan_dir(task.id, 2)) in prompt
-    # La revisión del ciclo 2 va a su propio directorio.
+    # The cycle 2 review goes to its own directory.
     assert "ciclo-02" in prompts.review_prompt(task, 1)
 
 
 def test_code_rules_in_prompts(tmp_path):
-    """Rol senior, sin emotes y documentación en inglés (o estilo del proyecto)."""
+    """Senior role, no emotes and English documentation (or project style)."""
     task = _task(tmp_path)
     plan = prompts.plan_prompt(task)
     assert "INGENIERO DE SOFTWARE SENIOR" in plan
     assert "emotes" in plan
     assert "INGLÉS" in plan
     assert "estilo de codificación" in plan
-    # Las reglas llegan también a quien escribe el código.
+    # The rules also reach whoever writes the code.
     assert "emotes" in prompts.implement_prompt(task)
     assert "INGLÉS" in prompts.fix_prompt(task, 1)
 
 
 def test_suggestions_for_complex_methods(tmp_path):
-    """El planificador sugiere ante métodos complejos y el revisor también."""
+    """The planner suggests on complex methods and the reviewer does too."""
     task = _task(tmp_path)
     plan = prompts.plan_prompt(task)
     assert "COMPLEJO" in plan
@@ -97,7 +97,7 @@ def test_suggestions_for_complex_methods(tmp_path):
 
 
 def test_final_prompt_contract(tmp_path):
-    """El prompt de pasos finales apunta al informe, exige reglas y menciona tests."""
+    """The final steps prompt points to the report, requires rules and mentions tests."""
     task = _task(tmp_path, test_command="pytest -q")
     prompt = prompts.final_prompt(task)
     assert str(paths.final_dir(task.id)) in prompt
@@ -110,7 +110,7 @@ def test_final_prompt_contract(tmp_path):
 
 
 def test_final_prompt_custom_instructions(tmp_path):
-    """Si la tarea define final_prompt, el prompt lo incluye como sección dedicada."""
+    """If the task defines final_prompt, the prompt includes it as a dedicated section."""
     task = _task(tmp_path, final_prompt="Revisa el CHANGELOG")
     prompt = prompts.final_prompt(task)
     assert "# Instrucciones adicionales del usuario para el cierre" in prompt
@@ -118,7 +118,7 @@ def test_final_prompt_custom_instructions(tmp_path):
 
 
 def test_final_prompt_without_custom_instructions_unchanged(tmp_path):
-    """Sin final_prompt (o solo espacios), el prompt no añade la sección extra."""
+    """Without final_prompt (or only whitespace), the prompt does not add the extra section."""
     task_empty = _task(tmp_path)
     prompt_empty = prompts.final_prompt(task_empty)
     assert "Instrucciones adicionales" not in prompt_empty
@@ -126,12 +126,12 @@ def test_final_prompt_without_custom_instructions_unchanged(tmp_path):
     task_blank = _task(tmp_path, final_prompt="   \n  ")
     prompt_blank = prompts.final_prompt(task_blank)
     assert "Instrucciones adicionales" not in prompt_blank
-    # El resto del contrato sigue intacto.
+    # The rest of the contract remains intact.
     assert "AGENTE DE PASOS FINALES" in prompt_blank
 
 
 def test_common_rules_include_git_author_rule(tmp_path):
-    """Todos los prompts exigen respetar el autor git configurado en el sistema."""
+    """All prompts require respecting the git author configured in the system."""
     task = _task(tmp_path)
     for prompt in (
         prompts.plan_prompt(task),
@@ -148,7 +148,7 @@ def test_common_rules_include_git_author_rule(tmp_path):
 
 
 def test_reevaluate_plan_prompt_includes_task_context(tmp_path):
-    """El prompt de reevaluación incluye nombre, descripción y ruta del plan."""
+    """The re-evaluation prompt includes name, description and plan path."""
     task = _task(tmp_path)
     task.description = "una descripción concreta y única para el test"
     prompt = prompts.reevaluate_plan_prompt(task)

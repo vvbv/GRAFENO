@@ -1,4 +1,4 @@
-"""Tests del selector de directorio (función pura + smoke TUI)."""
+"""Tests of the directory selector (pure function + TUI smoke)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from grafeno.tui.dirpicker import directory_matches
 def test_directory_matches_completes_last_segment(tmp_path):
     (tmp_path / "proyectos").mkdir()
     (tmp_path / "publico").mkdir()
-    (tmp_path / "archivo.txt").write_text("x")  # los archivos no aparecen
+    (tmp_path / "archivo.txt").write_text("x")  # files do not appear
 
     base = str(tmp_path) + os.sep
     matches = directory_matches(base + "p")
@@ -44,7 +44,7 @@ def test_directory_matches_expands_tilde():
 
 
 def test_picker_smoke_in_new_task_dialog(tmp_path):
-    """El desplegable aparece al teclear y Enter fija la ruta."""
+    """The dropdown appears when typing and Enter fixes the path."""
     (tmp_path / "alfa").mkdir()
 
     async def scenario():

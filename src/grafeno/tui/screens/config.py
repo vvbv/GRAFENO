@@ -1,4 +1,4 @@
-"""Pantalla de configuración global (planner / implementer / reviewer / automode)."""
+"""Global settings screen (planner / implementer / reviewer / automode)."""
 
 from __future__ import annotations
 
@@ -128,7 +128,7 @@ class ConfigScreen(Screen[None]):
         self._load_models()
 
     # ------------------------------------------------------------------ #
-    # Carga de modelos (worker async: cancelable con Esc)
+    # Model loading (async worker: cancelable with Esc)
     # ------------------------------------------------------------------ #
     def _load_models(self) -> None:
         self._loading = True
@@ -161,7 +161,7 @@ class ConfigScreen(Screen[None]):
         self.query_one("#models-status", Static).update(summary)
 
     def _cancel_loading(self) -> bool:
-        """Cancela la carga de modelos si seguía en curso. True si canceló."""
+        """Cancel model loading if still in progress. True if cancelled."""
         if self._loading:
             self._models_worker.cancel()
             self._loading = False
@@ -180,7 +180,7 @@ class ConfigScreen(Screen[None]):
         self._save()
 
     def action_back(self) -> None:
-        # Con una carga en curso, el primer Esc la cancela; el segundo sale.
+        # With a load in progress, the first Esc cancels it; the second exits.
         if self._cancel_loading():
             return
         self.dismiss()

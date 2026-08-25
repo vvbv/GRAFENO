@@ -1,4 +1,4 @@
-"""Tests del módulo scheduler: planificación horaria, encadenamiento y repetición."""
+"""Tests of the scheduler module: time scheduling, chaining and repetition."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def test_new_fields_roundtrip(tmp_path):
 
 
 def test_legacy_task_toml_loads_with_defaults(tmp_path):
-    """Un task.toml antiguo (sin las claves nuevas) carga con los defaults."""
+    """An old task.toml (without the new keys) loads with the defaults."""
     task = _task(tmp_path)
     models.save(task)
     meta = models.paths.task_meta_path(task.id) if hasattr(models, "paths") else None
@@ -200,9 +200,9 @@ def test_tree_order_cycle_does_not_hang(tmp_path):
     b.name = "B"
     a.parent_id = b.id
     b.parent_id = a.id
-    # No debe lanzar RecursionError ni colgar la UI.
+    # Must not raise RecursionError nor hang the UI.
     ordered = scheduler.tree_order([a, b])
-    # Cada tarea aparece como máximo una vez.
+    # Each task appears at most once.
     assert len(ordered) <= 2
 
 
@@ -279,4 +279,4 @@ def test_prepare_next_iteration_resets_machine(tmp_path):
     assert task.iteration == 0
     assert task.cycle == 1
     assert task.sessions == {}
-    assert task.repeat_count == 7  # el incremento lo hace el llamador
+    assert task.repeat_count == 7  # the increment is done by the caller

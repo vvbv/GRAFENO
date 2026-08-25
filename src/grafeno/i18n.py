@@ -1,9 +1,10 @@
-"""Internacionalización de la GUI de GRAFENO (inglés y español).
+"""Internationalization of the GRAFENO GUI (English and Spanish).
 
-El idioma activo es un estado global del proceso: se fija al arrancar la app
-desde la configuración guardada y se actualiza al guardar la configuración.
-Los textos se resuelven con ``t(clave, **kwargs)``; si falta la clave en el
-idioma activo se usa el inglés, y si tampoco existe se devuelve la clave.
+The active language is a global process state: it is set at app startup from
+the saved configuration and updated when the configuration is saved. Texts
+are resolved with ``t(key_id, **kwargs)``; if the key is missing in the
+active language, English is used, and if it is missing there too the key
+itself is returned.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ _current = DEFAULT_LANGUAGE
 
 
 def set_language(language: str) -> None:
-    """Fija el idioma activo; valores desconocidos caen al idioma por defecto."""
+    """Set the active language; unknown values fall back to the default."""
     global _current
     _current = language if language in LANGUAGES else DEFAULT_LANGUAGE
 
@@ -25,11 +26,12 @@ def current_language() -> str:
 
 
 def t(key_id: str, **kwargs: object) -> str:
-    """Traduce ``key_id`` al idioma activo, interpolando ``kwargs`` si se dan.
+    """Translate ``key_id`` into the active language, interpolating ``kwargs``
+    if provided.
 
-    El primer parámetro se llama ``key_id`` (no ``key``) para no colisionar con
-    el kwarg ``key=`` que los mensajes pueden necesitar interpolar (p.ej.
-    ``{key}`` en ``tasks.quit_hint``).
+    The first parameter is named ``key_id`` (not ``key``) so it does not
+    collide with the ``key=`` kwarg that messages may need to interpolate
+    (e.g. ``{key}`` in ``tasks.quit_hint``).
     """
     text = _MESSAGES.get(_current, {}).get(key_id)
     if text is None:
@@ -286,7 +288,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "phaseinfo.tests.what": "The task's test command will be run locally.",
         "phaseinfo.automode.title": "Automode",
         "phaseinfo.automode.what": "The whole pipeline will be chained: plan → implementation →\nreview ⇄ fix, until approved and tests pass, and then the final steps.",
-        # modal pedir más
+        # ask for more modal
         "rm.title": "Ask for more · cycle {cycle}",
         "rm.prompt": "What else do you need on this project?",
         "rm.body": "Same logic: it plans ({planner}), {approval}it implements ({implementer}) and it reviews ({reviewer}).",

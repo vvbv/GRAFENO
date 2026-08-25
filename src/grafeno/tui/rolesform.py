@@ -1,9 +1,9 @@
-"""Formulario reutilizable de roles del pipeline (CLI + modelo + esfuerzo por rol).
+"""Reusable pipeline roles form (CLI + model + effort per role).
 
-Lo usan la pantalla de configuración global y el modal de configuración
-por tarea. La carga de modelos y variantes la hace el contenedor (pantalla),
-que llama a ``set_models`` y ``set_variants`` cuando ``fetch_all_models`` y
-``fetch_all_variants`` terminan.
+Used by the global settings screen and by the per-task settings modal.
+The model and variant loading is done by the container (screen), which
+calls ``set_models`` and ``set_variants`` when ``fetch_all_models`` and
+``fetch_all_variants`` finish.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from textual.widgets import Input, Label, Select, Static
 from ..config import KNOWN_CLIS
 from ..i18n import t
 
-# Roles del pipeline (id, clave de i18n para el título).
+# Pipeline roles (id, i18n key for the title).
 ROLES: tuple[tuple[str, str], ...] = (
     ("planner", "cfg.role.planner"),
     ("implementer", "cfg.role.implementer"),
@@ -29,10 +29,10 @@ EFFORT_PROMPT = t("cfg.effort.prompt")
 
 
 def filter_models(models: list[str], query: str) -> list[str]:
-    """Devuelve los modelos que contienen ``query`` (insensible a mayúsculas).
+    """Return the models that contain ``query`` (case-insensitive).
 
-    Consulta vacía devuelve la lista completa (copia). Es subcadena, no
-    prefijo, para encontrar p.ej. "k3" dentro de "opencode-go/kimi-k3".
+    An empty query returns the full list (a copy). It is a substring, not a
+    prefix, so e.g. ``k3`` can be found inside ``opencode-go/kimi-k3``.
     """
     needle = query.strip().casefold()
     if not needle:
@@ -41,7 +41,7 @@ def filter_models(models: list[str], query: str) -> list[str]:
 
 
 class RoleRow(Static):
-    """Fila de configuración de un rol: Select de CLI + modelo + esfuerzo."""
+    """Configuration row for a role: CLI Select + model + effort."""
 
     def __init__(self, role: str, title_key: str):
         super().__init__(classes="role-row")
@@ -80,7 +80,7 @@ class RoleRow(Static):
 
 
 class RolesForm(Static):
-    """Una ``RoleRow`` por rol del pipeline + lógica de refresco de opciones."""
+    """One ``RoleRow`` per pipeline role + option refresh logic."""
 
     def __init__(self):
         super().__init__()
@@ -92,16 +92,16 @@ class RolesForm(Static):
             yield RoleRow(role, title_key)
 
     # -------------------------------------------------------------- #
-    # Valores
+    # Values
     # -------------------------------------------------------------- #
     def set_role(self, role: str, cli: str, model: str, effort: str = "") -> None:
-        """Fija el CLI, el modelo y el esfuerzo de un rol (p.ej. al cargar)."""
+        """Set the CLI, model and effort of a role (e.g. when loading)."""
         self.query_one(f"#{role}-cli", Select).value = cli
         self._set_model_value(role, model)
         self._set_effort_value(role, effort)
 
     def role_values(self, role: str) -> tuple[str, str, str]:
-        """Devuelve ``(cli, modelo, esfuerzo)``; vacíos = default."""
+        """Return ``(cli, model, effort)``; empty values mean default."""
         cli = str(self.query_one(f"#{role}-cli", Select).value)
         model_value = self.query_one(f"#{role}-model", Select).value
         model = "" if model_value is Select.NULL else str(model_value)
@@ -110,7 +110,7 @@ class RolesForm(Static):
         return cli, model, effort
 
     # -------------------------------------------------------------- #
-    # Opciones de modelo
+    # Model options
     # -------------------------------------------------------------- #
     def _set_model_value(self, role: str, model: str) -> None:
         select = self.query_one(f"#{role}-model", Select)
@@ -123,25 +123,26 @@ class RolesForm(Static):
         select.value = effort if effort else Select.NULL
 
     def set_models(self, models_map: dict[str, list[str]]) -> None:
-        """Aplica el catálogo de modelos ya cargado (repuebla los selects)."""
+        """Apply the already-loaded model catalogue (repopulates the selects)."""
         self.models = models_map
         for role, _ in ROLES:
             self._refresh_model_options(role)
 
     def set_variants(self, variants_map: dict[str, dict[str, list[str]]]) -> None:
-        """Aplica el catálogo de variantes por CLI+modelo ya cargado."""
+        """Apply the already-loaded per-CLI+model variants catalogue."""
         self.variants = variants_map
         for role, _ in ROLES:
             self._refresh_effort_options(role)
 
     def _refresh_model_options(self, role: str) -> None:
-        """Repuebla las opciones del modelo conservando la selección si aplica.
+        """Repopulate model options preserving the selection when applicable.
 
-        Reglas: si el CLI aún no ha cargado modelos, se conserva lo que haya
-        (p.ej. el valor guardado). Si ya hay lista y la selección no pertenece
-        al CLI actual (cambio de CLI), se reinicia a "default". El texto del
-        filtro (``#{role}-model-filter``) reduce las opciones visibles, pero
-        el modelo elegido se conserva siempre aunque no coincida.
+        Rules: if the CLI has not loaded models yet, whatever is there is
+        kept (e.g. the saved value). If there is already a list and the
+        selection does not belong to the current CLI (CLI change), it is
+        reset to ``default``. The filter input text (``#{role}-model-filter``)
+        narrows the visible options, but the chosen model is always
+        preserved even if it does not match.
         """
         select = self.query_one(f"#{role}-model", Select)
         current = select.value
@@ -149,24 +150,24 @@ class RolesForm(Static):
         cli = str(self.query_one(f"#{role}-cli", Select).value)
         models = list(self.models.get(cli, []))
         if chosen and models and chosen not in models:
-            chosen = ""  # el CLI cambió: el modelo anterior no aplica
+            chosen = ""  # CLI changed: the previous model no longer applies
         if chosen and chosen not in models:
             models.append(chosen)
         query = self.query_one(f"#{role}-model-filter", Input).value
         options = filter_models(models, query)
         if chosen and chosen not in options:
-            options.append(chosen)  # la selección nunca se oculta
+            options.append(chosen)  # the selection is never hidden
         select.set_options([(model, model) for model in options])
         select.value = chosen if chosen else Select.NULL
 
     def _refresh_effort_options(self, role: str) -> None:
-        """Repuebla las opciones de esfuerzo a partir de ``self.variants``.
+        """Repopulate effort options from ``self.variants``.
 
-        Misma regla que ``_refresh_model_options``: si no hay lista de
-        niveles cargada aún, se conserva el valor guardado. Si ya hay lista
-        y el valor guardado no pertenece a ella, se reinicia a vacío solo
-        cuando hay catálogo cargado para ese CLI; en cualquier otro caso
-        se añade el valor a las opciones para no perderlo.
+        Same rule as ``_refresh_model_options``: if the level list is not
+        loaded yet, the saved value is preserved. If there is already a
+        list and the saved value does not belong to it, it is reset to
+        empty only when there is a loaded catalogue for that CLI; in any
+        other case the value is added to the options so it is not lost.
         """
         select = self.query_one(f"#{role}-effort", Select)
         current = select.value

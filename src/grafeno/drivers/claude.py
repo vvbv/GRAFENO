@@ -1,30 +1,32 @@
-"""Driver para Claude Code CLI (https://docs.anthropic.com/en/docs/claude-code).
+"""Driver for Claude Code CLI (https://docs.anthropic.com/en/docs/claude-code).
 
-Modo no-interactivo (verificado contra Claude Code 2.1.237):
+Non-interactive mode (verified against Claude Code 2.1.237):
     claude -p "<prompt>" --output-format stream-json --verbose \
-        --dangerously-skip-permissions [--model <alias>] [--effort <nivel>] \
+        --dangerously-skip-permissions [--model <alias>] [--effort <level>] \
         [--resume <session_id>]
 
-- ``stream-json`` requiere ``--verbose`` en modo ``-p``.
-- ``--dangerously-skip-permissions`` auto-aprueba las herramientas.
-- ``--model`` admite alias (``opus``, ``sonnet``, ``haiku``, ``fable``) o nombre.
-- ``--effort`` admite niveles (``low``, ``medium``, ``high``, ``xhigh``, ``max``).
-- Continuación de sesión con ``--resume <session_id>``.
-- NO tiene flag de directorio: el workdir es el ``cwd`` del subproceso.
-- NO expone comando de listado de modelos: lista estática (mejor esfuerzo).
-- ``/init`` de Claude Code genera ``CLAUDE.md``, no ``AGENTS.md``:
-  ``init_command = ""`` (prompt genérico).
+- ``stream-json`` requires ``--verbose`` in ``-p`` mode.
+- ``--dangerously-skip-permissions`` auto-approves tools.
+- ``--model`` accepts aliases (``opus``, ``sonnet``, ``haiku``, ``fable``) or
+  a full name.
+- ``--effort`` accepts levels (``low``, ``medium``, ``high``, ``xhigh``, ``max``).
+- Session continuation with ``--resume <session_id>``.
+- It has NO directory flag: the workdir is the subprocess ``cwd``.
+- It does NOT expose a model listing command: static list (best effort).
+- Claude Code's ``/init`` generates ``CLAUDE.md``, not ``AGENTS.md``:
+  ``init_command = ""`` (generic prompt).
 
-Eventos stream-json reales verificados:
+Verified real stream-json events:
   ``{"type":"system","subtype":"init","session_id":"...","cwd":"...",...}``
-  ``{"type":"system","subtype":"hook_started",...}`` (ruido: solo al log)
+  ``{"type":"system","subtype":"hook_started",...}`` (noise: raw log only)
   ``{"type":"assistant","message":{"content":[{"type":"text","text":"..."}]}}``
   ``{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash",...}]}}``
   ``{"type":"result","subtype":"success","session_id":"...","usage":{...}}``
 
-Notas verificadas: ``usage`` puede incluir ``cache_creation_input_tokens`` y
-``cache_read_input_tokens`` que se IGNORAN (solo input/output directos). El id
-de sesión viaja en ``session_id`` tanto en eventos ``system`` como ``result``.
+Verified notes: ``usage`` may include ``cache_creation_input_tokens`` and
+``cache_read_input_tokens`` which are IGNORED (only direct input/output
+counted). The session id is carried in ``session_id`` for both ``system``
+and ``result`` events.
 """
 
 from __future__ import annotations
@@ -38,10 +40,10 @@ class ClaudeDriver(CLIDriver):
     name = "claude"
     display_name = "Claude Code CLI"
     executable = "claude"
-    # El /init de Claude Code genera CLAUDE.md, no AGENTS.md: prompt genérico.
+    # Claude Code's /init generates CLAUDE.md, not AGENTS.md: generic prompt.
     init_command = ""
 
-    # claude no expone listado de modelos: alias estáticos (mejor esfuerzo).
+    # claude does not expose model listing: static aliases (best effort).
     STATIC_MODELS = ("opus", "sonnet", "haiku", "fable")
     EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 
@@ -63,10 +65,10 @@ class ClaudeDriver(CLIDriver):
         return sorted(self.STATIC_MODELS)
 
     async def list_models_async(self, timeout: float = 30.0) -> list[str]:
-        return self.list_models()  # sin subproceso: lista estática
+        return self.list_models()  # no subprocess: static list
 
     async def list_variants_async(self, timeout: float = 30.0) -> dict[str, list[str]]:
-        """Variantes estáticas: claude no expone comando para listarlas."""
+        """Static variants: claude exposes no command to list them."""
         return {model: list(self.EFFORT_LEVELS) for model in self.list_models()}
 
     # ------------------------------------------------------------ #
@@ -84,16 +86,16 @@ class ClaudeDriver(CLIDriver):
             if payload.get("is_error") or str(payload.get("subtype", "")).startswith("error"):
                 message = payload.get("result") or payload.get("error") or str(payload)
                 return RunEvent(EventKind.ERROR, str(message)[:500]), session_id
-            return None, session_id  # resultado OK: el uso lo extrae extract_usage
+            return None, session_id  # OK result: usage is extracted by extract_usage
 
         if event_type == "system":
-            return None, session_id  # init, hook_started, ...: solo al log crudo
+            return None, session_id  # init, hook_started, ...: raw log only
 
         return RunEvent(EventKind.INFO, f"[{event_type or 'evento'}]"), session_id
 
     @staticmethod
     def _decode_content(content: Any) -> RunEvent | None:
-        """Interpreta la lista de bloques ``content`` de un evento ``assistant``."""
+        """Interpret the ``content`` block list of an ``assistant`` event."""
         if isinstance(content, list):
             tools = [
                 str(item.get("name", "tool"))
@@ -121,7 +123,7 @@ class ClaudeDriver(CLIDriver):
         try:
             usage = TokenUsage(
                 input=int(usage_dict.get("input_tokens") or 0),
-                # Se ignoran cache_creation/cache_read: solo input/output directos.
+                # cache_creation/cache_read are ignored: only direct input/output.
                 output=int(usage_dict.get("output_tokens") or 0),
             )
         except (TypeError, ValueError):

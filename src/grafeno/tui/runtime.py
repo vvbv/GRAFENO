@@ -1,9 +1,9 @@
-"""Motores de tareas en segundo plano.
+"""Background task runtimes.
 
-Un ``TaskRuntime`` por tarea, registrado en la App (no en la pantalla): el
-worker del pipeline sobrevive a la navegación entre pantallas y varias
-tareas pueden ejecutarse en paralelo. Las pantallas se suscriben como
-listeners para pintar el log y el estado, y se desuscriben al salir.
+One ``TaskRuntime`` per task, registered on the App (not the screen): the
+pipeline worker survives screen navigation and several tasks can run in
+parallel. Screens subscribe as listeners to paint the log and state, and
+unsubscribe on exit.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def _default_orchestrator(task: Task, **callbacks) -> Orchestrator:
 
 
 def format_event(event: RunEvent) -> Text:
-    """Da formato legible a un evento del CLI para el registro en vivo."""
+    """Format a CLI event for the live log in a human-readable way."""
     prefix = {
         EventKind.TEXT: "",
         EventKind.TOOL: "⚙ ",
@@ -66,7 +66,7 @@ class TaskRuntime:
         self._listeners: list[Listener] = []
 
     # ------------------------------------------------------------ #
-    # Suscripciones de la UI
+    # UI subscriptions
     # ------------------------------------------------------------ #
     def add_listener(self, listener: Listener) -> None:
         if listener not in self._listeners:
@@ -81,7 +81,7 @@ class TaskRuntime:
             listener(kind, payload)
 
     # ------------------------------------------------------------ #
-    # Callbacks del orquestador
+    # Orchestrator callbacks
     # ------------------------------------------------------------ #
     def _cb_state(self, task: Task) -> None:
         self._emit("state", task)
@@ -105,10 +105,10 @@ class TaskRuntime:
         self._emit("log", entry)
 
     # ------------------------------------------------------------ #
-    # Ciclo de vida de la ejecución
+    # Run lifecycle
     # ------------------------------------------------------------ #
     def start(self, app, runner: Runner, label: str, *, plan_then_ask: bool = False) -> bool:
-        """Arranca el pipeline en un worker de la App. False si ya corría."""
+        """Start the pipeline in an App worker. False if it was already running."""
         if self.running:
             return False
         self._app = app
@@ -143,7 +143,7 @@ class TaskRuntime:
             self._cb_info(t("rt.cancelled"))
             self.task.state = TaskState.PAUSED
             models.save(self.task)
-        except Exception as exc:  # noqa: BLE001 — última línea de defensa
+        except Exception as exc:  # noqa: BLE001 - last line of defense
             self._cb_info(t("rt.unexpected", error=exc))
         finally:
             self.running = False
@@ -160,6 +160,6 @@ class TaskRuntime:
                     notify(self.task)
 
     def cancel(self) -> None:
-        """Cancela el worker en curso (no bloqueante)."""
+        """Cancel the running worker (non-blocking)."""
         if self.worker is not None and self.running:
             self.worker.cancel()

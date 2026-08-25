@@ -1,4 +1,4 @@
-"""Widgets reutilizables de la TUI de GRAFENO."""
+"""Reusable widgets of the GRAFENO TUI."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ _PHASE_ORDER = (
 
 
 def _phase_status(state: TaskState) -> dict[str, str]:
-    """Estado visual de cada fase: pending | active | done."""
+    """Visual state of each phase: pending | active | done."""
     status = {"plan": "pending", "implement": "pending", "review": "pending", "final": "pending", "done": "pending"}
     mapping = {
         TaskState.DRAFT: {},
@@ -48,7 +48,7 @@ def _phase_status(state: TaskState) -> dict[str, str]:
 
 
 class PhaseBar(Static):
-    """Barra de progreso del pipeline: Plan → Implementación → Revisión → Pasos finales → Fin."""
+    """Pipeline progress bar: Plan -> Implementation -> Review -> Final steps -> End."""
 
     def __init__(self, state: TaskState = TaskState.DRAFT, iteration: int = 0, **kwargs):
         super().__init__(**kwargs)
@@ -81,7 +81,7 @@ class PhaseBar(Static):
 
 
 async def markdown_set(widget: Markdown, text: str) -> None:
-    """Actualiza un widget Markdown (compatible con versiones sync/async)."""
+    """Update a Markdown widget (compatible with sync/async versions)."""
     result = widget.update(text)
     if inspect.isawaitable(result):
         await result

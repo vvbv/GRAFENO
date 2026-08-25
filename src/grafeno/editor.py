@@ -1,8 +1,8 @@
-"""Detección y lanzamiento del editor asociado a GRAFENO.
+"""Detection and launching of the editor associated with GRAFENO.
 
-Abre automáticamente un editor (GUI o de consola) al arrancar la TUI,
-según la configuración `[editor]` (global o por proyecto). Todo es de
-mejor esfuerzo: si no se puede abrir el editor, GRAFENO arranca igual.
+Automatically opens an editor (GUI or console) when the TUI starts, according
+to the ``[editor]`` configuration (global or per-project). Everything is
+best-effort: if the editor cannot be opened, GRAFENO still starts.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from .config import EditorConfig
 
-# Editores GUI conocidos: nombre de configuración -> binario(s) a probar.
+# Known GUI editors: config name -> binaries to try.
 GUI_EDITORS: dict[str, tuple[str, ...]] = {
     "vscode": ("code",),
     "codium": ("codium",),
@@ -24,7 +24,7 @@ GUI_EDITORS: dict[str, tuple[str, ...]] = {
     "cursor": ("cursor",),
 }
 
-# Editores de consola conocidos (se abren dentro de una terminal).
+# Known console editors (open inside a terminal).
 CONSOLE_EDITORS: dict[str, tuple[str, ...]] = {
     "tode": ("tode",),
     "nvim": ("nvim",),
@@ -36,12 +36,12 @@ CONSOLE_EDITORS: dict[str, tuple[str, ...]] = {
 
 @dataclass
 class TerminalInfo:
-    """Terminal detectada y sus capacidades."""
+    """Detected terminal and its capabilities."""
 
     name: str = "unknown"   # ghostty | wezterm | kitty | iterm | terminal.app | tmux | alacritty | unknown
     supports_split: bool = False
-    split_command: list[str] | None = None   # plantilla; el comando del editor se añade al final
-    window_command: list[str] | None = None  # plantilla; idem
+    split_command: list[str] | None = None   # template; the editor command is appended at the end
+    window_command: list[str] | None = None  # template; same
 
 
 def _ghostty(env: dict[str, str]) -> TerminalInfo | None:
@@ -139,7 +139,7 @@ def _alacritty(env: dict[str, str]) -> TerminalInfo | None:
 
 
 def detect_terminal(env: dict[str, str] | None = None) -> TerminalInfo:
-    """Detecta la terminal en uso a partir de variables de entorno."""
+    """Detect the terminal in use from environment variables."""
     resolved = os.environ if env is None else env
     for detector in (_ghostty, _wezterm, _kitty, _iterm, _terminal_app, _tmux, _alacritty):
         info = detector(resolved)
@@ -149,8 +149,8 @@ def detect_terminal(env: dict[str, str] | None = None) -> TerminalInfo:
 
 
 def available_editors() -> list[str]:
-    """Nombres de editores (GUI y consola) instalados, en orden de
-    preferencia: primero GUI, luego consola."""
+    """Names of installed editors (GUI and console), in order of preference:
+    GUI first, then console."""
     found: list[str] = []
     for table in (GUI_EDITORS, CONSOLE_EDITORS):
         for name, binaries in table.items():
@@ -160,12 +160,12 @@ def available_editors() -> list[str]:
 
 
 def is_gui_editor(editor: str) -> bool:
-    """True si el nombre corresponde a un editor GUI conocido."""
+    """True if the name corresponds to a known GUI editor."""
     return editor in GUI_EDITORS
 
 
 def editor_binary(editor: str) -> str | None:
-    """Binario ejecutable para un nombre de editor, o None si no existe."""
+    """Executable binary for an editor name, or None if not present."""
     for table in (GUI_EDITORS, CONSOLE_EDITORS):
         binaries = table.get(editor)
         if binaries is None:
@@ -179,20 +179,20 @@ def editor_binary(editor: str) -> str | None:
 
 
 def _expand_direction(template: list[str], side: str) -> list[str]:
-    """Sustituye <dir> en la plantilla de split según el lado."""
+    """Substitute ``<dir>`` in the split template according to the side."""
     direction = "left" if side not in ("left", "right") else side
     return [part.replace("<dir>", direction) for part in template]
 
 
 def _expand_split_template(template: list[str], side: str) -> list[str]:
-    """Sustituye el marcador de dirección en la plantilla de split."""
+    """Substitute the direction placeholder in the split template."""
     if any("--location=" in part for part in template):
         return list(template)
     return _expand_direction(template, side)
 
 
 def _tmux_split(template: list[str], side: str) -> list[str]:
-    """Plantilla de tmux: inserta -b tras `split-window` cuando side == left."""
+    """Tmux template: insert ``-b`` after ``split-window`` when side == left."""
     if "split-window" not in template:
         return list(template)
     expanded: list[str] = []
@@ -210,13 +210,13 @@ def build_launch_command(
     terminal: TerminalInfo,
     workdir: str,
 ) -> list[str] | None:
-    """Comando completo para abrir el editor, o None si no procede."""
+    """Full command to open the editor, or None if not applicable."""
     if not editor_cfg.enabled or editor_cfg.mode == "none":
         return None
 
     name = editor_cfg.editor
     if not name:
-        return None  # sin editor configurado: solo grafeno
+        return None  # no editor configured: grafeno only
 
     binary = editor_binary(name)
     if binary is None:
@@ -241,7 +241,7 @@ def build_launch_command(
 
 
 def launch_editor(command: list[str], workdir: str) -> bool:
-    """Lanza el editor en segundo plano. True si arrancó, False si no."""
+    """Launch the editor in the background. True if it started, False otherwise."""
     try:
         subprocess.Popen(
             command,
@@ -255,7 +255,7 @@ def launch_editor(command: list[str], workdir: str) -> bool:
 
 
 def maybe_open_editor(editor_cfg: EditorConfig, workdir: str) -> bool:
-    """Abre el editor configurado si procede. Devuelve True si lo abrió."""
+    """Open the configured editor if applicable. Returns True if it was opened."""
     command = build_launch_command(editor_cfg, detect_terminal(), workdir)
     if command is None:
         return False

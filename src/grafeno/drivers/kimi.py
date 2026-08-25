@@ -1,20 +1,20 @@
-"""Driver para Kimi Code CLI (https://moonshotai.github.io/kimi-code/).
+"""Driver for Kimi Code CLI (https://moonshotai.github.io/kimi-code/).
 
-Modo no-interactivo:
+Non-interactive mode:
     kimi -p "<prompt>" -m <alias> --output-format stream-json
 
-Notas verificadas contra kimi 0.37:
-- ``-p/--prompt`` NO admite ``--auto`` ni ``-y``; en modo prompt las
-  herramientas se auto-aprueban (no hay interacción posible).
-- No tiene flag de directorio: el workdir se pasa como ``cwd`` del subproceso.
-- Eventos stream-json reales:
+Notes verified against kimi 0.37:
+- ``-p/--prompt`` does NOT accept ``--auto`` or ``-y``; in prompt mode tools
+  are auto-approved (no interaction is possible).
+- It has no directory flag: the workdir is passed as the subprocess ``cwd``.
+- Real stream-json events:
   ``{"role":"assistant","content":"..."}``,
   ``{"role":"assistant","tool_calls":[...]}``,
   ``{"role":"tool","content":"..."}``,
   ``{"role":"meta","type":"session.resume_hint","session_id":"..."}``.
-- Continuación de sesión con ``-S <id>`` (mejor esfuerzo).
-- Los modelos se obtienen de ``kimi provider list --json``.
-- No tiene flag de nivel de trabajo del modelo: ``effort`` se ignora.
+- Session continuation with ``-S <id>`` (best effort).
+- Models are obtained from ``kimi provider list --json``.
+- It has no model effort flag: ``effort`` is ignored.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ class KimiDriver(CLIDriver):
     name = "kimi"
     display_name = "Kimi Code CLI"
     executable = "kimi"
-    # kimi no expone comando init en modo no-interactivo: prompt genérico.
+    # kimi does not expose an init command in non-interactive mode: generic prompt.
     init_command = ""
 
     def build_command(self, request: RunRequest) -> list[str]:
@@ -77,13 +77,13 @@ class KimiDriver(CLIDriver):
             return RunEvent(EventKind.TOOL, summary[:200]), session_id
 
         if role in {"meta", "system"} or event_type in {"init", "system"}:
-            return None, session_id  # versiones, resume hints…: solo al log crudo
+            return None, session_id  # versions, resume hints...: raw log only
 
         if event_type == "error" or payload.get("error"):
             message_text = payload.get("error") or payload.get("message") or str(payload)
             return RunEvent(EventKind.ERROR, str(message_text)[:500]), session_id
 
-        # Formato alternativo {"type":"assistant","message":{"content":[...]}}
+        # Alternate format {"type":"assistant","message":{"content":[...]}}
         message = payload.get("message") or {}
         content = message.get("content", payload.get("content"))
         if event_type in {"assistant", "text", "message"} or content:

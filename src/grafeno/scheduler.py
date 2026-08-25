@@ -1,8 +1,7 @@
-"""Lógica de planificación horaria, encadenamiento y repetición de tareas.
+"""Time-scheduling, chaining and repetition logic for tasks.
 
-Lógica pura (sin TUI, sin asyncio) que decide qué tareas están pendientes de
-arrancar y cómo ordenarlas en árbol. Usada por el tick de la App y por el
-listado de tareas.
+Pure logic (no TUI, no asyncio) that decides which tasks are pending startup
+and how to order them in a tree. Used by the App tick and by the task list.
 """
 
 from __future__ import annotations
@@ -11,14 +10,14 @@ from datetime import datetime, timedelta
 
 from .models import Task, TaskState
 
-SCHEDULE_FORMAT = "%Y-%m-%d %H:%M"  # formato aceptado en el formulario
+SCHEDULE_FORMAT = "%Y-%m-%d %H:%M"  # format accepted in the form
 
 
 def parse_schedule(text: str) -> str:
-    """Valida ``"YYYY-MM-DD HH:MM"`` y devuelve ISO local ``"YYYY-MM-DDTHH:MM"``.
+    """Validate ``"YYYY-MM-DD HH:MM"`` and return local ISO ``"YYYY-MM-DDTHH:MM"``.
 
-    Cadena vacía devuelve ``""`` (sin programación). Acepta también el
-    separador ``"T"``. Lanza ``ValueError`` si el formato no es válido.
+    An empty string returns ``""`` (no schedule). Also accepts the ``"T"``
+    separator. Raises ``ValueError`` if the format is invalid.
     """
     cleaned = text.strip()
     if not cleaned:
@@ -28,13 +27,13 @@ def parse_schedule(text: str) -> str:
         dt = datetime.strptime(candidate, SCHEDULE_FORMAT)
     except ValueError as exc:
         raise ValueError(
-            f"Fecha/hora no válida ({text!r}); usa el formato YYYY-MM-DD HH:MM"
+            f"Invalid date/time ({text!r}); use the YYYY-MM-DD HH:MM format"
         ) from exc
     return dt.isoformat(timespec="minutes")
 
 
 def _parse_completed_at(value: str) -> datetime | None:
-    """Parsea ``last_completed_at``; si falla, devuelve ``None``."""
+    """Parse ``last_completed_at``; on failure, return ``None``."""
     if not value:
         return None
     try:
@@ -44,25 +43,25 @@ def _parse_completed_at(value: str) -> datetime | None:
 
 
 def is_due(task: Task, now: datetime) -> bool:
-    """True si la tarea debe arrancar YA de forma desatendida.
+    """True if the task should start unattended RIGHT NOW.
 
-    Condiciones (todas):
-    - estado DRAFT (nunca PAUSED: una pausa es decisión del usuario);
-    - si tiene padre, el padre debe estar DONE (se resuelve fuera: ver
+    Conditions (all):
+    - state DRAFT (never PAUSED: a pause is a user decision);
+    - if it has a parent, the parent must be DONE (resolved elsewhere: see
       ``parent_done``);
-    - si tiene ``scheduled_at``, debe ser pasado o presente;
-    - si es repetitiva por intervalo y ya se completó alguna vez, debe haber
-      pasado ``repeat_interval_minutes`` desde ``last_completed_at``.
+    - if it has ``scheduled_at``, it must be past or present;
+    - if it is interval-repetitive and has already completed once,
+      ``repeat_interval_minutes`` must have passed since ``last_completed_at``.
     """
     if task.state is not TaskState.DRAFT:
         return False
 
-    # Repetición por intervalo: la referencia es last_completed_at + intervalo.
+    # Interval repetition: the reference is last_completed_at + interval.
     if task.repeat_mode == "interval":
         last = _parse_completed_at(task.last_completed_at)
         if last is None:
-            # Nunca completada: cae al scheduled_at. Si no hay, no es due
-            # (evita arrancar en bucle nada más crearla).
+            # Never completed: falls back to scheduled_at. If absent, not due
+            # (avoids looping right after creation).
             if not task.scheduled_at:
                 return False
             try:
@@ -73,7 +72,7 @@ def is_due(task: Task, now: datetime) -> bool:
         target = last + timedelta(minutes=task.repeat_interval_minutes)
         return target <= now
 
-    # Modo infinito o sin repetición: la hora programada manda.
+    # Infinite mode or no repetition: the scheduled time rules.
     if not task.scheduled_at:
         return False
     try:
@@ -84,7 +83,7 @@ def is_due(task: Task, now: datetime) -> bool:
 
 
 def parent_done(task: Task, by_id: dict[str, Task]) -> bool:
-    """True si no tiene padre o el padre existe y está DONE."""
+    """True if it has no parent, or its parent exists and is DONE."""
     if not task.parent_id:
         return True
     parent = by_id.get(task.parent_id)
@@ -92,11 +91,11 @@ def parent_done(task: Task, by_id: dict[str, Task]) -> bool:
 
 
 def chain_completed(task: Task, by_id: dict[str, Task]) -> bool:
-    """True si la tarea está DONE y TODAS sus descendientes están DONE.
+    """True if the task is DONE and ALL its descendants are DONE.
 
-    Se usa para el modo ``"infinite"``: la repetición arranca cuando termina la
-    última tarea de la cadena. Devuelve ``False`` si alguna descendiente está
-    FAILED o DISCARDED (la cadena rota no reinicia sola).
+    Used in ``"infinite"`` mode: the repetition starts when the last task in
+    the chain finishes. Returns ``False`` if any descendant is FAILED or
+    DISCARDED (a broken chain does not restart on its own).
     """
     if task.state is not TaskState.DONE:
         return False
@@ -118,16 +117,16 @@ def chain_completed(task: Task, by_id: dict[str, Task]) -> bool:
 
 
 def children(tasks: list[Task], task_id: str) -> list[Task]:
-    """Hijas directas de una tarea, conservando el orden de la lista."""
+    """Direct children of a task, preserving the order of the input list."""
     return [task for task in tasks if task.parent_id == task_id]
 
 
 def tree_order(tasks: list[Task]) -> list[tuple[Task, int]]:
-    """``(tarea, profundidad)`` con cada hija justo tras su padre.
+    """``(task, depth)`` with each child right after its parent.
 
-    La lista de entrada ya viene ordenada (``list_all``: más reciente primero).
-    Las tareas cuyo padre no esté en la lista (filtrado u otro proyecto) se
-    muestran como raíz con profundidad 0. Es inmune a ciclos de ``parent_id``.
+    The input list is already sorted (``list_all``: most recent first).
+    Tasks whose parent is not in the list (filtered or from another project)
+    are shown as roots with depth 0. It is immune to ``parent_id`` cycles.
     """
     by_parent: dict[str, list[Task]] = {}
     for task in tasks:
@@ -152,11 +151,12 @@ def tree_order(tasks: list[Task]) -> list[tuple[Task, int]]:
 
 
 def prepare_next_iteration(task: Task) -> None:
-    """Reinicia la máquina de estados para la siguiente repetición.
+    """Reset the state machine for the next repetition.
 
-    Deja ``state=DRAFT``, ``iteration=0``, ``cycle=1``, ``sessions={}``. NO
-    toca los archivos de plan: eso lo decide el llamador según ``plan_reuse``.
-    El campo ``repeat_count`` lo incrementa el llamador (no esta función).
+    Leaves ``state=DRAFT``, ``iteration=0``, ``cycle=1``, ``sessions={}``.
+    Does NOT touch plan files: the caller decides based on ``plan_reuse``.
+    The ``repeat_count`` field is incremented by the caller (not this
+    function).
     """
     task.state = TaskState.DRAFT
     task.iteration = 0

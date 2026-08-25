@@ -1,4 +1,4 @@
-"""Pantalla de detalle de tarea: fases, planes, revisiones y log en vivo."""
+"""Task detail screen: phases, plans, reviews and live log."""
 
 from __future__ import annotations
 
@@ -37,12 +37,12 @@ from ...tokenfmt import format_tokens
 from ..widgets import PhaseBar, markdown_set
 
 _SPINNER = "⠋⠙⠹⠸⠼⠴⦦⣾"
-_WARN_AFTER_S = 90    # sin salida: aviso amarillo
-_STALL_AFTER_S = 300  # sin salida: aviso rojo (posible bloqueo)
+_WARN_AFTER_S = 90    # no output: yellow warning
+_STALL_AFTER_S = 300  # no output: red warning (possible stall)
 
 
 class FileItem(ListItem):
-    """Item de lista que referencia un archivo en disco."""
+    """List item referencing a file on disk."""
 
     def __init__(self, path: Path, base: Path | None = None):
         label = str(path.relative_to(base)) if base and path.is_relative_to(base) else path.name
@@ -51,7 +51,7 @@ class FileItem(ListItem):
 
 
 class FileList(ListView):
-    """Lista de archivos Markdown (recursiva: incluye ciclos de ampliación)."""
+    """Markdown file list (recursive: includes extension cycles)."""
 
     def load_dir(self, directory: Path) -> None:
         self.clear()
@@ -60,7 +60,7 @@ class FileList(ListView):
 
 
 class PlanConfirmScreen(ModalScreen[bool]):
-    """Punto de confirmación del automode: ¿el plan es correcto e implementamos?"""
+    """Automode confirmation point: is the plan OK to implement?"""
 
     BINDINGS = [Binding("escape", "reject", t("pc.later"))]
 
@@ -85,7 +85,7 @@ class PlanConfirmScreen(ModalScreen[bool]):
         self.dismiss(event.button.id == "pc-accept")
 
 
-# Descripción de cada fase para el modal de confirmación.
+# Description of each phase for the confirmation modal.
 _PHASE_INFO = {
     "plan": {"role": "planner"},
     "implement": {"role": "implementer"},
@@ -98,7 +98,7 @@ _PHASE_INFO = {
 
 
 class PhaseConfirmScreen(ModalScreen[bool]):
-    """Confirmación antes de lanzar una fase: explica qué va a ocurrir."""
+    """Pre-launch phase confirmation: explains what will happen."""
 
     BINDINGS = [Binding("escape", "cancel", t("common.cancel"))]
 
@@ -154,7 +154,7 @@ class PhaseConfirmScreen(ModalScreen[bool]):
 
 
 class StatusConfirmScreen(ModalScreen[bool]):
-    """Confirmación de cambio de estado manual (completar forzado / descartar)."""
+    """Confirmation of a manual state change (force complete / discard)."""
 
     BINDINGS = [Binding("escape", "cancel", t("common.cancel"))]
 
@@ -179,7 +179,7 @@ class StatusConfirmScreen(ModalScreen[bool]):
 
 
 class RequestMoreScreen(ModalScreen[str | None]):
-    """Pedir una ampliación: arranca un ciclo nuevo con la misma lógica."""
+    """Ask for an extension: start a new cycle with the same logic."""
 
     BINDINGS = [Binding("escape", "cancel", t("common.cancel"))]
 
@@ -222,7 +222,7 @@ class RequestMoreScreen(ModalScreen[str | None]):
 
 
 class EditTaskScreen(ModalScreen[bool]):
-    """Edita el nombre y la descripción de la tarea."""
+    """Edit the task's name and description."""
 
     BINDINGS = [Binding("escape", "cancel", t("common.cancel"))]
 
@@ -289,7 +289,7 @@ class TaskDetailScreen(Screen[None]):
 
     @property
     def runtime(self):
-        """Motor en segundo plano de esta tarea (vive en la App)."""
+        """Background runtime of this task (lives in the App)."""
         return self.app.runtime_for(self.current_task)
 
     # ------------------------------------------------------------------ #
@@ -340,10 +340,10 @@ class TaskDetailScreen(Screen[None]):
         self._render_activity()
         self._render_tokens()
         self._render_agents_bar()
-        # Reloj de 1s: el tick en pantalla demuestra que la UI no está congelada.
+        # 1s clock: the on-screen tick shows the UI isn't frozen.
         self.set_interval(1.0, self._tick)
         self._maybe_plan_confirm()
-        # Visores Markdown enfocables: el teclado (flechas, Re Pág...) hace scroll.
+        # Focusable Markdown viewers: the keyboard (arrows, PgDn...) scrolls.
         for scroll_id in ("#desc-scroll", "#plan-scroll", "#review-scroll", "#final-scroll", "#tokens-scroll"):
             self.query_one(scroll_id, VerticalScroll).can_focus = True
         self.query_one("#desc-view", Static).update(
@@ -354,15 +354,15 @@ class TaskDetailScreen(Screen[None]):
         self.runtime.remove_listener(self._on_runtime)
 
     def on_screen_resume(self) -> None:
-        # Al volver: reconectar con el pipeline que siguió corriendo.
+        # On return: reconnect with the pipeline that kept running.
         self.runtime.add_listener(self._on_runtime)
         self._replay_log()
-        self._state_changed(self.runtime.task)  # repinta PhaseBar, título y archivos
+        self._state_changed(self.runtime.task)  # repaints PhaseBar, title and files
         self._render_activity()
         self._maybe_plan_confirm()
 
     # ------------------------------------------------------------------ #
-    # Suscripción al runtime
+    # Runtime subscription
     # ------------------------------------------------------------------ #
     def _on_runtime(self, kind: str, payload: object) -> None:
         if kind == "log":
@@ -378,7 +378,7 @@ class TaskDetailScreen(Screen[None]):
             log.write(entry)
 
     # ------------------------------------------------------------------ #
-    # Barra de actividad (señal de vida + watchdog + tiempos)
+    # Activity bar (heartbeat + watchdog + times)
     # ------------------------------------------------------------------ #
     def _tick(self) -> None:
         if self.runtime.running:
@@ -440,7 +440,7 @@ class TaskDetailScreen(Screen[None]):
         bar.update(line)
 
     def _render_tokens(self) -> None:
-        """Pinta total, desglose por fase y por CLI+modelo en la pestaña Tokens."""
+        """Render total, breakdown by phase and by CLI+model in the Tokens tab."""
         view = self.query_one("#tokens-view", Static)
         task = self.current_task
         total_in, total_out = task.token_totals()
@@ -474,13 +474,13 @@ class TaskDetailScreen(Screen[None]):
         view.update("\n".join(lines))
 
     def _render_agents_bar(self) -> None:
-        """Bajo la barra de fases: agente (cli/modelo) y consumo por fase."""
+        """Under the phase bar: agent (cli/model) and consumption by phase."""
         bar = self.query_one("#agents-bar", Static)
         task = self.current_task
         by_phase = task.tokens_by_phase()
         phases = ["plan", "implement", "review"]
         if "fix" in by_phase:
-            phases.append("fix")  # fix usa el rol implementer; solo si hubo fixes
+            phases.append("fix")  # fix uses the implementer role; only if there were fixes
         phases.append("final")
         line = Text()
         for index, phase in enumerate(phases):
@@ -499,10 +499,10 @@ class TaskDetailScreen(Screen[None]):
         return self.query_one("#live-log", RichLog)
 
     def _state_changed(self, task: Task) -> None:
-        self.current_task = task  # objeto vivo del runtime (el orquestador lo muta)
+        self.current_task = task  # live object from the runtime (orchestrator mutates it)
         self.query_one(PhaseBar).set_state(task.state, task.iteration)
         self._render_title()
-        self._reload_files()  # los artefactos aparecen al terminar cada fase
+        self._reload_files()  # artifacts appear at the end of each phase
         self._render_tokens()
         self._render_agents_bar()
 
@@ -538,7 +538,7 @@ class TaskDetailScreen(Screen[None]):
         await markdown_set(self.query_one(view_id, Markdown), text)
 
     # ------------------------------------------------------------------ #
-    # Ejecución del pipeline (a través del runtime de la App)
+    # Pipeline execution (through the App's runtime)
     # ------------------------------------------------------------------ #
     def _start(
         self,
@@ -549,13 +549,13 @@ class TaskDetailScreen(Screen[None]):
         if not self.runtime.start(self.app, runner, label, plan_then_ask=plan_then_ask):
             self.notify(t("det.warn.running"), severity="warning")
             return
-        # Refresco inmediato: el callback del modal llega con la pantalla
-        # suspendida y el primer evento de estado se puede perder.
+        # Immediate refresh: the modal's callback arrives with the screen
+        # suspended and the first state event may be lost.
         self._state_changed(self.runtime.task)
         self._render_activity()
 
     # ------------------------------------------------------------------ #
-    # Acciones (todas pasan por el modal de confirmación)
+    # Actions (all go through the confirmation modal)
     # ------------------------------------------------------------------ #
     def _confirm(
         self,
@@ -616,8 +616,8 @@ class TaskDetailScreen(Screen[None]):
         self._confirm("tests", _tests, phase_label("tests"))
 
     def _pipeline_runner(self) -> tuple[Callable[[Orchestrator], Awaitable[None]], str, bool]:
-        """Runner del pipeline completo respetando confirm_plan (misma lógica
-        para el primer ciclo y para las ampliaciones)."""
+        """Full pipeline runner respecting confirm_plan (same logic for the
+        first cycle and for the extensions)."""
         if self.current_task.confirm_plan:
             return (lambda orch: orch.run_automode_plan()), t("det.cycle_plan", n=self.current_task.cycle), True
         return (lambda orch: orch.run_automode()), t("det.cycle_auto", n=self.current_task.cycle), False
@@ -698,12 +698,12 @@ class TaskDetailScreen(Screen[None]):
         )
 
     async def _do_restart(self) -> None:
-        """Aborta la ejecución en curso (si la hay) y reinicia a DRAFT."""
+        """Abort the running execution (if any) and reset to DRAFT."""
         if self.runtime.running:
             self.runtime.cancel()
-            # Espera a que el worker muera: _wrap fija running=False al
-            # capturar la CancelledError (estado PAUSED intermedio).
-            for _ in range(100):  # 100 x 0.1s = 10s de margen
+            # Wait for the worker to die: _wrap sets running=False when it
+            # catches CancelledError (intermediate PAUSED state).
+            for _ in range(100):  # 100 x 0.1s = 10s budget
                 await asyncio.sleep(0.1)
                 if not self.runtime.running:
                     break
@@ -724,7 +724,7 @@ class TaskDetailScreen(Screen[None]):
         def closed(saved: bool) -> None:
             if not saved:
                 return
-            # El runtime usa la copia en memoria: hay que refrescarla.
+            # The runtime uses the in-memory copy: refresh it.
             self.runtime.task = self.current_task
             self._render_title()
             self.query_one("#desc-view", Static).update(
@@ -742,8 +742,8 @@ class TaskDetailScreen(Screen[None]):
         def closed(saved: bool) -> None:
             if not saved:
                 return
-            # El runtime usa la copia en memoria: hay que refrescarla para
-            # que la siguiente fase use los nuevos CLI/modelo.
+            # The runtime uses the in-memory copy: refresh it so the next
+            # phase uses the new CLI/model.
             self.runtime.task = self.current_task
             self._render_title()
             self._render_agents_bar()
@@ -764,11 +764,11 @@ class TaskDetailScreen(Screen[None]):
         self.app.push_screen(TaskRolesScreen(self.current_task), closed)
 
     def action_back(self) -> None:
-        # Volver nunca interrumpe: el pipeline sigue en segundo plano.
+        # Going back never interrupts: the pipeline keeps running in the background.
         self.dismiss()
 
     # ------------------------------------------------------------------ #
-    # Cambio manual de estado (completar forzado / descartar)
+    # Manual state change (force complete / discard)
     # ------------------------------------------------------------------ #
     def _mark_state(
         self,
@@ -777,7 +777,7 @@ class TaskDetailScreen(Screen[None]):
         body_key: str,
         log_key: str,
     ) -> None:
-        """Cambia el estado de la tarea manualmente, previa confirmación."""
+        """Change the task state manually, with confirmation."""
         if self.runtime.running:
             self.notify(t("det.warn.running"), severity="warning")
             return

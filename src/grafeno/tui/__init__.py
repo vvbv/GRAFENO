@@ -1,1 +1,1 @@
-"""Interfaz TUI de GRAFENO (Textual)."""
+"""GRAFENO TUI interface (Textual)."""
