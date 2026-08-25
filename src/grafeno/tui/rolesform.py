@@ -9,8 +9,8 @@ que llama a ``set_models`` y ``set_variants`` cuando ``fetch_all_models`` y
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal
-from textual.widgets import Label, Select, Static
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Input, Label, Select, Static
 
 from ..config import KNOWN_CLIS
 from ..i18n import t
@@ -24,7 +24,20 @@ ROLES: tuple[tuple[str, str], ...] = (
 )
 
 MODEL_PROMPT = t("cfg.model.prompt")
+MODEL_FILTER_PROMPT = t("cfg.model.filter")
 EFFORT_PROMPT = t("cfg.effort.prompt")
+
+
+def filter_models(models: list[str], query: str) -> list[str]:
+    """Devuelve los modelos que contienen ``query`` (insensible a mayúsculas).
+
+    Consulta vacía devuelve la lista completa (copia). Es subcadena, no
+    prefijo, para encontrar p.ej. "k3" dentro de "opencode-go/kimi-k3".
+    """
+    needle = query.strip().casefold()
+    if not needle:
+        return list(models)
+    return [m for m in models if needle in m.casefold()]
 
 
 class RoleRow(Static):
@@ -44,13 +57,19 @@ class RoleRow(Static):
                 allow_blank=False,
                 classes="cli-select",
             )
-            yield Select(
-                [],
-                id=f"{self.role}-model",
-                prompt=MODEL_PROMPT,
-                allow_blank=True,
-                classes="model-select",
-            )
+            with Vertical(classes="model-column"):
+                yield Input(
+                    placeholder=MODEL_FILTER_PROMPT,
+                    id=f"{self.role}-model-filter",
+                    classes="model-filter",
+                )
+                yield Select(
+                    [],
+                    id=f"{self.role}-model",
+                    prompt=MODEL_PROMPT,
+                    allow_blank=True,
+                    classes="model-select",
+                )
             yield Select(
                 [],
                 id=f"{self.role}-effort",
@@ -120,7 +139,9 @@ class RolesForm(Static):
 
         Reglas: si el CLI aún no ha cargado modelos, se conserva lo que haya
         (p.ej. el valor guardado). Si ya hay lista y la selección no pertenece
-        al CLI actual (cambio de CLI), se reinicia a "default".
+        al CLI actual (cambio de CLI), se reinicia a "default". El texto del
+        filtro (``#{role}-model-filter``) reduce las opciones visibles, pero
+        el modelo elegido se conserva siempre aunque no coincida.
         """
         select = self.query_one(f"#{role}-model", Select)
         current = select.value
@@ -131,7 +152,11 @@ class RolesForm(Static):
             chosen = ""  # el CLI cambió: el modelo anterior no aplica
         if chosen and chosen not in models:
             models.append(chosen)
-        select.set_options([(model, model) for model in models])
+        query = self.query_one(f"#{role}-model-filter", Input).value
+        options = filter_models(models, query)
+        if chosen and chosen not in options:
+            options.append(chosen)  # la selección nunca se oculta
+        select.set_options([(model, model) for model in options])
         select.value = chosen if chosen else Select.NULL
 
     def _refresh_effort_options(self, role: str) -> None:
@@ -160,7 +185,13 @@ class RolesForm(Static):
     def on_select_changed(self, event: Select.Changed) -> None:
         for role, _ in ROLES:
             if event.select.id == f"{role}-cli":
+                self.query_one(f"#{role}-model-filter", Input).value = ""
                 self._refresh_model_options(role)
                 self._refresh_effort_options(role)
             elif event.select.id == f"{role}-model":
                 self._refresh_effort_options(role)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        for role, _ in ROLES:
+            if event.input.id == f"{role}-model-filter":
+                self._refresh_model_options(role)

@@ -235,6 +235,15 @@ Markdown {
     width: 1fr;
 }
 
+.role-row .model-column {
+    width: 1fr;
+    height: auto;
+}
+
+.role-row .model-filter {
+    margin: 0 1;
+}
+
 .role-row .effort-select {
     width: 22;
 }
