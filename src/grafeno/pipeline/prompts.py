@@ -8,6 +8,7 @@ contenido para ese ejecutor (modos de configuración 1 y 2).
 from __future__ import annotations
 
 from ..models import Task
+from ..references import resolve
 from .. import paths
 
 EXECUTOR_HEADER_TEMPLATE = """<!-- GRAFENO-EXECUTOR
@@ -83,6 +84,27 @@ Planifica SOLO esta ampliación: no repitas lo ya implementado.
 """
 
 
+def _references_section(task: Task) -> str:
+    """Sección de referencias de contexto (vacía si la tarea no tiene)."""
+    references = resolve(task)
+    if not references:
+        return ""
+    items = "\n".join(
+        f"- **{ref.name}** ({ref.path}): {ref.description or '(sin descripción)'}"
+        for ref in references
+    )
+    return f"""
+# Referencias de contexto
+La tarea define los siguientes recursos de referencia. Revísalos (explora el
+directorio local o consulta la URL) y úsalos SOLO como contexto o inspiración
+para lo que indica su descripción; no los copies literalmente ni los trates
+como parte del proyecto salvo que la descripción lo pida. Sé selectivo con lo
+que lees de cada recurso: leer un recurso grande por completo incrementa
+mucho el consumo de tokens.
+{items}
+"""
+
+
 def _custom_final_section(task: Task) -> str:
     """Instrucciones extra del usuario para la fase final (vacías = sin sección)."""
     if not task.final_prompt.strip():
@@ -102,7 +124,7 @@ tarea de programación orquestada por GRAFENO.
 - Nombre: {task.name}
 - Descripción: {task.description or "(sin descripción)"}
 - Proyecto (directorio de trabajo): {task.workdir}
-{_cycle_section(task)}
+{_cycle_section(task)}{_references_section(task)}
 # Tu entrega
 1. Explora el proyecto para entender su estructura, stack y convenciones.
 2. Escribe el plan en UNO O VARIOS archivos Markdown dentro de:
@@ -151,7 +173,7 @@ plan existente, NO una planificación desde cero.
 - Nombre: {task.name}
 - Descripción: {task.description or "(sin descripción)"}
 - Proyecto (directorio de trabajo): {task.workdir}
-{_cycle_section(task)}
+{_cycle_section(task)}{_references_section(task)}
 # Tu entrega
 1. La tarea YA TIENE archivos de plan en:
    {plan_dir}
@@ -197,7 +219,7 @@ def implement_prompt(task: Task) -> str:
 # Tarea
 - Nombre: {task.name}
 - Proyecto (directorio de trabajo): {task.workdir}
-
+{_references_section(task)}
 # Tu entrega
 1. Lee TODOS los archivos Markdown del directorio de plan, en orden alfabético:
    {plan_dir}

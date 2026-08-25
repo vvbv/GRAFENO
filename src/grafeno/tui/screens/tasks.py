@@ -32,6 +32,7 @@ from ...pipeline.hooks import HOOK_STAGES, format_stages
 from ...timefmt import format_duration
 from ...tokenfmt import format_tokens
 from ..dirpicker import DirectoryPicker
+from ..refform import ReferencesForm
 from ..widgets import GrafenoHeader
 
 
@@ -97,6 +98,11 @@ class NewTaskScreen(ModalScreen[Task | None]):
                 for stage in HOOK_STAGES:
                     yield Checkbox(t(f"hook.stage.{stage}"), id=f"nt-hook-stage-{stage}")
             yield Checkbox(t("nt.hook.both"), id="nt-hook-both")
+            yield Checkbox(t("nt.refs.use_global"), id="nt-use-global-refs", value=True)
+            yield Checkbox(t("nt.refs.use_project"), id="nt-use-project-refs", value=True)
+            yield Label(t("nt.refs.task"))
+            yield Static(t("refs.warning"))
+            yield ReferencesForm(id="nt-refs")
             with Horizontal(id="nt-buttons"):
                 yield Button(t("common.create"), variant="primary", id="nt-create")
                 yield Button(t("common.cancel"), id="nt-cancel")
@@ -216,6 +222,9 @@ class NewTaskScreen(ModalScreen[Task | None]):
             repeat_mode=repeat_mode,
             repeat_interval_minutes=repeat_minutes,
             plan_reuse=plan_reuse,
+            use_global_references=self.query_one("#nt-use-global-refs", Checkbox).value,
+            use_project_references=self.query_one("#nt-use-project-refs", Checkbox).value,
+            references=self.query_one("#nt-refs", ReferencesForm).references(),
         )
         models.save(task)
         self.dismiss(task)

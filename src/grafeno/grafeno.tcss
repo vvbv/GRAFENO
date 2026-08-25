@@ -290,6 +290,14 @@ Markdown {
     margin-right: 4;
 }
 
+.refs-table {
+    height: 6;
+}
+
+ReferencesForm Input {
+    width: 1fr;
+}
+
 #am-max-iter {
     width: 10;
 }

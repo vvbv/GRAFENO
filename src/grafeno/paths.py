@@ -24,6 +24,10 @@ def config_path() -> Path:
     return home() / "config.toml"
 
 
+def references_path() -> Path:
+    return home() / "references.toml"
+
+
 def tasks_dir() -> Path:
     path = home() / "tasks"
     path.mkdir(parents=True, exist_ok=True)

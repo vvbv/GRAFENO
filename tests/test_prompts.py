@@ -157,3 +157,54 @@ def test_reevaluate_plan_prompt_includes_task_context(tmp_path):
     assert str(paths.plan_dir(task.id)) in prompt
     assert "GRAFENO-EXECUTOR" in prompt
     assert "REEVALUACIÓN" in prompt
+
+
+def test_prompts_without_references_omit_section(tmp_path):
+    """With no resolved references, neither prompt adds the section."""
+    task = _task(tmp_path)
+    plan = prompts.plan_prompt(task)
+    reevaluate = prompts.reevaluate_plan_prompt(task)
+    implement = prompts.implement_prompt(task)
+    assert "Referencias de contexto" not in plan
+    assert "Referencias de contexto" not in reevaluate
+    assert "Referencias de contexto" not in implement
+
+
+def test_prompts_inject_task_references(tmp_path):
+    """Resolved references appear in plan, reevaluate and implement."""
+    from grafeno.references import Reference
+
+    task = _task(tmp_path)
+    task.references = [
+        Reference(
+            name="GUI ref",
+            path="https://example.com",
+            description="UI inspiration",
+        ),
+    ]
+    plan = prompts.plan_prompt(task)
+    reevaluate = prompts.reevaluate_plan_prompt(task)
+    implement = prompts.implement_prompt(task)
+    review = prompts.review_prompt(task, 1)
+    for prompt in (plan, reevaluate, implement):
+        assert "Referencias de contexto" in prompt
+        assert "GUI ref" in prompt
+        assert "https://example.com" in prompt
+        assert "UI inspiration" in prompt
+        assert "tokens" in prompt  # the warning is present
+    # Review, fix and final are intentionally without the section.
+    assert "Referencias de contexto" not in review
+    assert "Referencias de contexto" not in prompts.fix_prompt(task, 1)
+    assert "Referencias de contexto" not in prompts.final_prompt(task)
+
+
+def test_global_references_excluded_when_flag_false(tmp_path):
+    """``use_global_references=False`` keeps global refs out of the prompt."""
+    from grafeno import references as references_module
+    from grafeno.references import Reference
+
+    references_module.save_global([Reference(name="global-ref", path="/g")])
+    task = _task(tmp_path)
+    task.use_global_references = False
+    plan = prompts.plan_prompt(task)
+    assert "global-ref" not in plan

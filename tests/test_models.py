@@ -296,7 +296,7 @@ def test_task_effort_roundtrip(tmp_path):
 
 def test_legacy_task_without_effort_loads_empty(tmp_path):
     """Tareas antiguas sin clave ``effort`` cargan con valor vacío."""
-    task = Task.create("Demo", "desc", str(tmp_path), Config())
+    task = models.Task.create("Demo", "desc", str(tmp_path), Config())
     models.save(task)
     meta = paths.task_meta_path(task.id)
     with meta.open("rb") as handle:
@@ -310,3 +310,44 @@ def test_legacy_task_without_effort_loads_empty(tmp_path):
     assert loaded.implementer.effort == ""
     assert loaded.reviewer.effort == ""
     assert loaded.final.effort == ""
+
+
+def test_task_references_roundtrip_with_exclusion_flags(tmp_path):
+    """``references`` and the two flags survive a save/load roundtrip."""
+    from grafeno.references import Reference
+
+    refs = [
+        Reference(name="r1", description="first", path="/x"),
+        Reference(name="r2", path="https://example.com"),
+    ]
+    task = models.Task.create(
+        "Demo", "desc", str(tmp_path), Config(),
+        use_global_references=False,
+        use_project_references=False,
+        references=refs,
+    )
+    models.save(task)
+
+    loaded = models.load(task.id)
+    assert loaded.use_global_references is False
+    assert loaded.use_project_references is False
+    assert loaded.references == refs
+
+
+def test_legacy_task_loads_references_defaults(tmp_path):
+    """Tareas sin claves ``references``/``use_*`` cargan con defaults True y []."""
+    task = models.Task.create("Demo", "desc", str(tmp_path), Config())
+    models.save(task)
+    meta = paths.task_meta_path(task.id)
+    with meta.open("rb") as handle:
+        data = tomllib.load(handle)
+    raw = data["task"]
+    raw.pop("use_global_references", None)
+    raw.pop("use_project_references", None)
+    data.pop("references", None)
+    meta.write_text(_toml.dumps(data), encoding="utf-8")
+
+    loaded = models.load(task.id)
+    assert loaded.use_global_references is True
+    assert loaded.use_project_references is True
+    assert loaded.references == []

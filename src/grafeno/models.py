@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from . import _toml, live_log, paths
 from .config import Config, RoleConfig
 from .i18n import t
+from .references import Reference
 
 if TYPE_CHECKING:
     from .drivers.base import TokenUsage
@@ -127,6 +128,12 @@ class Task:
     sessions: dict[str, str] = field(default_factory=dict)  # role -> session id
     durations: dict[str, int] = field(default_factory=dict)  # phase -> accumulated seconds
     tokens: dict[str, int] = field(default_factory=dict)  # "{phase}|{cli}|{model}|{input|output}" -> accumulated tokens
+    # References: list of additional resources (paths/URLs) attached as
+    # inspiration/context for the pipeline agents. Up to three levels are
+    # combined at prompt-time via ``references.resolve``.
+    use_global_references: bool = True   # include global references in prompts
+    use_project_references: bool = True  # include project references in prompts
+    references: list[Reference] = field(default_factory=list)  # task-level refs
     # Time scheduling and repetition (see scheduler.py).
     scheduled_at: str = ""        # local ISO "YYYY-MM-DDTHH:MM"; empty = unscheduled
     parent_id: str = ""           # id of the parent task (chained); empty = root
@@ -161,6 +168,9 @@ class Task:
         repeat_mode: str | None = None,
         repeat_interval_minutes: int | None = None,
         plan_reuse: str | None = None,
+        use_global_references: bool | None = None,
+        use_project_references: bool | None = None,
+        references: list[Reference] | None = None,
     ) -> "Task":
         now = datetime.now().isoformat(timespec="seconds")
         return cls(
@@ -186,6 +196,9 @@ class Task:
             repeat_mode="" if repeat_mode is None else repeat_mode,
             repeat_interval_minutes=60 if repeat_interval_minutes is None else repeat_interval_minutes,
             plan_reuse="reuse" if plan_reuse is None else plan_reuse,
+            use_global_references=True if use_global_references is None else use_global_references,
+            use_project_references=True if use_project_references is None else use_project_references,
+            references=[] if references is None else references,
             created_at=now,
             updated_at=now,
         )
@@ -280,6 +293,8 @@ class Task:
                 "plan_reuse": self.plan_reuse,
                 "repeat_count": self.repeat_count,
                 "last_completed_at": self.last_completed_at,
+                "use_global_references": self.use_global_references,
+                "use_project_references": self.use_project_references,
                 "created_at": self.created_at,
                 "updated_at": self.updated_at,
             },
@@ -291,6 +306,7 @@ class Task:
             "durations": dict(self.durations),
             "extensions": dict(self.extensions),
             "tokens": dict(self.tokens),
+            "references": [ref.to_dict() for ref in self.references],
         }
 
     @classmethod
@@ -329,6 +345,13 @@ class Task:
             durations={str(k): int(v) for k, v in data.get("durations", {}).items()},
             extensions={str(k): str(v) for k, v in data.get("extensions", {}).items()},
             tokens={str(k): int(v) for k, v in data.get("tokens", {}).items()},
+            use_global_references=bool(raw.get("use_global_references", True)),
+            use_project_references=bool(raw.get("use_project_references", True)),
+            references=[
+                Reference.from_dict(item)
+                for item in data.get("references", [])
+                if isinstance(item, dict)
+            ],
             created_at=str(raw.get("created_at", "")),
             updated_at=str(raw.get("updated_at", "")),
         )
