@@ -43,7 +43,7 @@ def test_task_roles_screen_edits_and_saves(monkeypatch):
 
     async def scenario():
         app = GrafenoApp()
-        async with app.run_test(size=(110, 45)) as pilot:
+        async with app.run_test(size=(120, 55)) as pilot:
             await pilot.pause()
             app.push_screen(TaskDetailScreen(task))
             await pilot.pause()
@@ -88,7 +88,7 @@ def test_task_roles_screen_cancel_keeps_roles(monkeypatch):
 
     async def scenario():
         app = GrafenoApp()
-        async with app.run_test(size=(110, 45)) as pilot:
+        async with app.run_test(size=(120, 55)) as pilot:
             await pilot.pause()
             app.push_screen(TaskDetailScreen(task))
             await pilot.pause()
@@ -125,7 +125,7 @@ def test_task_roles_screen_escape_cancels_loading(monkeypatch):
         # Force Spanish so the text assertion is stable.
         i18n.set_language("es")
         app = GrafenoApp()
-        async with app.run_test(size=(110, 45)) as pilot:
+        async with app.run_test(size=(120, 55)) as pilot:
             await pilot.pause()
             app.push_screen(TaskDetailScreen(task))
             await pilot.pause()
@@ -157,7 +157,7 @@ def test_task_roles_screen_persists_effort(monkeypatch):
 
     async def scenario():
         app = GrafenoApp()
-        async with app.run_test(size=(110, 45)) as pilot:
+        async with app.run_test(size=(120, 55)) as pilot:
             await pilot.pause()
             app.push_screen(TaskDetailScreen(task))
             await pilot.pause()
@@ -169,6 +169,7 @@ def test_task_roles_screen_persists_effort(monkeypatch):
                 await pilot.pause(0.1)
                 if app.screen.query_one(RolesForm).models:
                     break
+            await pilot.pause()
 
             form = app.screen.query_one(RolesForm)
             form.set_role("planner", "opencode", "opencode-go/kimi-k3", "low")

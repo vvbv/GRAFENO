@@ -145,6 +145,11 @@ Footer {
     margin-right: 2;
 }
 
+#new-task-dialog.roles-dialog {
+    width: 90;
+    max-width: 100%;
+}
+
 /* ---- Detalle de tarea ---- */
 #task-title {
     padding: 0 2;
@@ -229,8 +234,13 @@ Markdown {
     margin: 0;
 }
 
+.role-row-model {
+    height: auto;
+    margin: 0;
+}
+
 .role-row .cli-select {
-    width: 16;
+    width: 24;
 }
 
 .role-row .model-select {
@@ -247,7 +257,7 @@ Markdown {
 }
 
 .role-row .effort-select {
-    width: 22;
+    width: 28;
 }
 
 .role-row Select {

@@ -57,6 +57,14 @@ class RoleRow(Static):
                 allow_blank=False,
                 classes="cli-select",
             )
+            yield Select(
+                [],
+                id=f"{self.role}-effort",
+                prompt=EFFORT_PROMPT,
+                allow_blank=True,
+                classes="effort-select",
+            )
+        with Horizontal(classes="role-row-model"):
             with Vertical(classes="model-column"):
                 yield Input(
                     placeholder=MODEL_FILTER_PROMPT,
@@ -70,13 +78,6 @@ class RoleRow(Static):
                     allow_blank=True,
                     classes="model-select",
                 )
-            yield Select(
-                [],
-                id=f"{self.role}-effort",
-                prompt=EFFORT_PROMPT,
-                allow_blank=True,
-                classes="effort-select",
-            )
 
 
 class RolesForm(Static):

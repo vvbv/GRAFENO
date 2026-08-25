@@ -32,7 +32,7 @@ class TaskRolesScreen(ModalScreen[bool]):
         self._loading = False
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="new-task-dialog"):
+        with Vertical(id="new-task-dialog", classes="roles-dialog"):
             yield Label(t("roles.title", name=self._gtask.name), id="new-task-title")
             yield Static(
                 t("roles.body"),
