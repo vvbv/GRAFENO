@@ -8,7 +8,7 @@ Multi-CLI TUI orchestrator for programming tasks: **plan -> implementation -> re
 
 ## How it works
 
-Every task follows a pipeline with four configurable roles (CLI + model for each):
+Every task follows a pipeline with four configurable roles (CLI + model for each, and optionally a per-model effort level when the CLI exposes one — e.g. `opencode run ... --variant <nivel>`):
 
 1. **Planner** — explores the project and writes one or several Markdown plans (`~/.grafeno/tasks/<task>/plan/`).
    Each plan includes a `GRAFENO-EXECUTOR` header declaring **which model and which CLI will implement it**, and the prompt requires optimizing the content for that executor (explicit steps, exact paths, concrete commands). That way, even if the planner lives in OpenCode and the executor in Kimi, the plan arrives intact via files.
@@ -101,9 +101,9 @@ GitHub Release with the `vX.Y.Z` tag and attached artifacts.
 
 ```
 ~/.grafeno/
-├── config.toml              # language (en/es), roles (cli+model), automode, tests, git, theme (palette), final-steps prompt, global hook, editor
+├── config.toml              # language (en/es), roles (cli+model+effort), automode, tests, git, theme (palette), final-steps prompt, global hook, editor
 └── tasks/<date>-<slug>/
-    ├── task.toml            # state, iterations, sessions, workdir, branch, scheduling (scheduled_at, parent_id, repeat_mode, plan_reuse, repeat_count, last_completed_at)
+    ├── task.toml            # state, iterations, sessions, workdir, branch, scheduling (scheduled_at, parent_id, repeat_mode, plan_reuse, repeat_count, last_completed_at), per-role effort level
     ├── plan/*.md            # plans with GRAFENO-EXECUTOR header
     ├── review/*.md          # reviews numbered by iteration
     ├── final/*.md           # final-step reports per cycle
