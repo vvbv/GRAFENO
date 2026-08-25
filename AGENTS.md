@@ -22,6 +22,7 @@ src/grafeno/
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
 ├── mdnorm.py               # Normalización de Markdown: colapsa saltos de línea y compacta listas sueltas en los .md de cada etapa
 ├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
+├── timefmt.py              # Formateo de duraciones (42s, 3m 05s, 1h 02m 03s)
 ├── scheduler.py            # Lógica pura: programación horaria, encadenamiento padre/hija y repetición de tareas
 ├── _toml.py                # Serializador TOML propio (escritura; lectura con tomllib)
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
