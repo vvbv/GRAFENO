@@ -2,8 +2,7 @@
 
 Multi-CLI TUI orchestrator for programming tasks: **plan -> implementation -> review <=> fix -> final steps**, using agent CLIs already installed on your system.
 
-- **CLIs supported today**: [OpenCode](https://opencode.ai) (`opencode`) and [Kimi Code](https://moonshotai.github.io/kimi-code/) (`kimi`).
-- **Architecture ready for**: Codex CLI (`codex`) and Claude Code (`claude`) — adding one is just creating a file under `src/grafeno/drivers/` and registering it.
+- **CLIs supported today**: [OpenCode](https://opencode.ai) (`opencode`), [Kimi Code](https://moonshotai.github.io/kimi-code/) (`kimi`), [Codex CLI](https://github.com/openai/codex) (`codex`) and [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) — adding another is just creating a file under `src/grafeno/drivers/` and registering it.
 - **Cross-platform**: Linux, macOS and Windows (Python 3.11+).
 
 ## How it works
