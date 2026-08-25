@@ -154,7 +154,7 @@ def test_missing_cli_marks_failed(tmp_path):
 
 def test_unknown_cli_marks_failed(tmp_path):
     task = _make_task(tmp_path)
-    task.planner.cli = "codex"  # previsto pero sin driver todavía
+    task.planner.cli = "inexistente"  # CLI desconocido: el orquestador falla
     orch = Orchestrator(task, drivers={})
     try:
         _run(orch.run_plan())

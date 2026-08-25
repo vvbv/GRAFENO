@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Iterable
 
 from .base import CLIDriver, EventKind, RunEvent, RunRequest, RunResult
+from .claude import ClaudeDriver
+from .codex import CodexDriver
 from .kimi import KimiDriver
 from .opencode import OpenCodeDriver
 
@@ -21,20 +23,14 @@ __all__ = [
 ]
 
 _DRIVERS: dict[str, CLIDriver] = {
-    driver.name: driver for driver in (OpenCodeDriver(), KimiDriver())
+    driver.name: driver
+    for driver in (OpenCodeDriver(), KimiDriver(), CodexDriver(), ClaudeDriver())
 }
-
-# CLIs previstos en la arquitectura pero aún no implementados.
-PLANNED_CLIS = ("codex", "claude")
 
 
 def get_driver(name: str) -> CLIDriver:
     if name in _DRIVERS:
         return _DRIVERS[name]
-    if name in PLANNED_CLIS:
-        raise NotImplementedError(
-            f"El CLI '{name}' está previsto en la arquitectura pero aún no tiene driver."
-        )
     raise KeyError(f"CLI desconocido: '{name}'. Disponibles: {', '.join(_DRIVERS)}")
 
 

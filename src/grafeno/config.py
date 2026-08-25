@@ -9,7 +9,7 @@ from typing import Any
 
 from . import _toml, paths
 
-KNOWN_CLIS = ("opencode", "kimi")  # futuro: "codex", "claude"
+KNOWN_CLIS = ("opencode", "kimi", "codex", "claude")
 PROJECT_CONFIG_FILE = ".grafeno.toml"
 
 

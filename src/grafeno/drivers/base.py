@@ -3,9 +3,8 @@
 Un ``CLIDriver`` sabe construir el comando no-interactivo de su CLI,
 interpretar sus eventos de salida (JSONL), listar sus modelos y construir
 el prompt de generación de AGENTS.md. El orquestador solo habla con esta
-interfaz, por lo que añadir un CLI nuevo (Codex, Claude Code, …) implica
-crear un único archivo en ``drivers/`` y registrarlo en
-``drivers/__init__.py``.
+interfaz, por lo que añadir un CLI nuevo (p.ej. un futuro) implica crear un
+único archivo en ``drivers/`` y registrarlo en ``drivers/__init__.py``.
 """
 
 from __future__ import annotations

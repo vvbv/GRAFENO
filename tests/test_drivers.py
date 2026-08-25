@@ -8,6 +8,8 @@ from pathlib import Path
 
 from grafeno.drivers import available_clis, get_driver
 from grafeno.drivers.base import CLIDriver, EventKind, RunRequest, read_lines
+from grafeno.drivers.claude import ClaudeDriver
+from grafeno.drivers.codex import CodexDriver
 from grafeno.drivers.kimi import KimiDriver
 from grafeno.drivers.opencode import OpenCodeDriver
 
@@ -216,16 +218,174 @@ def test_kimi_list_models_failure(monkeypatch):
 
 
 # ---------------------------------------------------------------------- #
+# Codex
+# ---------------------------------------------------------------------- #
+def test_codex_command_full():
+    driver = CodexDriver()
+    cmd = driver.build_command(
+        _request(model="gpt-5.1-codex", session_id="abc-123", effort="high")
+    )
+    assert cmd[:2] == ["codex", "exec"]
+    assert "--json" in cmd
+    assert cmd[cmd.index("-s") + 1] == "workspace-write"
+    assert cmd[cmd.index("-m") + 1] == "gpt-5.1-codex"
+    assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="high"'
+    assert cmd[cmd.index("-C") + 1] == "/tmp/x"
+    assert cmd[cmd.index("resume") + 1] == "abc-123"
+    # Las opciones de exec van antes del subcomando resume.
+    assert cmd.index("--json") < cmd.index("resume")
+
+
+def test_codex_command_minimal():
+    cmd = CodexDriver().build_command(_request())
+    assert cmd[-1] == "hola"          # prompt al final
+    assert "-m" not in cmd
+    assert "resume" not in cmd
+
+
+def test_codex_decode_real_event_shapes():
+    """Eventos capturados de ``codex exec --json``."""
+    driver = CodexDriver()
+    event, session, _ = driver.decode_line(
+        '{"type":"thread.started","thread_id":"t-1"}'
+    )
+    assert event is None
+    assert session == "t-1"
+    event, _, _ = driver.decode_line(
+        '{"type":"item.completed","item":{"type":"agent_message","text":"hola"}}'
+    )
+    assert event.kind is EventKind.TEXT
+    assert event.text == "hola"
+    event, _, _ = driver.decode_line(
+        '{"type":"item.completed","item":{"type":"command_execution","command":"ls"}}'
+    )
+    assert event.kind is EventKind.TOOL
+    assert "ls" in event.text
+    event, _, usage = driver.decode_line(
+        '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":4}}'
+    )
+    assert event is None
+    assert usage is not None and (usage.input, usage.output) == (10, 4)
+    event, _, _ = driver.decode_line('{"type":"error","message":"boom"}')
+    assert event.kind is EventKind.ERROR
+
+
+def test_codex_extract_usage_ignores_cache_and_reasoning():
+    """``usage`` puede traer cached/reasoning tokens: se ignoran."""
+    driver = CodexDriver()
+    _, _, usage = driver.decode_line(json.dumps({
+        "type": "turn.completed",
+        "usage": {
+            "input_tokens": 12, "cached_input_tokens": 1000,
+            "output_tokens": 3, "reasoning_output_tokens": 50,
+        },
+    }))
+    assert usage is not None and (usage.input, usage.output) == (12, 3)
+
+
+def test_codex_static_models_and_variants():
+    driver = CodexDriver()
+    assert driver.list_models() == sorted(CodexDriver.STATIC_MODELS)
+    assert asyncio.run(driver.list_models_async()) == driver.list_models()
+    variants = asyncio.run(driver.list_variants_async())
+    assert set(variants) == set(CodexDriver.STATIC_MODELS)
+    assert all(levels == list(CodexDriver.EFFORT_LEVELS) for levels in variants.values())
+
+
+# ---------------------------------------------------------------------- #
+# Claude Code
+# ---------------------------------------------------------------------- #
+def test_claude_command_full():
+    driver = ClaudeDriver()
+    cmd = driver.build_command(
+        _request(model="sonnet", session_id="s-1", effort="max")
+    )
+    assert cmd[0] == "claude"
+    assert cmd[cmd.index("-p") + 1] == "hola"
+    assert cmd[cmd.index("--output-format") + 1] == "stream-json"
+    assert "--verbose" in cmd
+    assert "--dangerously-skip-permissions" in cmd
+    assert cmd[cmd.index("--model") + 1] == "sonnet"
+    assert cmd[cmd.index("--effort") + 1] == "max"
+    assert cmd[cmd.index("--resume") + 1] == "s-1"
+
+
+def test_claude_command_minimal():
+    cmd = ClaudeDriver().build_command(_request())
+    assert "--model" not in cmd
+    assert "--effort" not in cmd
+    assert "--resume" not in cmd
+
+
+def test_claude_decode_real_event_shapes():
+    """Eventos capturados de ``claude -p ... --output-format stream-json``."""
+    driver = ClaudeDriver()
+    event, session, _ = driver.decode_line(
+        '{"type":"system","subtype":"init","session_id":"s-9"}'
+    )
+    assert event is None
+    assert session == "s-9"
+    event, _, _ = driver.decode_line(json.dumps({
+        "type": "assistant",
+        "message": {"content": [{"type": "text", "text": "hola"}]},
+    }))
+    assert event.kind is EventKind.TEXT
+    assert event.text == "hola"
+    event, _, _ = driver.decode_line(json.dumps({
+        "type": "assistant",
+        "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {}}]},
+    }))
+    assert event.kind is EventKind.TOOL
+    assert "Bash" in event.text
+    event, _, usage = driver.decode_line(json.dumps({
+        "type": "result", "subtype": "success",
+        "usage": {"input_tokens": 7, "output_tokens": 3},
+    }))
+    assert event is None
+    assert usage is not None and (usage.input, usage.output) == (7, 3)
+    event, _, _ = driver.decode_line(
+        '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"fallo"}'
+    )
+    assert event.kind is EventKind.ERROR
+
+
+def test_claude_decode_system_hook_is_noise():
+    """Los ``system`` con subtypes distintos a ``init`` no generan evento."""
+    driver = ClaudeDriver()
+    event, _, _ = driver.decode_line(
+        '{"type":"system","subtype":"hook_started","session_id":"s-1"}'
+    )
+    assert event is None
+
+
+def test_claude_extract_usage_ignores_cache():
+    """``usage`` puede traer cache_creation/cache_read: se ignoran."""
+    driver = ClaudeDriver()
+    _, _, usage = driver.decode_line(json.dumps({
+        "type": "result", "subtype": "success",
+        "usage": {
+            "input_tokens": 9, "cache_creation_input_tokens": 100,
+            "cache_read_input_tokens": 200, "output_tokens": 4,
+        },
+    }))
+    assert usage is not None and (usage.input, usage.output) == (9, 4)
+
+
+def test_claude_static_models_and_variants():
+    driver = ClaudeDriver()
+    assert driver.list_models() == sorted(ClaudeDriver.STATIC_MODELS)
+    variants = asyncio.run(driver.list_variants_async())
+    assert set(variants) == set(ClaudeDriver.STATIC_MODELS)
+
+
+# ---------------------------------------------------------------------- #
 # Registro
 # ---------------------------------------------------------------------- #
 def test_registry():
     assert get_driver("opencode").name == "opencode"
     assert get_driver("kimi").name == "kimi"
-    try:
-        get_driver("codex")
-        raise AssertionError("debió lanzar NotImplementedError")
-    except NotImplementedError:
-        pass
+    assert get_driver("codex").name == "codex"
+    assert get_driver("claude").name == "claude"
     try:
         get_driver("inexistente")
         raise AssertionError("debió lanzar KeyError")

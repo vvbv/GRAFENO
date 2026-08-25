@@ -2,8 +2,7 @@
 
 Orquestador TUI multi-CLI para tareas de programación: pipeline
 **plan -> implementación -> revisión <=> corrección -> pasos finales** usando
-CLIs de agentes instalados en el sistema (hoy: OpenCode y Kimi; arquitectura
-preparada para Codex y Claude Code).
+CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex y Claude Code).
 
 ## Stack
 
@@ -27,7 +26,7 @@ src/grafeno/
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL; expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
-│   ├── opencode.py, kimi.py#   Dialectos concretos
+│   ├── opencode.py, kimi.py, codex.py, claude.py#   Dialectos concretos
 │   └── __init__.py         #   Registro: get_driver(), available_clis(), fetch_all_models(), fetch_all_variants()
 ├── pipeline/
 │   ├── orchestrator.py     # Orquestador de fases (plan/implementar/revisar/final, automode, ciclos)
