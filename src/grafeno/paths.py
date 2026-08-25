@@ -28,6 +28,10 @@ def references_path() -> Path:
     return home() / "references.toml"
 
 
+def triggers_path() -> Path:
+    return home() / "triggers.toml"
+
+
 def tasks_dir() -> Path:
     path = home() / "tasks"
     path.mkdir(parents=True, exist_ok=True)

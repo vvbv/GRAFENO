@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from .. import models, paths, ratelimit
+from .. import models, paths, ratelimit, triggers
 from ..config import RoleConfig
 from ..drivers import RunEvent, RunRequest, get_driver
 from ..drivers.base import CLIDriver, EventKind, RunResult
@@ -123,6 +123,7 @@ class Orchestrator:
             )
 
         self._set_state(running_state)
+        await self._run_triggers(phase, "before")
         self._info(t("orch.phase_start", phase=phase_label(phase), driver=driver.display_name, model=role.model or "default"))
         request = RunRequest(
             prompt=prompt,
@@ -170,6 +171,7 @@ class Orchestrator:
             t("orch.phase_done", phase=phase_label(phase), duration=format_duration(time.monotonic() - started_at))
         )
         await self._run_hooks(phase, "ok")
+        await self._run_triggers(phase, "after")
         return result
 
     def _record_duration(self, phase: str, elapsed: float) -> None:
@@ -193,6 +195,13 @@ class Orchestrator:
             )
         except Exception as exc:  # noqa: BLE001 - hooks never break the pipeline
             self._info(t("hook.exec_error", error=exc))
+
+    async def _run_triggers(self, stage: str, timing: str) -> None:
+        """Fire the trigger tasks bound to this stage boundary (never fails)."""
+        try:
+            triggers.fire(self.task, stage, timing, on_info=self._info)
+        except Exception as exc:  # noqa: BLE001 - triggers never break the pipeline
+            self._info(t("trig.error", name=stage, error=exc))
 
     # ------------------------------------------------------------------ #
     # Phases
@@ -367,6 +376,7 @@ class Orchestrator:
         if not command:
             return True
         self._info(t("orch.tests.run", command=command))
+        await self._run_triggers("tests", "before")
         started_at = time.monotonic()
         try:
             process = await asyncio.create_subprocess_shell(
@@ -393,6 +403,7 @@ class Orchestrator:
             t("orch.tests.exit", code=returncode, duration=format_duration(time.monotonic() - started_at))
         )
         await self._run_hooks("tests", "ok" if returncode == 0 else "failed")
+        await self._run_triggers("tests", "after")
         return returncode == 0
 
     # ------------------------------------------------------------------ #

@@ -394,3 +394,60 @@ def test_config_screen_saves_effort_per_role(monkeypatch):
         assert saved.planner.effort == "high"
 
     asyncio.run(scenario())
+
+
+def test_config_screen_triggers_form_roundtrip(monkeypatch):
+    """The trigger form persists global triggers via Save."""
+    from grafeno import triggers as triggers_module
+    from grafeno.tui.trigform import TriggersForm
+    from textual.widgets import Input
+
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
+
+    async def scenario():
+        # Start clean: no global triggers persisted.
+        assert triggers_module.load_global() == []
+
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 160)) as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfigScreen)
+
+            # The triggers section is mounted.
+            form = app.screen.query_one("#cfg-triggers", TriggersForm)
+            assert form.triggers() == []
+
+            # Wait for the models worker before clicking save.
+            for _ in range(20):
+                await pilot.pause(0.1)
+                if app.screen.query_one(RolesForm).models:
+                    break
+            await pilot.pause()
+
+            # Fill the name and add (defaults: phases='all', timing='after').
+            form.query_one("#trig-name", Input).value = "post-tests"
+            await pilot.pause()
+            add_btn = app.screen.query_one("#trig-add")
+            add_btn.scroll_visible()
+            await pilot.pause()
+            await pilot.click("#trig-add")
+            await pilot.pause()
+            assert [t.name for t in form.triggers()] == ["post-tests"]
+
+            # Click Save (the screen is large enough to show the button).
+            save_btn = app.screen.query_one("#cfg-save")
+            save_btn.scroll_visible()
+            await pilot.pause()
+            await pilot.click("#cfg-save")
+            await pilot.pause()
+
+        persisted = triggers_module.load_global()
+        assert len(persisted) == 1
+        assert persisted[0].name == "post-tests"
+        assert persisted[0].phases == "all"
+        assert persisted[0].timing == "after"
+
+    asyncio.run(scenario())

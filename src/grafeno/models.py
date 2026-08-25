@@ -142,6 +142,7 @@ class Task:
     plan_reuse: str = "reuse"     # "reuse" | "replan" | "reevaluate"
     repeat_count: int = 0         # repetitions already executed (0 = first execution)
     last_completed_at: str = ""   # local ISO of the last time it reached DONE
+    origin: str = ""              # "" = normal; "trigger" = spawned by a trigger task
     usage_waiting: bool = field(default=False, repr=False)  # transient: waiting for CLI quota
     created_at: str = ""
     updated_at: str = ""
@@ -293,6 +294,7 @@ class Task:
                 "plan_reuse": self.plan_reuse,
                 "repeat_count": self.repeat_count,
                 "last_completed_at": self.last_completed_at,
+                "origin": self.origin,
                 "use_global_references": self.use_global_references,
                 "use_project_references": self.use_project_references,
                 "created_at": self.created_at,
@@ -341,6 +343,7 @@ class Task:
             plan_reuse=str(raw.get("plan_reuse", "reuse")),
             repeat_count=int(raw.get("repeat_count", 0)),
             last_completed_at=str(raw.get("last_completed_at", "")),
+            origin=str(raw.get("origin", "")),
             sessions={str(k): str(v) for k, v in data.get("sessions", {}).items()},
             durations={str(k): int(v) for k, v in data.get("durations", {}).items()},
             extensions={str(k): str(v) for k, v in data.get("extensions", {}).items()},

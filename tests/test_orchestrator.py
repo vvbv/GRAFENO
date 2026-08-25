@@ -626,6 +626,109 @@ def test_effort_empty_is_passed_through(tmp_path):
     assert impl.requests[0].effort == ""
 
 
+def test_triggers_fired_before_and_after_phase(tmp_path):
+    """A 'before' and an 'after' trigger for the plan phase both spawn tasks."""
+    from grafeno import triggers as triggers_module
+
+    triggers_module.save_global([
+        triggers_module.Trigger(name="pre-plan", phases="plan", timing="before"),
+        triggers_module.Trigger(name="post-plan", phases="plan", timing="after"),
+    ])
+    task = _make_task(tmp_path)
+    models.save(task)
+    drivers = {"fake-planner": FakeDriver("fake-planner", [_ok("plan")])}
+    infos: list[str] = []
+    orch = Orchestrator(task, drivers=drivers, on_info=infos.append)
+    _run(orch.run_plan())
+
+    spawned = [t for t in models.list_all() if t.origin == "trigger"]
+    assert {t.name for t in spawned} == {"pre-plan", "post-plan"}
+    assert any('pre-plan' in m for m in infos)
+    assert any('post-plan' in m for m in infos)
+
+
+def test_trigger_error_does_not_fail_pipeline(tmp_path):
+    """A trigger that raises does not break the phase (best effort)."""
+    from grafeno import triggers as triggers_module
+
+    triggers_module.save_global([
+        triggers_module.Trigger(name="boom", phases="plan", timing="before"),
+    ])
+    task = _make_task(tmp_path)
+    models.save(task)
+    drivers = {"fake-planner": FakeDriver("fake-planner", [_ok("plan")])}
+
+    def _boom(trigger, parent_task):
+        raise RuntimeError("spawn failed")
+
+    from grafeno.pipeline import orchestrator as orch_module
+
+    original = orch_module.triggers.spawn
+    orch_module.triggers.spawn = _boom
+    try:
+        orch = Orchestrator(task, drivers=drivers)
+        _run(orch.run_plan())
+    finally:
+        orch_module.triggers.spawn = original
+
+    assert task.state is TaskState.PLANNED
+
+
+def test_trigger_spawned_task_does_not_fire_triggers(tmp_path):
+    """A phase on a task with origin='trigger' does not spawn further triggers."""
+    from grafeno import triggers as triggers_module
+
+    triggers_module.save_global([
+        triggers_module.Trigger(name="recursive", phases="all", timing="after"),
+    ])
+    task = _make_task(tmp_path, origin="trigger")
+    models.save(task)
+    drivers = {"fake-planner": FakeDriver("fake-planner", [_ok("plan")])}
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_plan())
+
+    # Only the original task remains; no recursive spawn happened.
+    spawned_ids = {t.id for t in models.list_all() if t.origin == "trigger"}
+    assert spawned_ids == {task.id}
+
+
+def test_run_tests_fires_triggers(tmp_path):
+    """The tests phase fires its 'after' trigger when test_command succeeds."""
+    from grafeno import triggers as triggers_module
+
+    triggers_module.save_global([
+        triggers_module.Trigger(name="post-tests", phases="tests", timing="after"),
+    ])
+    task = _make_task(tmp_path, test_command="true")
+    models.save(task)
+    drivers = {"fake-impl": FakeDriver("fake-impl", [_ok("impl")])}
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_tests())
+
+    spawned = [t for t in models.list_all() if t.origin == "trigger"]
+    assert [t.name for t in spawned] == ["post-tests"]
+
+
+def test_run_triggers_swallows_internal_exceptions(tmp_path):
+    """If triggers.fire itself raises, _run_triggers swallows and logs it."""
+    from grafeno.pipeline import orchestrator as orch_module
+
+    def _exploding(task, stage, timing, on_info=lambda m: None):
+        raise RuntimeError("fire blew up")
+
+    original = orch_module.triggers.fire
+    orch_module.triggers.fire = _exploding
+    try:
+        task = _make_task(tmp_path)
+        models.save(task)
+        infos: list[str] = []
+        orch = Orchestrator(task, drivers={}, on_info=infos.append)
+        _run(orch._run_triggers("plan", "before"))
+        assert any("fire blew up" in m for m in infos)
+    finally:
+        orch_module.triggers.fire = original
+
+
 # ---------------------------------------------------------------------- #
 # Usage-limit retries (ratelimit module)
 # ---------------------------------------------------------------------- #
