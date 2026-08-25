@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from grafeno import models, paths
+from grafeno import models, paths, ratelimit
 from grafeno.config import Config
 from grafeno.drivers.base import CLIDriver, RunResult, TokenUsage
 from grafeno.models import Task, TaskState
@@ -624,3 +624,113 @@ def test_effort_empty_is_passed_through(tmp_path):
     _run(orch.run_implement())
 
     assert impl.requests[0].effort == ""
+
+
+# ---------------------------------------------------------------------- #
+# Usage-limit retries (ratelimit module)
+# ---------------------------------------------------------------------- #
+class AlwaysRateLimitedDriver(FakeDriver):
+    """Always fails with a usage-limit signal (no time hint)."""
+
+    async def run(self, request, on_event=None, on_activity=None):
+        # Mimic the real driver: track the request count for assertions.
+        self.requests.append(request)
+        return RunResult(ok=False, error="429", usage_wait=0.0)
+
+
+def test_usage_limit_waits_and_retries(tmp_path, monkeypatch):
+    """A usage-limit failure waits and retries instead of failing."""
+    waits: list[float] = []
+
+    async def fake_sleep(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    task = _make_task(tmp_path)
+    rate_limited = RunResult(ok=False, error="429 Too Many Requests", usage_wait=0.0)
+    drivers = {
+        "fake-planner": FakeDriver(
+            "fake-planner", [_ok("init"), rate_limited, _ok("plan tras espera")]
+        ),
+        "fake-impl": FakeDriver("fake-impl", [_ok("implementado")]),
+        "fake-rev": FakeDriver("fake-rev", [_ok("VERDICT: APPROVED")]),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_automode())
+
+    assert task.state is TaskState.DONE
+    assert waits, "expected at least one wait before retrying"
+    assert task.usage_waiting is False  # flag cleared after the run
+
+
+def test_usage_limit_explicit_wait_is_used(tmp_path, monkeypatch):
+    waits: list[float] = []
+
+    async def fake_sleep(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    task = _make_task(tmp_path)
+    hinted = RunResult(ok=False, error="retry after 5 seconds", usage_wait=5.0)
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("init"), hinted, _ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", [_ok("ok")]),
+        "fake-rev": FakeDriver("fake-rev", [_ok("VERDICT: APPROVED")]),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_automode())
+
+    assert task.state is TaskState.DONE
+    assert waits and waits[0] == 5.0
+    assert task.usage_waiting is False
+
+
+def test_usage_limit_gives_up_after_max_attempts(tmp_path, monkeypatch):
+    """A driver that always fails with usage_limit eventually marks the task FAILED."""
+    async def fake_sleep(seconds):
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(ratelimit, "MAX_ATTEMPTS", 3)
+    task = _make_task(tmp_path)
+    # A separate driver for AGENTS.md so the planner count is predictable.
+    agents_md_driver = FakeDriver("fake-agents-md", [_ok("init")])
+    planner = AlwaysRateLimitedDriver("fake-planner", [])
+    task.planner.cli = "fake-planner"
+    drivers = {
+        "fake-planner": planner,
+        "fake-impl": FakeDriver("fake-impl", []),
+        "fake-rev": FakeDriver("fake-rev", []),
+        "fake-final": FakeDriver("fake-final", []),
+        "fake-agents-md": agents_md_driver,
+    }
+    # ensure_agents_md picks the planner by role, so swap the workdir to use
+    # a different driver through a project-specific trick: patch the helper
+    # by overriding ensure_agents_md via a wrapper on the orchestrator.
+    orch = Orchestrator(task, drivers=drivers)
+
+    async def _fake_ensure():
+        return None
+
+    orch.ensure_agents_md = _fake_ensure  # type: ignore[assignment]
+
+    _run(orch.run_automode())
+
+    assert task.state is TaskState.FAILED
+    assert len(planner.requests) >= ratelimit.MAX_ATTEMPTS + 1
+    assert task.usage_waiting is False  # flag cleared after the run
+
+
+def test_usage_waiting_flag_is_not_persisted(tmp_path):
+    """``Task.usage_waiting`` is transient and not stored in to_dict."""
+    task = _make_task(tmp_path)
+    task.usage_waiting = True
+    payload = task.to_dict()
+    assert "usage_waiting" not in payload["task"]
+    assert "usage_waiting" not in payload  # also at the top level
+
+    models.save(task)
+    reloaded = models.load(task.id)
+    assert reloaded.usage_waiting is False

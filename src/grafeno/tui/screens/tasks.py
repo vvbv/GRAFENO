@@ -27,7 +27,7 @@ from ... import config as config_module, scheduler
 from ... import gh as gh_module
 from ... import models
 from ...i18n import t
-from ...models import Task, state_label
+from ...models import Task, task_state_label
 from ...pipeline.hooks import HOOK_STAGES, format_stages
 from ...timefmt import format_duration
 from ...tokenfmt import format_tokens
@@ -318,7 +318,7 @@ class TaskListScreen(Screen[None]):
                 name = f"▶ {name}"  # mantiene el marcador de ejecución
             table.add_row(
                 name,
-                state_label(task.state),
+                task_state_label(task),
                 str(task.iteration),
                 self._format_task_tokens(task),
                 self._format_task_duration(task, running),

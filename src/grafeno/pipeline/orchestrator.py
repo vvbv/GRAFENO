@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from .. import models, paths
+from .. import models, paths, ratelimit
 from ..config import RoleConfig
 from ..drivers import RunEvent, RunRequest, get_driver
 from ..drivers.base import CLIDriver, EventKind, RunResult
@@ -72,6 +72,13 @@ class Orchestrator:
     def _info(self, message: str) -> None:
         self._on_info(message)
 
+    def _set_usage_waiting(self, waiting: bool) -> None:
+        """Toggle the transient "waiting for quota" flag and refresh the UI."""
+        if self.task.usage_waiting == waiting:
+            return
+        self.task.usage_waiting = waiting
+        self._on_state(self.task)  # not persisted: transient flag
+
     def _plan_files(self) -> list[Path]:
         plan_dir = paths.plan_dir(self.task.id, self.task.cycle)
         return sorted(plan_dir.glob("*.md"))
@@ -127,16 +134,34 @@ class Orchestrator:
             effort=role.effort,
         )
         started_at = time.monotonic()
-        result = await driver.run(
-            request,
-            on_event=lambda event: self._on_event(phase, event),
-            on_activity=lambda: self._on_activity(phase),
-        )
+        attempt = 0
+        try:
+            while True:
+                result = await driver.run(
+                    request,
+                    on_event=lambda event: self._on_event(phase, event),
+                    on_activity=lambda: self._on_activity(phase),
+                )
+                self._record_tokens(phase, role, result)
+                if result.session_id:
+                    task.sessions[role_name] = result.session_id
+                    request.session_id = result.session_id  # retry continues the session
+                if result.usage_wait is None or attempt >= ratelimit.MAX_ATTEMPTS:
+                    break
+                attempt += 1
+                wait = result.usage_wait or ratelimit.PROBE_SECONDS
+                self._set_usage_waiting(True)
+                self._info(
+                    t("orch.usage_wait.retry",
+                      wait=format_duration(wait), attempt=attempt, max=ratelimit.MAX_ATTEMPTS)
+                )
+                await asyncio.sleep(wait)
+        finally:
+            self._set_usage_waiting(False)
         self._record_duration(phase, time.monotonic() - started_at)
-        self._record_tokens(phase, role, result)
-        if result.session_id:
-            task.sessions[role_name] = result.session_id
         if not result.ok:
+            if result.usage_wait is not None:
+                self._info(t("orch.usage_wait.giving_up", max=ratelimit.MAX_ATTEMPTS))
             self._set_state(TaskState.FAILED)
             await self._run_hooks(phase, "failed")
             raise PhaseError(result.error or t("orch.phase_failed", phase=phase_label(phase)))

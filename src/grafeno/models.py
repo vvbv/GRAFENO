@@ -39,6 +39,14 @@ def state_label(state: "TaskState") -> str:
     return t(f"state.{state.value}")
 
 
+def task_state_label(task: "Task") -> str:
+    """State label for display, with a "Waiting" suffix during quota waits."""
+    label = state_label(task.state)
+    if task.usage_waiting:
+        label = f"{label} {t('state.waiting')}"
+    return label
+
+
 # Phases shown in the detail progress bar.
 PHASES = ("plan", "implement", "review", "final", "done")
 
@@ -127,6 +135,7 @@ class Task:
     plan_reuse: str = "reuse"     # "reuse" | "replan" | "reevaluate"
     repeat_count: int = 0         # repetitions already executed (0 = first execution)
     last_completed_at: str = ""   # local ISO of the last time it reached DONE
+    usage_waiting: bool = field(default=False, repr=False)  # transient: waiting for CLI quota
     created_at: str = ""
     updated_at: str = ""
 

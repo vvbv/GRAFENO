@@ -54,17 +54,25 @@ def _phase_status(state: TaskState) -> dict[str, str]:
 class PhaseBar(Static):
     """Pipeline progress bar: Plan -> Implementation -> Review -> Final steps -> End."""
 
-    def __init__(self, state: TaskState = TaskState.DRAFT, iteration: int = 0, **kwargs):
+    def __init__(
+        self,
+        state: TaskState = TaskState.DRAFT,
+        iteration: int = 0,
+        waiting: bool = False,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self._state = state
         self._iteration = iteration
+        self._waiting = waiting
 
     def on_mount(self) -> None:
         self._render_bar()
 
-    def set_state(self, state: TaskState, iteration: int = 0) -> None:
+    def set_state(self, state: TaskState, iteration: int = 0, waiting: bool = False) -> None:
         self._state = state
         self._iteration = iteration
+        self._waiting = waiting
         self._render_bar()
 
     def _render_bar(self) -> None:
@@ -80,7 +88,10 @@ class PhaseBar(Static):
             line.append(label, style=style if value != "pending" else "dim")
             if index < len(_PHASE_ORDER) - 1:
                 line.append(" ─── ", style="dim")
-        line.append(t("phasebar.state", label=state_label(self._state)), style="italic dim")
+        label = state_label(self._state)
+        if self._waiting:
+            label = f"{label} {t('state.waiting')}"
+        line.append(t("phasebar.state", label=label), style="italic dim")
         self.update(line)
 
 
