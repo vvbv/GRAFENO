@@ -112,7 +112,7 @@ GitHub Release with the `vX.Y.Z` tag and attached artifacts.
 
 ```
 ~/.grafeno/
-├── config.toml              # language (en/es), roles (cli+model+effort), automode, tests, git, theme (palette), final-steps prompt, global hook, editor
+├── config.toml              # language (en/es), roles (cli+model+effort), automode, tests, git, theme (palette), final-steps prompt, global hook, editor, auto_update
 ├── references.toml          # global references (name + description + path/URL); edited from the configuration screen
 ├── triggers.toml            # global trigger tasks (name + description + phases + timing + workdir); edited from the configuration screen
 └── tasks/<date>-<slug>/
