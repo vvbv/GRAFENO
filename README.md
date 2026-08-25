@@ -39,6 +39,8 @@ If the hook is an `http(s)` URL, GRAFENO does not execute any command: it sends 
 
 **Automatic editor on startup**: GRAFENO can open an editor when you launch it. The feature is disabled by default — only the TUI opens until you turn it on. Enable it in the configuration screen (`c`): tick the checkbox and pick the editor from the ones detected on your system (a mix of GUI and console editors, or any binary already on `PATH`). For console editors you can choose how to open it — new window, split pane (the editor on the left, GRAFENO on the right by default), or nothing. Ghostty, WezTerm, kitty, iTerm, Terminal.app, tmux and Alacritty are auto-detected; only those that support splits expose the split option. Per-project overrides go in `<project>/.grafeno.toml` under `[editor]` (only that section is read; missing fields inherit the global config). Pass `--noeditor` on the command line to skip the editor launch for a single run.
 
+**GitHub issue selector**: when the project directory is a git repo with the `gh` CLI installed and authenticated access to it, the new-task form shows an optional "From GitHub issue" selector that lists the open issues of the repository (loaded in the background, never blocking the modal). Picking one fills the task name with the issue title and the description with the issue body (falling back to the title when the body is empty); typing in the name/description afterwards overwrites the prefilled values as usual. When `gh` is missing, the directory is not a repo, or the user has no access, the selector stays hidden and the form behaves exactly as before.
+
 **Interface language**: the GUI can be displayed in English (default) or Spanish; it is chosen in the configuration screen (`c`) and persisted in `config.toml`. When changing it, new screens apply it immediately and the shortcuts footer updates on app restart.
 
 ## Installation
@@ -76,7 +78,7 @@ GitHub Release with the `vX.Y.Z` tag and attached artifacts.
 | Key | Screen | Action |
 |---|---|---|
 | `n` | List | New task |
-| (form) | New task | The "Project directory" field autocompletes paths with a dropdown (arrows/Enter or mouse). "Start at", "Chained after task", repeat mode and plan-reuse policy are also configurable here. |
+| (form) | New task | The "Project directory" field autocompletes paths with a dropdown (arrows/Enter or mouse). "Start at", "Chained after task", repeat mode and plan-reuse policy are also configurable here. If the project is a repo with `gh` access, an optional "From GitHub issue" selector preloads the name and description from any open issue. |
 | `c` | List | Global configuration |
 | `Enter` | List | Open task |
 | `v` | List | Toggle scope: project tasks only / all tasks |
