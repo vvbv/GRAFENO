@@ -34,6 +34,8 @@ Every task follows a pipeline with four configurable roles (CLI + model for each
 
 **Token counting**: each run accumulates the consumed tokens in `task.toml`, broken down by phase and by CLI + model. The tasks list shows a "Tokens (in/out)" column with the total per task and a footer line with the global summary by CLI + model. The detail view adds a "Tokens" tab with the consolidated total plus the per-phase and per-CLI+model breakdowns; usages recorded with older versions are grouped under a "Legacy" phase.
 
+**Run time tracking**: every pipeline phase records its elapsed seconds in `task.toml` (plan, implementation, review, fix, final steps and tests). The tasks list adds a "Time" column with the total duration per task, and the footer line shows the consolidated total time across every listed task; the detail view exposes the same total through the model's `Task.total_duration_seconds()` helper.
+
 **Completion hooks**: you can configure a shell command that runs when pipeline stages finish. There is a global hook (configuration, `c` key) and an optional per-task hook (when creating it): the task-level hook replaces the global one, or is added to it if you enable "also run the global hook". In both cases you choose which stages it triggers on (plan, implementation, review, fix, final steps and tests, including repeats of each one). Hooks receive context via `GRAFENO_*` environment variables (task id and name, workdir, phase, result, status, iteration and cycle), run on a best-effort basis (with a 120 s timeout) and never interrupt the pipeline: their output is recorded in the task log.
 If the hook is an `http(s)` URL, GRAFENO does not execute any command: it sends a GET with a message (task name, stage, result and status) inserted into the `{message}` placeholder of the URL, or, if there is no placeholder, into the `text` query parameter (e.g. Telegram `.../sendMessage?chat_id=...&text={message}`). The query string is not recorded in the logs.
 
@@ -42,6 +44,12 @@ If the hook is an `http(s)` URL, GRAFENO does not execute any command: it sends 
 **Automatic editor on startup**: GRAFENO can open an editor when you launch it. The feature is disabled by default — only the TUI opens until you turn it on. Enable it in the configuration screen (`c`): tick the checkbox and pick the editor from the ones detected on your system (a mix of GUI and console editors, or any binary already on `PATH`). For console editors you can choose how to open it — new window, split pane (the editor on the left, GRAFENO on the right by default), or nothing. Ghostty, WezTerm, kitty, iTerm, Terminal.app, tmux and Alacritty are auto-detected; only those that support splits expose the split option. Per-project overrides go in `<project>/.grafeno.toml` under `[editor]` (only that section is read; missing fields inherit the global config). Pass `--noeditor` on the command line to skip the editor launch for a single run.
 
 **GitHub issue selector**: when the project directory is a git repo with the `gh` CLI installed and authenticated access to it, the new-task form shows an optional "From GitHub issue" selector that lists the open issues of the repository (loaded in the background, never blocking the modal). Picking one fills the task name with the issue title and the description with the issue body (falling back to the title when the body is empty); typing in the name/description afterwards overwrites the prefilled values as usual. When `gh` is missing, the directory is not a repo, or the user has no access, the selector stays hidden and the form behaves exactly as before.
+
+**References**: each task can attach named resources (a local directory or URL plus a short description) as inspiration or context for the planner, re-evaluator and implementer. There are three levels — global (`~/.grafeno/references.toml`, edited from the configuration screen `c`), project (the `[[references]]` array of `<workdir>/.grafeno.toml`) and per task (entered in the new-task form `n`). The new-task form also exposes two checkboxes to exclude the global and/or project level per task. Because the agents actually read those resources, large ones can noticeably increase token consumption; both the configuration screen and the new-task form show a reminder of this.
+
+**Trigger tasks**: a trigger is a task template that is spawned automatically at a pipeline phase boundary (`before` or `after`) of another task. There are two levels — global (`~/.grafeno/triggers.toml`, edited from the configuration screen `c`) and project (the `[[triggers]]` array of `<workdir>/.grafeno.toml`). Each trigger declares the phases it listens to (`all` or any subset of plan, implement, review, fix, final steps, tests) and whether it fires before or after them. When it fires, a new independent GRAFENO task is created in automode and scheduled for the current minute, so the scheduler tick of the App starts it unattended: triggers never block nor interfere with the task that fired them, and tasks spawned by a trigger do not fire further triggers (no recursion).
+
+**Usage-limit retries**: when an agent CLI reports an exhausted quota/rate limit (`429`, `rate limit`, `quota exceeded`, `usage limit`, `insufficient_quota`, `out of credits`, etc.), GRAFENO does not fail the phase. If the message carries a `retry after` / `try again in` time hint, the orchestrator waits exactly that long and retries the same phase, reusing the session when possible. When there is no time hint, it probes every 60 s, up to 30 attempts per phase, before giving up. While a phase is waiting, the tasks list and the `PhaseBar` append a `Waiting` suffix to the current state so you can tell at a glance that the pipeline is paused on quota, not stalled.
 
 **Interface language**: the GUI can be displayed in English (default) or Spanish; it is chosen in the configuration screen (`c`) and persisted in `config.toml`. When changing it, new screens apply it immediately and the shortcuts footer updates on app restart.
 
@@ -80,7 +88,7 @@ GitHub Release with the `vX.Y.Z` tag and attached artifacts.
 | Key | Screen | Action |
 |---|---|---|
 | `n` | List | New task |
-| (form) | New task | The "Project directory" field autocompletes paths with a dropdown (arrows/Enter or mouse). "Start at", "Chained after task", repeat mode and plan-reuse policy are also configurable here. If the project is a repo with `gh` access, an optional "From GitHub issue" selector preloads the name and description from any open issue. |
+| (form) | New task | The "Project directory" field autocompletes paths with a dropdown (arrows/Enter or mouse). "Start at", "Chained after task", repeat mode, plan-reuse policy and task-level references (with per-level exclusion checkboxes) are also configurable here. If the project is a repo with `gh` access, an optional "From GitHub issue" selector preloads the name and description from any open issue. |
 | `c` | List | Global configuration |
 | `Enter` | List | Open task |
 | `v` | List | Toggle scope: project tasks only / all tasks |
@@ -105,8 +113,10 @@ GitHub Release with the `vX.Y.Z` tag and attached artifacts.
 ```
 ~/.grafeno/
 ├── config.toml              # language (en/es), roles (cli+model+effort), automode, tests, git, theme (palette), final-steps prompt, global hook, editor
+├── references.toml          # global references (name + description + path/URL); edited from the configuration screen
+├── triggers.toml            # global trigger tasks (name + description + phases + timing + workdir); edited from the configuration screen
 └── tasks/<date>-<slug>/
-    ├── task.toml            # state, iterations, sessions, workdir, branch, scheduling (scheduled_at, parent_id, repeat_mode, plan_reuse, repeat_count, last_completed_at), per-role effort level
+    ├── task.toml            # state, iterations, sessions, workdir, branch, scheduling (scheduled_at, parent_id, repeat_mode, plan_reuse, repeat_count, last_completed_at), per-role effort level, references + use_global_references/use_project_references flags
     ├── plan/*.md            # plans with GRAFENO-EXECUTOR header
     ├── review/*.md          # reviews numbered by iteration
     ├── final/*.md           # final-step reports per cycle
