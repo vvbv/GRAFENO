@@ -589,6 +589,13 @@ def test_list_variants_async_kimi_no_command():
     assert asyncio.run(KimiDriver().list_variants_async()) == {}
 
 
+def test_update_commands():
+    assert OpenCodeDriver().update_command() == ["opencode", "upgrade"]
+    assert KimiDriver().update_command() == ["kimi", "update"]
+    assert ClaudeDriver().update_command() == ["claude", "update"]
+    assert CodexDriver().update_command() == []  # no self-update command known
+
+
 # ---------------------------------------------------------------------- #
 # Token usage
 # ---------------------------------------------------------------------- #
@@ -632,3 +639,22 @@ def test_token_usage_add():
     assert (total.input, total.output) == (8, 3)
     assert not total.empty
     assert TokenUsage().empty
+
+
+# ---------------------------------------------------------------------- #
+# Usage-limit classification
+# ---------------------------------------------------------------------- #
+def test_run_result_usage_wait_default():
+    """``RunResult.usage_wait`` defaults to ``None``."""
+    from grafeno.drivers.base import RunResult
+
+    assert RunResult(ok=True).usage_wait is None
+    assert RunResult(ok=False, error="boom").usage_wait is None
+
+
+def test_driver_detect_usage_wait_delegates():
+    """``CLIDriver.detect_usage_wait`` forwards to ``ratelimit.detect_usage_wait``."""
+    driver = OpenCodeDriver()
+    assert driver.detect_usage_wait("syntax error") is None
+    assert driver.detect_usage_wait("429 Too Many Requests") == 0.0
+    assert driver.detect_usage_wait("rate limit, retry after 30 seconds") == 30.0

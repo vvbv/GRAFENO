@@ -71,6 +71,9 @@ class ClaudeDriver(CLIDriver):
         """Static variants: claude exposes no command to list them."""
         return {model: list(self.EFFORT_LEVELS) for model in self.list_models()}
 
+    def update_command(self) -> list[str]:
+        return ["claude", "update"]
+
     # ------------------------------------------------------------ #
     def decode_event(self, payload: dict[str, Any]) -> tuple[RunEvent | None, str | None]:
         session_id = payload.get("session_id") or payload.get("sessionId")

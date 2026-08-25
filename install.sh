@@ -85,12 +85,23 @@ fi
 
 # --- 4. CLIs de agentes (dependencias en tiempo de ejecución) ---------------
 MISSING=""
-for cli in opencode kimi; do
-  command -v "$cli" >/dev/null 2>&1 || MISSING="$MISSING $cli"
+FOUND=""
+for cli in opencode kimi codex claude; do
+  if command -v "$cli" >/dev/null 2>&1; then
+    FOUND="$FOUND $cli"
+  else
+    MISSING="$MISSING $cli"
+  fi
 done
 if [ -n "$MISSING" ]; then
   warn "CLIs de agentes no encontrados:$MISSING"
-  info "GRAFENO los necesita para ejecutar tareas: https://opencode.ai · https://moonshotai.github.io/kimi-code/"
+fi
+if [ -z "$FOUND" ]; then
+  warn "No se encontró NINGÚN CLI de agente soportado (opencode, kimi, codex, claude)."
+  warn "GRAFENO se ha instalado, pero NO podrá ejecutar ninguna tarea hasta que instales alguno."
+  info "Instala al menos uno: https://opencode.ai · https://moonshotai.github.io/kimi-code/ · https://github.com/openai/codex · https://docs.anthropic.com/en/docs/claude-code"
+else
+  ok "CLIs de agentes detectados:$FOUND"
 fi
 
 ok "Listo. Ejecuta: grafeno"

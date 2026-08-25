@@ -42,6 +42,9 @@ class OpenCodeDriver(CLIDriver):
     def models_command(self) -> list[str]:
         return ["opencode", "models"]
 
+    def update_command(self) -> list[str]:
+        return ["opencode", "upgrade"]
+
     def parse_models(self, output: str) -> list[str]:
         return sorted(
             line.strip()

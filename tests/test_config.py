@@ -172,3 +172,15 @@ def test_config_effort_roundtrip():
     assert loaded.implementer.effort == "max"
     assert loaded.reviewer.effort == ""
     assert loaded.final.effort == "low"
+
+
+def test_auto_update_default_false():
+    assert config.Config().auto_update is False
+    assert config.load().auto_update is False
+
+
+def test_auto_update_roundtrip():
+    cfg = config.Config()
+    cfg.auto_update = True
+    config.save(cfg)
+    assert config.load().auto_update is True

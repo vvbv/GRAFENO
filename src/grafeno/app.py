@@ -39,6 +39,13 @@ class GrafenoApp(App):
         from .tui.screens.tasks import TaskListScreen
 
         self.push_screen(TaskListScreen())
+        if cfg.auto_update:
+            self.run_worker(
+                self._auto_update(), exclusive=True,
+                group="auto-update", exit_on_error=False,
+            )
+        if not self._clis_available():
+            self.notify(t("app.no_clis"), severity="warning", timeout=10)
         # Scheduler tick: starts scheduled, chained and unattended
         # repetitions when it is their turn.
         self.set_interval(10.0, self._scheduler_tick)
@@ -67,6 +74,26 @@ class GrafenoApp(App):
     # ------------------------------------------------------------------ #
     # Scheduler (scheduled, chained and repetitive tasks)
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _clis_available() -> bool:
+        from .drivers import available_clis
+
+        return bool(available_clis())
+
+    async def _auto_update(self) -> None:
+        """Update the installed agent CLIs in the background (best effort)."""
+        from . import updater
+
+        outcomes = await updater.update_all()
+        for outcome in outcomes:
+            if not outcome.ok:
+                self.notify(
+                    t("upd.failed", cli=outcome.cli, error=outcome.detail or "?"),
+                    severity="warning",
+                )
+        if outcomes and all(outcome.ok for outcome in outcomes):
+            self.notify(t("upd.done"))
+
     def _scheduler_tick(self) -> None:
         """Check scheduled/repetitive tasks and start those that are due."""
         tasks = models.list_all()
@@ -142,6 +169,10 @@ class GrafenoApp(App):
 
     def _start_unattended(self, task: Task, label: str) -> None:
         """Start the full pipeline of a task without user interaction."""
+        if not self._clis_available():
+            runtime = self.runtime_for(task)
+            runtime._cb_info(t("sched.no_clis", name=task.name))
+            return
         from .pipeline.orchestrator import repetition_runner
 
         runtime = self.runtime_for(task)

@@ -106,12 +106,19 @@ if (-not (Get-Command grafeno -ErrorAction SilentlyContinue)) {
 
 # --- 4. CLIs de agentes (dependencias en tiempo de ejecucion) ---------------
 $missing = @()
-foreach ($cli in 'opencode', 'kimi') {
-    if (-not (Get-Command $cli -ErrorAction SilentlyContinue)) { $missing += $cli }
+$found = @()
+foreach ($cli in 'opencode', 'kimi', 'codex', 'claude') {
+    if (Get-Command $cli -ErrorAction SilentlyContinue) { $found += $cli } else { $missing += $cli }
 }
 if ($missing.Count -gt 0) {
     Write-Warn "CLIs de agentes no encontrados: $($missing -join ', ')"
-    Write-Info "GRAFENO los necesita para ejecutar tareas: https://opencode.ai - https://moonshotai.github.io/kimi-code/"
+}
+if ($found.Count -eq 0) {
+    Write-Warn "No se encontro NINGUN CLI de agente soportado (opencode, kimi, codex, claude)."
+    Write-Warn "GRAFENO se ha instalado, pero NO podra ejecutar ninguna tarea hasta que instales alguno."
+    Write-Info "Instala al menos uno: https://opencode.ai - https://moonshotai.github.io/kimi-code/ - https://github.com/openai/codex - https://docs.anthropic.com/en/docs/claude-code"
+} else {
+    Write-Ok "CLIs de agentes detectados: $($found -join ', ')"
 }
 
 Write-Ok "Listo. Ejecuta: grafeno"

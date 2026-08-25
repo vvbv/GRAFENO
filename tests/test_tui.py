@@ -20,6 +20,28 @@ def test_app_boots_into_task_list():
     asyncio.run(scenario())
 
 
+def test_app_boots_without_auto_update_worker_by_default():
+    """With ``auto_update=False`` (default) no update worker is spawned on boot."""
+    from grafeno import config as config_module
+
+    cfg = config_module.load()
+    cfg.auto_update = False
+    config_module.save(cfg)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, TaskListScreen)
+            # No "auto-update" group is running.
+            assert app.workers is None or all(
+                getattr(worker, "group", "") != "auto-update"
+                for worker in (app.workers._workers.values() if app.workers else [])
+            )
+
+    asyncio.run(scenario())
+
+
 def test_create_task_via_modal():
     async def scenario():
         from grafeno.tui.screens.detail import TaskDetailScreen

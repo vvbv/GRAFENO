@@ -296,7 +296,12 @@ class TaskDetailScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         yield GrafenoHeader()
         yield Static("", id="task-title")
-        yield PhaseBar(self.current_task.state, self.current_task.iteration, id="phase-bar")
+        yield PhaseBar(
+            self.current_task.state,
+            self.current_task.iteration,
+            waiting=self.current_task.usage_waiting,
+            id="phase-bar",
+        )
         yield Static("", id="agents-bar")
         yield Static("", id="activity-bar")
         with TabbedContent(id="tabs"):
@@ -500,7 +505,7 @@ class TaskDetailScreen(Screen[None]):
 
     def _state_changed(self, task: Task) -> None:
         self.current_task = task  # live object from the runtime (orchestrator mutates it)
-        self.query_one(PhaseBar).set_state(task.state, task.iteration)
+        self.query_one(PhaseBar).set_state(task.state, task.iteration, waiting=task.usage_waiting)
         self._render_title()
         self._reload_files()  # artifacts appear at the end of each phase
         self._render_tokens()
@@ -546,6 +551,11 @@ class TaskDetailScreen(Screen[None]):
         label: str,
         plan_then_ask: bool = False,
     ) -> None:
+        from ...drivers import available_clis
+
+        if not available_clis():
+            self.notify(t("det.no_clis"), severity="error")
+            return
         if not self.runtime.start(self.app, runner, label, plan_then_ask=plan_then_ask):
             self.notify(t("det.warn.running"), severity="warning")
             return

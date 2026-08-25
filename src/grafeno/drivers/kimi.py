@@ -43,6 +43,9 @@ class KimiDriver(CLIDriver):
     def models_command(self) -> list[str]:
         return ["kimi", "provider", "list", "--json"]
 
+    def update_command(self) -> list[str]:
+        return ["kimi", "update"]
+
     def parse_models(self, output: str) -> list[str]:
         try:
             data = json.loads(output)

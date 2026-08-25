@@ -20,11 +20,15 @@ from textual.widgets import (
 from ... import config as config_module
 from ... import editor as editor_module
 from ... import paths
+from ... import references as references_module
+from ... import triggers as triggers_module
 from ...config import KNOWN_CLIS, Config
 from ...drivers import fetch_all_models, fetch_all_variants
 from ...i18n import LANGUAGES, set_language, t
 from ...pipeline.hooks import HOOK_STAGES, format_stages, parse_stages
+from ..refform import ReferencesForm
 from ..rolesform import ROLES, RolesForm
+from ..trigform import TriggersForm
 from ..widgets import GrafenoHeader
 
 
@@ -49,6 +53,9 @@ class ConfigScreen(Screen[None]):
                 yield Input(id="am-max-iter", type="integer", placeholder="5")
                 yield Label(t("cfg.tests"))
                 yield Input(id="am-tests", placeholder="p. ej. pytest -q")
+            yield Static(t("cfg.updates"), classes="section-title")
+            with Horizontal(classes="automode-row"):
+                yield Checkbox(t("cfg.upd.enabled"), id="upd-enabled")
             yield Label(t("cfg.final_prompt"))
             yield TextArea(id="cfg-final-prompt")
             yield Static(t("cfg.hook"), classes="section-title")
@@ -88,6 +95,12 @@ class ConfigScreen(Screen[None]):
                     id="cfg-language",
                     allow_blank=False,
                 )
+            yield Static(t("cfg.references"), classes="section-title")
+            yield Static(t("refs.warning"))
+            yield ReferencesForm(id="cfg-refs")
+            yield Static(t("cfg.triggers"), classes="section-title")
+            yield Static(t("trig.help"))
+            yield TriggersForm(id="cfg-triggers")
             with Horizontal(id="config-buttons"):
                 yield Button(t("common.save"), variant="primary", id="cfg-save")
                 yield Button(t("common.back"), id="cfg-back")
@@ -104,6 +117,7 @@ class ConfigScreen(Screen[None]):
         self.query_one("#am-enabled", Checkbox).value = auto.enabled
         self.query_one("#am-branch", Checkbox).value = auto.create_branch
         self.query_one("#am-confirm-plan", Checkbox).value = auto.confirm_plan
+        self.query_one("#upd-enabled", Checkbox).value = self._config.auto_update
         self.query_one("#am-max-iter", Input).value = str(auto.max_iterations)
         self.query_one("#am-tests", Input).value = auto.test_command
         self.query_one("#cfg-final-prompt", TextArea).text = self._config.final_prompt
@@ -124,6 +138,12 @@ class ConfigScreen(Screen[None]):
         )
         self.query_one("#cfg-language", Select).value = (
             self._config.language if self._config.language in LANGUAGES else "en"
+        )
+        self.query_one("#cfg-refs", ReferencesForm).set_references(
+            references_module.load_global()
+        )
+        self.query_one("#cfg-triggers", TriggersForm).set_triggers(
+            triggers_module.load_global()
         )
         self._load_models()
 
@@ -204,6 +224,7 @@ class ConfigScreen(Screen[None]):
         cfg.automode.enabled = self.query_one("#am-enabled", Checkbox).value
         cfg.automode.create_branch = self.query_one("#am-branch", Checkbox).value
         cfg.automode.confirm_plan = self.query_one("#am-confirm-plan", Checkbox).value
+        cfg.auto_update = self.query_one("#upd-enabled", Checkbox).value
         cfg.automode.max_iterations = max_iter
         cfg.automode.test_command = self.query_one("#am-tests", Input).value.strip()
         cfg.final_prompt = self.query_one("#cfg-final-prompt", TextArea).text.strip()
@@ -219,6 +240,12 @@ class ConfigScreen(Screen[None]):
         cfg.editor.side = str(self.query_one("#editor-side", Select).value)
         cfg.language = str(self.query_one("#cfg-language", Select).value)
         config_module.save(cfg)
+        references_module.save_global(
+            self.query_one("#cfg-refs", ReferencesForm).references()
+        )
+        triggers_module.save_global(
+            self.query_one("#cfg-triggers", TriggersForm).triggers()
+        )
         set_language(cfg.language)
         self.notify(t("cfg.saved"))
         if cfg.language != previous_language:

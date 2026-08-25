@@ -16,17 +16,21 @@ CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex y Claude Code).
 ```
 src/grafeno/
 ├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas)
-├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo, automode, paleta (tema), prompt de pasos finales
+├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo, automode, auto_update, paleta (tema), prompt de pasos finales
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
 ├── mdnorm.py               # Normalización de Markdown: colapsa saltos de línea y compacta listas sueltas en los .md de cada etapa
 ├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
 ├── timefmt.py              # Formateo de duraciones (42s, 3m 05s, 1h 02m 03s)
+├── ratelimit.py            # Detección de usage agotado en CLIs: patrones de error, pista de espera (retry-after) y constantes de sondeo/reintento
 ├── scheduler.py            # Lógica pura: programación horaria, encadenamiento padre/hija y repetición de tareas
+├── updater.py              # Auto-actualización best-effort de los CLIs de agentes (comando nativo de cada uno) al arrancar la TUI si auto_update está activado en el config
 ├── _toml.py                # Serializador TOML propio (escritura; lectura con tomllib)
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
 ├── gh.py                   # Integración con GitHub CLI: detección de disponibilidad (repo + gh + acceso) y listado de issues abiertos (best-effort, nunca lanza)
+├── references.py           # Modelo `Reference` y niveles global/proyecto/tarea con `resolve()`
+├── triggers.py             # Tareas trigger: modelo, niveles global/proyecto, fire() y spawn() best-effort
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL; expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
 │   ├── opencode.py, kimi.py, codex.py, claude.py#   Dialectos concretos
@@ -41,10 +45,12 @@ src/grafeno/
     ├── runtime.py          # TaskRuntime: ejecución en segundo plano por tarea (workers Textual); notifica a la App cuando una ejecución termina en DONE (gancho de encadenamiento/repetición)
     ├── dirpicker.py        # Autocompletado de rutas en el formulario
     ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol; incluye filtro de texto sobre el selector de modelos
+    ├── refform.py          # Editor reutilizable de referencias (tabla + añadir/borrar)
+    ├── trigform.py         # Editor reutilizable de triggers globales (tabla + añadir/borrar)
     ├── widgets.py          # Widgets comunes (cabecera GrafenoHeader con reloj fecha/hora, barra de fases, helpers Markdown)
     └── screens/            # tasks (lista), detail (detalle+acciones), config, roles
 tests/                      # pytest; conftest aísla GRAFENO_HOME e idioma por test
-install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), vía pipx
+install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), vía pipx; la ausencia de CLIs de agente es siempre un warning (nunca un error)
 ```
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
@@ -80,7 +86,16 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `TokenUsage` acumulado cuando el CLI emite eventos de uso. El nivel de
   trabajo del modelo viaja en `RunRequest.effort`; los CLIs sin soporte
   exponen `variants_command() -> []` y `parse_variants -> {}` (defecto de
-  la base) e ignoran el campo en `build_command`.
+  la base) e ignoran el campo en `build_command`. Cada driver puede
+  exponer además `update_command()` (defecto `[]` en la base = CLI sin
+  comando nativo de auto-actualización, p.ej. `claude update`,
+  `opencode upgrade`, `kimi update`) que `updater.update_all()` ejecuta
+  en segundo plano al arrancar la TUI si `Config.auto_update` está
+  activado. `RunResult.usage_wait` propaga al orquestador la pista de
+  espera cuando se detecta uso agotado en el run (reintenta la fase con
+  la espera indicada o sondea cada `PROBE_SECONDS` hasta `MAX_ATTEMPTS`;
+  durante la espera la TUI muestra el sufijo i18n `state.waiting` en la
+  lista de tareas y en `PhaseBar`).
 - **Editor**: la apertura automática usa `editor.py` (mejor esfuerzo,
   nunca bloquea la TUI). Config global en `[editor]`, sobreescritura
   por proyecto en `<proyecto>/.grafeno.toml`; el flag `--noeditor`
@@ -91,6 +106,19 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `gh` instalado y acceso autenticado (`gh.py`); al elegir un issue se
   rellenan nombre y descripción de la tarea. La carga se hace en segundo
   plano y nunca bloquea ni rompe el formulario.
+- **Referencias**: tres niveles (global `~/.grafeno/references.toml`,
+  proyecto `.grafeno.toml` `[[references]]`, tarea). Cada tarea puede
+  excluir el nivel global y/o proyecto con sus flags; ``references.resolve``
+  combina los tres niveles en orden y los inyecta en los prompts de plan,
+  reevaluación e implementación (nunca en revisión, corrección ni pasos
+  finales, para acotar el consumo de tokens).
+- **Tareas trigger**: dos niveles (global `~/.grafeno/triggers.toml`,
+  proyecto `.grafeno.toml` `[[triggers]]`). Cada trigger define fases
+  (`all` o lista de `HOOK_STAGES`) y momento (`before`/`after`); al
+  dispararse crea una tarea independiente (automode, `scheduled_at`=ahora,
+  `origin="trigger"`) que arranca con el tick del planificador: nunca
+  bloquean ni rompen el pipeline, y las tareas con `origin="trigger"` no
+  disparan más triggers (sin recursión).
 - **Planificador**: las tareas pueden tener `scheduled_at`, `parent_id`
   y modo de repetición (`interval`/`infinite`) con política de plan
   (`reuse`/`replan`/`reevaluate`). El arranque desatendido usa siempre el

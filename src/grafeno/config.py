@@ -120,6 +120,7 @@ class Config:
     editor: EditorConfig = field(default_factory=EditorConfig)
     final_prompt: str = ""  # extra instructions for the final-steps phase
     theme: str = ""  # Textual palette; empty = default theme
+    auto_update: bool = False  # update agent CLIs on TUI startup (native commands)
 
     def role(self, name: str) -> RoleConfig:
         return getattr(self, name)
@@ -136,6 +137,7 @@ class Config:
             "editor": self.editor.to_dict(),
             "final_prompt": self.final_prompt,
             "theme": self.theme,
+            "auto_update": self.auto_update,
         }
 
     @classmethod
@@ -151,6 +153,7 @@ class Config:
             editor=EditorConfig.from_dict(data.get("editor", {})),
             final_prompt=str(data.get("final_prompt", "")),
             theme=str(data.get("theme", "")),
+            auto_update=bool(data.get("auto_update", False)),
         )
 
 

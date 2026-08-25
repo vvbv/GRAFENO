@@ -2,9 +2,11 @@
 
 A ``CLIDriver`` knows how to build the non-interactive command of its CLI,
 interpret its output events (JSONL), list its models and build the prompt
-that generates AGENTS.md. The orchestrator only talks to this interface,
-so adding a new CLI (e.g. in the future) means creating a single file in
-``drivers/`` and registering it in ``drivers/__init__.py``.
+that generates AGENTS.md. Each driver also exposes its native self-update
+command (``update_command()``) so the TUI can refresh installed CLIs on
+startup when the user enables it. The orchestrator only talks to this
+interface, so adding a new CLI (e.g. in the future) means creating a
+single file in ``drivers/`` and registering it in ``drivers/__init__.py``.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from enum import Enum
 from pathlib import Path
 from typing import AsyncIterator, Callable
 
+from .. import ratelimit
 from ..i18n import t
 
 
@@ -97,6 +100,9 @@ class RunResult:
     error: str = ""
     returncode: int | None = None
     tokens: TokenUsage = field(default_factory=TokenUsage)  # aggregated usage
+    # Seconds to wait before retrying when the CLI reported usage/quota
+    # exhaustion; 0.0 = exhausted without a time hint; None = not a usage error.
+    usage_wait: float | None = None
 
 
 EventCallback = Callable[[RunEvent], None]
@@ -160,6 +166,13 @@ class CLIDriver:
         """CLI command that lists the effort variants per model.
 
         Empty = the CLI does not support configurable effort levels.
+        """
+        return []
+
+    def update_command(self) -> list[str]:
+        """Native self-update command of the CLI (e.g. ``claude update``).
+
+        Empty = the CLI has no known self-update command; it is skipped.
         """
         return []
 
@@ -252,6 +265,15 @@ Reglas:
         """
         return None
 
+    def detect_usage_wait(self, text: str) -> float | None:
+        """Seconds to wait if ``text`` signals usage/quota exhaustion.
+
+        ``None`` = not a usage-limit error; ``0.0`` = exhausted without a
+        time hint (probe periodically); ``> 0`` = explicit wait hint.
+        Subclasses may override for CLI-specific formats.
+        """
+        return ratelimit.detect_usage_wait(text)
+
     def decode_event(self, payload: dict) -> tuple[RunEvent | None, str | None]:
         """Interpret an already-parsed JSON event (CLI dialect)."""
         raise NotImplementedError
@@ -278,6 +300,7 @@ Reglas:
         text_parts: list[str] = []
         session_id: str | None = None
         stderr_parts: list[str] = []
+        error_parts: list[str] = []  # texts of ERROR events emitted by the CLI
         tokens = TokenUsage()
 
         try:
@@ -311,6 +334,8 @@ Reglas:
                     continue
                 if event.kind is EventKind.TEXT:
                     text_parts.append(event.text)
+                if event.kind is EventKind.ERROR:
+                    error_parts.append(event.text)
                 if on_event:
                     on_event(event)
 
@@ -337,6 +362,7 @@ Reglas:
             error = t("drv.exit_error", name=self.display_name, code=returncode)
             if tail:
                 error += f"\n{tail}"
+        usage_wait = self._classify_usage_wait(error, error_parts) if not ok else None
         return RunResult(
             ok=ok,
             text="\n".join(part for part in text_parts if part).strip(),
@@ -344,4 +370,10 @@ Reglas:
             error=error,
             returncode=returncode,
             tokens=tokens,
+            usage_wait=usage_wait,
         )
+
+    def _classify_usage_wait(self, error: str, error_parts: list[str]) -> float | None:
+        """Combine stderr tail + ERROR events and classify usage exhaustion."""
+        combined = "\n".join([error, *error_parts[-20:]])
+        return self.detect_usage_wait(combined)
