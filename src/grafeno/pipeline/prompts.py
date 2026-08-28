@@ -105,6 +105,29 @@ mucho el consumo de tokens.
 """
 
 
+def _remote_section(task: Task, *, for_plan: bool = False) -> str:
+    """Sección de entorno remoto para tareas SSH (vacía en tareas locales)."""
+    if not task.is_remote:
+        return ""
+    target = task.remote.split(":", 1)[0]  # user@host
+    os_label = task.remote_os or "no detectado (compruébalo si es relevante)"
+    mandate = (
+        "- El plan DEBE comenzar con una sección \"Entorno remoto\" que fije el SO\n"
+        "  de destino y sus implicaciones: shell, rutas, binarios disponibles y cómo\n"
+        "  ejecutar pruebas o comandos en el remoto cuando proceda.\n"
+        if for_plan
+        else ""
+    )
+    return f"""
+# Entorno remoto (SSH)
+Esta tarea trabaja sobre un proyecto remoto; tenlo en cuenta en TODO comando:
+- Conexión: `{task.remote}` (el directorio local de trabajo es un montaje sshfs)
+- SO en el destino: {os_label}
+- Las pruebas o comandos que dependan del SO (shell, rutas, binarios) deben
+  pensarse para el destino; cuando convenga, ejecútalos con `ssh {target} <cmd>`.
+{mandate}"""
+
+
 def _custom_final_section(task: Task) -> str:
     """Instrucciones extra del usuario para la fase final (vacías = sin sección)."""
     if not task.final_prompt.strip():
@@ -124,7 +147,7 @@ tarea de programación orquestada por GRAFENO.
 - Nombre: {task.name}
 - Descripción: {task.description or "(sin descripción)"}
 - Proyecto (directorio de trabajo): {task.workdir}
-{_cycle_section(task)}{_references_section(task)}
+{_cycle_section(task)}{_remote_section(task, for_plan=True)}{_references_section(task)}
 # Tu entrega
 1. Explora el proyecto para entender su estructura, stack y convenciones.
 2. Escribe el plan en UNO O VARIOS archivos Markdown dentro de:
@@ -173,7 +196,7 @@ plan existente, NO una planificación desde cero.
 - Nombre: {task.name}
 - Descripción: {task.description or "(sin descripción)"}
 - Proyecto (directorio de trabajo): {task.workdir}
-{_cycle_section(task)}{_references_section(task)}
+{_cycle_section(task)}{_remote_section(task, for_plan=True)}{_references_section(task)}
 # Tu entrega
 1. La tarea YA TIENE archivos de plan en:
    {plan_dir}
@@ -219,7 +242,7 @@ def implement_prompt(task: Task) -> str:
 # Tarea
 - Nombre: {task.name}
 - Proyecto (directorio de trabajo): {task.workdir}
-{_references_section(task)}
+{_remote_section(task)}{_references_section(task)}
 # Tu entrega
 1. Lee TODOS los archivos Markdown del directorio de plan, en orden alfabético:
    {plan_dir}
@@ -249,6 +272,7 @@ def review_prompt(task: Task, review_number: int) -> str:
 - Tarea: {task.name}
 - Proyecto (directorio de trabajo): {task.workdir}
 - Plan que debía implementarse: {plan_dir} (léelo completo, en orden)
+{_remote_section(task)}
 
 # Tu entrega
 1. Inspecciona los cambios realizados en el proyecto (git status / git diff) y
@@ -291,6 +315,7 @@ ha pedido correcciones sobre tu trabajo anterior.
 - Proyecto (directorio de trabajo): {task.workdir}
 - Plan original: {plan_dir}
 - Revisión con las correcciones pedidas: {review_path}
+{_remote_section(task)}
 
 # Tu entrega
 1. Lee la revisión completa.
@@ -325,7 +350,7 @@ La tarea ya fue implementada y APROBADA por el revisor. Tu trabajo es el cierre.
 - Proyecto (directorio de trabajo): {task.workdir}
 - Plan implementado: {plan_dir}
 - Revisiones del ciclo: {review_dir} (la última aprobó el trabajo)
-{_custom_final_section(task)}
+{_remote_section(task)}{_custom_final_section(task)}
 # Tu entrega
 1. Inspecciona el estado final del proyecto (git status / git diff).
 2. Actualiza la documentación afectada por los cambios (README, AGENTS.md u otros

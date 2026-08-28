@@ -8,6 +8,8 @@ and retry instead of failing the phase.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # Default wait between probes when the CLI does not say when quota resets.
 PROBE_SECONDS = 60.0
@@ -28,6 +30,8 @@ _USAGE_PATTERNS = (
     "insufficient_quota",
     "usage limit",
     "usage_limit",
+    "session limit",  # e.g. "You've hit your session limit"
+    "hit your",       # e.g. "you've hit your weekly limit"
     "limit reached",
     "limit exceeded",
     "credits exhausted",
@@ -50,12 +54,55 @@ _RE_AGAIN_IN = re.compile(
     r"(\d+(?:\.\d+)?)\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)\b",
     re.IGNORECASE,
 )
+# "resets 2:30pm (America/Bogota)" / "reset at 14:30" (absolute wall clock).
+_RE_RESET_CLOCK = re.compile(
+    r"resets?\s+(?:at\s+)?(\d{1,2}):(\d{2})\s*([ap]\.?m\.?)?\s*(?:\(([^)]+)\))?",
+    re.IGNORECASE,
+)
 
 _UNIT_SECONDS = {
     "s": 1.0, "sec": 1.0, "secs": 1.0, "second": 1.0, "seconds": 1.0,
     "m": 60.0, "min": 60.0, "mins": 60.0, "minute": 60.0, "minutes": 60.0,
     "h": 3600.0, "hr": 3600.0, "hrs": 3600.0, "hour": 3600.0, "hours": 3600.0,
 }
+
+
+def _seconds_until_clock(
+    hour: int,
+    minute: int,
+    meridiem: str | None,
+    tz_name: str | None,
+    now: datetime | None = None,
+) -> float | None:
+    """Seconds until the next ``hour:minute`` wall-clock time.
+
+    ``meridiem`` is ``"a"``/``"p"`` (case-insensitive) or ``None`` for 24h
+    times. ``tz_name`` is an IANA zone (``None`` = local time); an unknown
+    zone returns ``None`` so the caller falls back to periodic probing.
+    ``now`` is injectable for tests and must be timezone-aware.
+    The result is capped at ``MAX_WAIT_SECONDS``.
+    """
+    if meridiem:
+        if meridiem.lower() == "p" and hour != 12:
+            hour += 12
+        elif meridiem.lower() == "a" and hour == 12:
+            hour = 0
+    if hour > 23 or minute > 59:
+        return None
+    try:
+        tz = ZoneInfo(tz_name) if tz_name else None
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+    if now is not None:
+        current = now
+    elif tz is not None:
+        current = datetime.now(tz)
+    else:
+        current = datetime.now().astimezone()  # local, timezone-aware
+    candidate = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate <= current:
+        candidate += timedelta(days=1)  # the reset time already passed today
+    return min((candidate - current).total_seconds(), MAX_WAIT_SECONDS)
 
 
 def looks_like_usage_limit(text: str) -> bool:
@@ -80,6 +127,13 @@ def parse_wait_seconds(text: str) -> float | None:
         if seconds <= 0:
             return None
         return min(seconds, MAX_WAIT_SECONDS)
+    match = _RE_RESET_CLOCK.search(text)
+    if match:
+        seconds = _seconds_until_clock(
+            int(match.group(1)), int(match.group(2)), match.group(3), match.group(4)
+        )
+        if seconds is not None:
+            return seconds
     return None
 
 

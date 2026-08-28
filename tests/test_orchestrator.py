@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 from collections import deque
 from pathlib import Path
 
@@ -39,7 +40,9 @@ class FakeDriver(CLIDriver):
 
     async def run(self, request, on_event=None, on_activity=None):
         self.prompts.append(request.prompt)
-        self.requests.append(request)
+        # Snapshot the request so later mutations (e.g. session_id in retries)
+        # do not retroactively change the recorded history.
+        self.requests.append(copy.copy(request))
         if request.log_path is not None:
             request.log_path.parent.mkdir(parents=True, exist_ok=True)
             with request.log_path.open("a", encoding="utf-8") as handle:
@@ -837,3 +840,207 @@ def test_usage_waiting_flag_is_not_persisted(tmp_path):
     models.save(task)
     reloaded = models.load(task.id)
     assert reloaded.usage_waiting is False
+
+
+def test_fix_failure_does_not_increment_iteration(tmp_path):
+    """A failed fix keeps the iteration: the retry targets the same review."""
+    task = _make_task(tmp_path)
+    review_dir = paths.review_dir(task.id, task.cycle)
+    review_dir.mkdir(parents=True, exist_ok=True)
+    (review_dir / "01-review.md").write_text(
+        "VERDICT: CHANGES_REQUESTED", encoding="utf-8"
+    )
+    impl = FakeDriver("fake-impl", [RunResult(ok=False, error="boom")])
+    orch = Orchestrator(task, drivers={"fake-impl": impl})
+    with pytest.raises(PhaseError):
+        _run(orch.run_fix())
+    assert task.iteration == 0
+    assert models.load(task.id).iteration == 0
+
+
+def test_fix_retry_after_failure_reuses_same_review_and_log(tmp_path):
+    """The retried fix points again to 01-review.md and appends to fix-01.jsonl."""
+    task = _make_task(tmp_path)
+    review_dir = paths.review_dir(task.id, task.cycle)
+    review_dir.mkdir(parents=True, exist_ok=True)
+    (review_dir / "01-review.md").write_text(
+        "VERDICT: CHANGES_REQUESTED", encoding="utf-8"
+    )
+    impl = FakeDriver(
+        "fake-impl", [RunResult(ok=False, error="boom"), _ok("corregido")]
+    )
+    orch = Orchestrator(task, drivers={"fake-impl": impl})
+    with pytest.raises(PhaseError):
+        _run(orch.run_fix())
+    _run(orch.run_fix())
+    assert task.iteration == 1
+    assert len(impl.prompts) == 2
+    assert all("01-review.md" in prompt for prompt in impl.prompts)
+    assert (paths.logs_dir(task.id) / "fix-01.jsonl").exists()
+    assert not (paths.logs_dir(task.id) / "fix-02.jsonl").exists()
+
+
+def test_usage_limit_retry_resumes_session(tmp_path, monkeypatch):
+    """The usage-limit retry resumes the session reported by the failed run."""
+    async def fake_sleep(seconds):
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    task = _make_task(tmp_path)
+    planner = FakeDriver(
+        "fake-planner",
+        [
+            _ok("init"),
+            RunResult(ok=False, error="429", usage_wait=0.0, session_id="s-1"),
+            _ok("plan tras espera"),
+        ],
+    )
+    orch = Orchestrator(task, drivers={"fake-planner": planner})
+    _run(orch.run_plan())
+    # requests: [0] AGENTS.md, [1] plan attempt 1, [2] plan attempt 2 (resumed).
+    assert planner.requests[1].session_id is None
+    assert planner.requests[2].session_id == "s-1"
+    assert task.sessions["planner"] == "s-1"
+
+
+# ---------------------------------------------------------------------- #
+# Remote tasks (SSH/sshfs) - mount and sync helpers
+# ---------------------------------------------------------------------- #
+def test_prepare_remote_mount_failure_fails_phase(tmp_path):
+    """A mount failure on a remote task fails the phase before any driver runs."""
+    from grafeno.pipeline import orchestrator as orch_module
+
+    task = _make_task(tmp_path, remote="u@h:/srv/app")
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", []),
+        "fake-impl": FakeDriver("fake-impl", []),
+        "fake-rev": FakeDriver("fake-rev", []),
+        "fake-final": FakeDriver("fake-final", []),
+    }
+
+    async def _fail(task, on_info=lambda m: None):
+        return False
+
+    original = orch_module.remote.ensure_mounted_for
+    orch_module.remote.ensure_mounted_for = _fail
+    try:
+        orch = Orchestrator(task, drivers=drivers)
+        _run(orch.run_plan())
+    except PhaseError:
+        pass
+    finally:
+        orch_module.remote.ensure_mounted_for = original
+
+    assert task.state is TaskState.FAILED
+    assert drivers["fake-planner"].prompts == []  # never invoked
+
+
+def test_remote_push_after_phase(tmp_path):
+    """After each phase, push_task_for is called once for a remote task."""
+    from grafeno.pipeline import orchestrator as orch_module
+
+    task = _make_task(tmp_path, remote="u@h:/srv/app")
+    task.planner.cli = "fake-planner"
+    push_calls: list[str] = []
+    mount_calls: list[str] = []
+
+    async def _mount_ok(task, on_info=lambda m: None):
+        mount_calls.append(task.id)
+        return True
+
+    async def _push_spy(task, on_info=lambda m: None):
+        push_calls.append(task.id)
+        return True
+
+    async def _no_os(spec):
+        return ""
+
+    original_mount = orch_module.remote.ensure_mounted_for
+    original_push = orch_module.remote.push_task_for
+    original_detect = orch_module.remote.detect_os
+    orch_module.remote.ensure_mounted_for = _mount_ok
+    orch_module.remote.push_task_for = _push_spy
+    orch_module.remote.detect_os = _no_os
+    try:
+        drivers = {"fake-planner": FakeDriver("fake-planner", [_ok("plan")])}
+        orch = Orchestrator(task, drivers=drivers)
+        _run(orch.run_plan())
+    finally:
+        orch_module.remote.ensure_mounted_for = original_mount
+        orch_module.remote.push_task_for = original_push
+        orch_module.remote.detect_os = original_detect
+
+    assert task.state is TaskState.PLANNED
+    assert mount_calls == [task.id]
+    assert push_calls == [task.id]
+
+
+def test_local_task_never_touches_remote(tmp_path):
+    """Local tasks do not call any remote helper."""
+    from grafeno.pipeline import orchestrator as orch_module
+
+    task = _make_task(tmp_path)
+    push_calls: list[str] = []
+    mount_calls: list[str] = []
+
+    async def _fail_mount(task, on_info=lambda m: None):
+        mount_calls.append(task.id)
+        return False
+
+    async def _fail_push(task, on_info=lambda m: None):
+        push_calls.append(task.id)
+        return False
+
+    original_mount = orch_module.remote.ensure_mounted_for
+    original_push = orch_module.remote.push_task_for
+    orch_module.remote.ensure_mounted_for = _fail_mount
+    orch_module.remote.push_task_for = _fail_push
+    try:
+        drivers = {"fake-planner": FakeDriver("fake-planner", [_ok("plan")])}
+        orch = Orchestrator(task, drivers=drivers)
+        _run(orch.run_plan())
+    finally:
+        orch_module.remote.ensure_mounted_for = original_mount
+        orch_module.remote.push_task_for = original_push
+
+    assert task.state is TaskState.PLANNED
+    assert mount_calls == []
+    assert push_calls == []
+
+
+def test_remote_os_probed_once_and_injected_in_plan_prompt(tmp_path):
+    """The destination OS is probed once, persisted and shown in prompts."""
+    from grafeno.pipeline import orchestrator as orch_module
+
+    task = _make_task(tmp_path, remote="u@h:/srv/app")
+    task.create_branch = False
+    probe_calls: list[str] = []
+
+    async def _mount_ok(task, on_info=lambda m: None):
+        return True
+
+    async def _detect(spec):
+        probe_calls.append(spec.target)
+        return "Linux 6.1 x86_64"
+
+    original_mount = orch_module.remote.ensure_mounted_for
+    original_detect = orch_module.remote.detect_os
+    orch_module.remote.ensure_mounted_for = _mount_ok
+    orch_module.remote.detect_os = _detect
+    try:
+        drivers = {
+            "fake-planner": FakeDriver("fake-planner", [_ok("init"), _ok("plan")]),
+            "fake-impl": FakeDriver("fake-impl", [_ok("ok")]),
+        }
+        orch = Orchestrator(task, drivers=drivers)
+        _run(orch.run_plan())
+        _run(orch.run_implement())
+    finally:
+        orch_module.remote.ensure_mounted_for = original_mount
+        orch_module.remote.detect_os = original_detect
+
+    assert task.remote_os == "Linux 6.1 x86_64"
+    assert probe_calls == ["u@h"]  # probed exactly once across phases
+    assert "Linux 6.1 x86_64" in drivers["fake-planner"].prompts[-1]
+    reloaded = models.load(task.id)
+    assert reloaded.remote_os == "Linux 6.1 x86_64"

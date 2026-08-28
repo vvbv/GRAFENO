@@ -351,3 +351,29 @@ def test_legacy_task_loads_references_defaults(tmp_path):
     assert loaded.use_global_references is True
     assert loaded.use_project_references is True
     assert loaded.references == []
+
+
+def test_task_remote_roundtrip(tmp_path):
+    remote_task = models.Task.create(
+        "Remota", "desc", "/remote/path", Config(), remote="u@h:/remote/path"
+    )
+    models.save(remote_task)
+    loaded = models.load(remote_task.id)
+    assert loaded.remote == "u@h:/remote/path"
+    assert loaded.is_remote
+    local = models.Task.create("Local", "", ".", Config())
+    assert not local.is_remote
+
+
+def test_remote_os_roundtrip(tmp_path):
+    task = Task.create("Demo", "desc", str(tmp_path), Config(), remote="u@h:/srv/app")
+    task.remote_os = "Darwin 24.0 arm64"
+    restored = Task.from_dict(task.to_dict())
+    assert restored.remote_os == "Darwin 24.0 arm64"
+
+
+def test_remote_os_defaults_empty_for_legacy_meta(tmp_path):
+    task = Task.create("Demo", "desc", str(tmp_path), Config())
+    data = task.to_dict()
+    del data["task"]["remote_os"]  # task.toml written by an older version
+    assert Task.from_dict(data).remote_os == ""

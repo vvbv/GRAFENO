@@ -148,12 +148,14 @@ def fire(task: "Task", stage: str, timing: str, on_info=lambda message: None) ->
     triggers, and any internal error is only reported via ``on_info``.
     Returns the number of spawned tasks.
     """
+    from . import remote
     from .i18n import t
 
     if task.origin == ORIGIN_TRIGGER:
         return 0
     spawned = 0
-    for trigger in resolve(Path(task.workdir)):
+    project_workdir = remote.effective_workdir(task.remote, task.workdir)
+    for trigger in resolve(project_workdir):
         if not trigger.name.strip() or not matches(trigger, stage, timing):
             continue
         try:

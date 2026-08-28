@@ -17,6 +17,7 @@ import urllib.request
 from typing import Callable
 
 from .. import config as config_module
+from .. import remote
 from ..drivers.base import EventKind, RunEvent
 from ..i18n import t
 from ..models import Task
@@ -145,7 +146,7 @@ async def _run_shell_hook(
     try:
         process = await asyncio.create_subprocess_shell(
             command,
-            cwd=task.workdir,
+            cwd=remote.effective_workdir(task.remote, task.workdir),
             env=_hook_env(task, stage, outcome),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,

@@ -107,6 +107,8 @@ class Task:
     name: str
     description: str = ""
     workdir: str = "."
+    remote: str = ""  # canonical remote spec "user@host:/path"; empty = local
+    remote_os: str = ""  # detected destination OS (best effort); empty = unknown
     state: TaskState = TaskState.DRAFT
     planner: RoleConfig = field(default_factory=RoleConfig)
     implementer: RoleConfig = field(default_factory=RoleConfig)
@@ -172,6 +174,7 @@ class Task:
         use_global_references: bool | None = None,
         use_project_references: bool | None = None,
         references: list[Reference] | None = None,
+        remote: str | None = None,
     ) -> "Task":
         now = datetime.now().isoformat(timespec="seconds")
         return cls(
@@ -179,6 +182,7 @@ class Task:
             name=name,
             description=description,
             workdir=workdir,
+            remote="" if remote is None else remote,
             planner=RoleConfig(config.planner.cli, config.planner.model, config.planner.effort),
             implementer=RoleConfig(config.implementer.cli, config.implementer.model, config.implementer.effort),
             reviewer=RoleConfig(config.reviewer.cli, config.reviewer.model, config.reviewer.effort),
@@ -206,6 +210,11 @@ class Task:
 
     def role(self, name: str) -> RoleConfig:
         return getattr(self, name)
+
+    @property
+    def is_remote(self) -> bool:
+        """True when the task points to a remote (SSH) project."""
+        return bool(self.remote.strip())
 
     @property
     def current_extension(self) -> str:
@@ -274,6 +283,8 @@ class Task:
                 "name": self.name,
                 "description": self.description,
                 "workdir": self.workdir,
+                "remote": self.remote,
+                "remote_os": self.remote_os,
                 "state": self.state.value,
                 "automode": self.automode,
                 "max_iterations": self.max_iterations,
@@ -319,6 +330,8 @@ class Task:
             name=str(raw.get("name", "")),
             description=str(raw.get("description", "")),
             workdir=str(raw.get("workdir", ".")),
+            remote=str(raw.get("remote", "")),
+            remote_os=str(raw.get("remote_os", "")),
             state=TaskState(raw.get("state", TaskState.DRAFT.value)),
             planner=RoleConfig.from_dict(data.get("planner", {}), default_cli="opencode"),
             implementer=RoleConfig.from_dict(data.get("implementer", {}), default_cli="kimi"),

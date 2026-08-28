@@ -208,3 +208,36 @@ def test_global_references_excluded_when_flag_false(tmp_path):
     task.use_global_references = False
     plan = prompts.plan_prompt(task)
     assert "global-ref" not in plan
+
+
+def test_remote_section_in_all_phase_prompts(tmp_path):
+    task = _task(tmp_path, remote="u@h:/srv/app", remote_os="Linux 6.1 x86_64")
+    prompts_to_check = [
+        prompts.plan_prompt(task),
+        prompts.reevaluate_plan_prompt(task),
+        prompts.implement_prompt(task),
+        prompts.review_prompt(task, 1),
+        prompts.fix_prompt(task, 1),
+        prompts.final_prompt(task),
+    ]
+    for prompt in prompts_to_check:
+        assert "Entorno remoto (SSH)" in prompt
+        assert "Linux 6.1 x86_64" in prompt
+
+
+def test_remote_section_mandate_only_in_plan_prompts(tmp_path):
+    task = _task(tmp_path, remote="u@h:/srv/app", remote_os="Linux 6.1 x86_64")
+    assert 'sección "Entorno remoto"' in prompts.plan_prompt(task)
+    assert 'sección "Entorno remoto"' in prompts.reevaluate_plan_prompt(task)
+    assert 'sección "Entorno remoto"' not in prompts.implement_prompt(task)
+
+
+def test_remote_section_absent_for_local_tasks(tmp_path):
+    task = _task(tmp_path)
+    assert "Entorno remoto" not in prompts.plan_prompt(task)
+    assert "Entorno remoto" not in prompts.implement_prompt(task)
+
+
+def test_remote_section_fallback_when_os_unknown(tmp_path):
+    task = _task(tmp_path, remote="u@h:/srv/app")
+    assert "no detectado" in prompts.plan_prompt(task)

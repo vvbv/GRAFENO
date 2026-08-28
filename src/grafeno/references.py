@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import _toml, paths
+from . import _toml, paths, remote
 from .config import PROJECT_CONFIG_FILE
 
 if TYPE_CHECKING:
@@ -89,6 +89,6 @@ def resolve(task: "Task") -> list[Reference]:
     if task.use_global_references:
         result.extend(load_global())
     if task.use_project_references:
-        result.extend(load_project(Path(task.workdir)))
+        result.extend(load_project(remote.effective_workdir(task.remote, task.workdir)))
     result.extend(task.references)
     return result

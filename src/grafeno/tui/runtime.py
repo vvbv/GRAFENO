@@ -131,6 +131,14 @@ class TaskRuntime:
         return True
 
     async def _wrap(self, runner: Runner) -> None:
+        if self.task.is_remote:
+            from .. import remote as remote_module
+
+            try:
+                await remote_module.pull_task_for(self.task, on_info=self._cb_info)
+                self.task = models.load(self.task.id)
+            except Exception as exc:  # noqa: BLE001 - sync never breaks the run
+                self._cb_info(t("remote.sync.pull.fail", error=exc))
         orchestrator = self._orchestrator_factory(
             self.task,
             on_state=self._cb_state,

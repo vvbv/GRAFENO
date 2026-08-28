@@ -22,6 +22,9 @@ Verified real stream-json events:
   ``{"type":"assistant","message":{"content":[{"type":"text","text":"..."}]}}``
   ``{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash",...}]}}``
   ``{"type":"result","subtype":"success","session_id":"...","usage":{...}}``
+  ``{"type":"rate_limit_event","rate_limit_info":{...}}`` (blocked turn ->
+  ERROR event with a "retry after N seconds" hint; otherwise INFO or None)
+  ``{"type":"user",...}`` (tool results: raw log only, no event)
 
 Verified notes: ``usage`` may include ``cache_creation_input_tokens`` and
 ``cache_read_input_tokens`` which are IGNORED (only direct input/output
@@ -31,6 +34,7 @@ and ``result`` events.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from .base import CLIDriver, EventKind, RunEvent, RunRequest, TokenUsage
@@ -46,6 +50,12 @@ class ClaudeDriver(CLIDriver):
     # claude does not expose model listing: static aliases (best effort).
     STATIC_MODELS = ("opus", "sonnet", "haiku", "fable")
     EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+    # Statuses that mean the turn was blocked by the limit (defensive list).
+    _RATE_LIMIT_BLOCKED = ("rejected", "blocked", "exceeded", "limited", "error")
+    # Payload keys that may carry the reset instant as epoch seconds.
+    _RESET_EPOCH_KEYS = ("resets_at", "resetsAt", "reset_at", "resetAt", "resets")
+    # Payload keys that may carry a relative retry delay in seconds.
+    _RESET_REL_KEYS = ("retry_after", "retryAfter", "retry_after_seconds", "retryAfterSeconds")
 
     def build_command(self, request: RunRequest) -> list[str]:
         command = [
@@ -94,6 +104,12 @@ class ClaudeDriver(CLIDriver):
         if event_type == "system":
             return None, session_id  # init, hook_started, ...: raw log only
 
+        if event_type == "user":
+            return None, session_id  # tool results: raw log only (no "[user]" noise)
+
+        if event_type == "rate_limit_event":
+            return self._decode_rate_limit(payload), session_id
+
         return RunEvent(EventKind.INFO, f"[{event_type or 'evento'}]"), session_id
 
     @staticmethod
@@ -132,3 +148,44 @@ class ClaudeDriver(CLIDriver):
         except (TypeError, ValueError):
             return None
         return None if usage.empty else usage
+
+    # ------------------------------------------------------------ #
+    def _decode_rate_limit(self, payload: dict[str, Any]) -> RunEvent | None:
+        """Interpret a ``rate_limit_event`` payload (schema is defensive).
+
+        When the event signals a blocked turn, an ERROR event is emitted
+        whose text the usage-limit classifier already understands
+        ("rate limit ... retry after N seconds"), so a failed run is
+        waited and retried by the orchestrator instead of failing.
+        """
+        info = payload.get("rate_limit_info")
+        if not isinstance(info, dict):
+            info = payload.get("rateLimitInfo")
+        if not isinstance(info, dict):
+            info = payload
+        status = str(
+            info.get("status") or info.get("rate_limit_type") or info.get("rateLimitType") or ""
+        ).lower()
+        wait = self._reset_wait_seconds(info)
+        if any(token in status for token in self._RATE_LIMIT_BLOCKED) or payload.get("is_error"):
+            hint = f"; retry after {int(wait)} seconds" if wait else ""
+            return RunEvent(EventKind.ERROR, f"rate limit reached (session limit){hint}")
+        if status or wait:
+            hint = f"; retry after {int(wait)} seconds" if wait else ""
+            return RunEvent(EventKind.INFO, f"rate limit: {status or 'reported'}{hint}")
+        return None
+
+    def _reset_wait_seconds(self, info: dict[str, Any]) -> float | None:
+        """Best-effort wait hint from a rate-limit payload, in seconds."""
+        for key in self._RESET_REL_KEYS:
+            value = info.get(key)
+            if isinstance(value, (int, float)) and value > 0:
+                return float(value)
+        for key in self._RESET_EPOCH_KEYS:
+            value = info.get(key)
+            # Only big numbers are epochs: small ones would be relative seconds.
+            if isinstance(value, (int, float)) and value > 1e8:
+                wait = float(value) - time.time()
+                if wait > 0:
+                    return wait
+        return None

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from pathlib import Path
 
 from grafeno.drivers import available_clis, get_driver
@@ -376,6 +377,63 @@ def test_claude_static_models_and_variants():
     assert driver.list_models() == sorted(ClaudeDriver.STATIC_MODELS)
     variants = asyncio.run(driver.list_variants_async())
     assert set(variants) == set(ClaudeDriver.STATIC_MODELS)
+
+
+def test_claude_rate_limit_event_blocked_is_error_with_hint():
+    driver = ClaudeDriver()
+    event, session, _ = driver.decode_line(json.dumps({
+        "type": "rate_limit_event",
+        "rate_limit_info": {"status": "rejected", "resetsAt": time.time() + 1800},
+        "session_id": "s-1",
+    }))
+    assert session == "s-1"
+    assert event is not None and event.kind is EventKind.ERROR
+    assert "rate limit" in event.text
+    assert "retry after" in event.text
+
+
+def test_claude_rate_limit_event_feeds_usage_classification():
+    """The synthesized ERROR text is understood by the usage classifier."""
+    driver = ClaudeDriver()
+    event, _, _ = driver.decode_line(json.dumps({
+        "type": "rate_limit_event",
+        "rate_limit_info": {"status": "rejected", "resetsAt": time.time() + 1800},
+    }))
+    wait = driver._classify_usage_wait("Claude Code CLI exited with code 1.", [event.text])
+    assert wait is not None and 1700 < wait <= 1900
+
+
+def test_claude_rate_limit_event_blocked_without_hint_probes():
+    driver = ClaudeDriver()
+    event, _, _ = driver.decode_line(
+        '{"type":"rate_limit_event","rate_limit_info":{"status":"rejected"}}'
+    )
+    assert event is not None and event.kind is EventKind.ERROR
+    assert driver._classify_usage_wait("", [event.text]) == 0.0
+
+
+def test_claude_rate_limit_event_warning_is_never_an_error():
+    driver = ClaudeDriver()
+    event, _, _ = driver.decode_line(json.dumps({
+        "type": "rate_limit_event",
+        "rate_limit_info": {"status": "allowed_warning", "utilization": 0.9},
+    }))
+    assert event is None or event.kind is EventKind.INFO
+
+
+def test_claude_rate_limit_event_unknown_shape_is_never_an_error():
+    driver = ClaudeDriver()
+    event, _, _ = driver.decode_line('{"type":"rate_limit_event","foo":"bar"}')
+    assert event is None or event.kind is EventKind.INFO
+
+
+def test_claude_user_events_are_noise():
+    driver = ClaudeDriver()
+    event, session, _ = driver.decode_line(
+        '{"type":"user","session_id":"s-1","message":{"role":"user","content":[]}}'
+    )
+    assert event is None
+    assert session == "s-1"
 
 
 # ---------------------------------------------------------------------- #

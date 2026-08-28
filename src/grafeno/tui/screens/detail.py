@@ -28,7 +28,7 @@ from textual.widgets import (
     TextArea,
 )
 
-from ... import models, paths, scheduler
+from ... import models, paths, remote, scheduler
 from ...i18n import t
 from ...mdnorm import normalize_markdown
 from ...models import Task, TaskState
@@ -385,6 +385,18 @@ class TaskDetailScreen(Screen[None]):
         self.query_one("#desc-view", Static).update(
             self.current_task.description or t("det.desc.empty")
         )
+        if self.current_task.is_remote:
+            self.run_worker(
+                self._pull_remote(),
+                exclusive=True,
+                group=f"grafeno-pull-{self.current_task.id}",
+                exit_on_error=False,
+            )
+
+    async def _pull_remote(self) -> None:
+        """Fetch newer task data from the remote host (best effort)."""
+        await remote.pull_task_for(self.current_task, on_info=self.runtime._cb_info)
+        self._reload_files()  # pulled artifacts appear without reopening
 
     def on_screen_suspend(self) -> None:
         self.runtime.remove_listener(self._on_runtime)
@@ -546,6 +558,12 @@ class TaskDetailScreen(Screen[None]):
         cycle = f"  [b]·[/b]  {t('det.cycle', n=self.current_task.cycle)}" if self.current_task.cycle > 1 else ""
         extra = ""
         task = self.current_task
+        if task.is_remote:
+            spec = remote.parse_spec(task.remote)
+            target = spec.target if spec else task.remote
+            if task.remote_os:
+                target = f"{target} ({task.remote_os})"
+            extra += f"  [b]·[/b]  {t('det.remote', target=target)}"
         if task.scheduled_at:
             extra += f"  [b]·[/b]  {t('det.scheduled', at=task.scheduled_at.replace('T', ' '))}"
         if task.repeat_mode:

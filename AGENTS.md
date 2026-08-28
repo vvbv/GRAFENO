@@ -24,13 +24,14 @@ src/grafeno/
 ├── mdnorm.py               # Normalización de Markdown: colapsa saltos de línea y compacta listas sueltas en los .md de cada etapa
 ├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
 ├── timefmt.py              # Formateo de duraciones (42s, 3m 05s, 1h 02m 03s)
-├── ratelimit.py            # Detección de usage agotado en CLIs: patrones de error, pista de espera (retry-after) y constantes de sondeo/reintento
+├── ratelimit.py            # Detección de usage agotado en CLIs: patrones de error, pista de espera (retry-after, duración relativa u hora absoluta de reseteo con zona horaria) y constantes de sondeo/reintento
 ├── scheduler.py            # Lógica pura: programación horaria, encadenamiento padre/hija y repetición de tareas
 ├── updater.py              # Auto-actualización best-effort de los CLIs de agentes (comando nativo de cada uno) al arrancar la TUI si auto_update está activado en el config
 ├── _toml.py                # Serializador TOML propio (escritura; lectura con tomllib)
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
 ├── gh.py                   # Integración con GitHub CLI: detección de disponibilidad (repo + gh + acceso) y listado de issues abiertos (best-effort, nunca lanza)
 ├── references.py           # Modelo `Reference` y niveles global/proyecto/tarea con `resolve()`
+├── remote.py               # Proyectos remotos por SSH: parseo del spec, montaje sshfs bajo ~/.grafeno/mounts/ y espejo de datos de la tarea con rsync (best-effort), sondeo del SO destino (detect_os)
 ├── triggers.py             # Tareas trigger: modelo, niveles global/proyecto, fire() y spawn() best-effort
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL; expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
@@ -129,6 +130,20 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `parent_id` desde la pantalla de edición, sin tocar el estado) valida en
   `scheduler.rechain_error` que la posición no tenga tareas completadas
   (padre e hijas del padre fuera de DONE/DISCARDED) y que no haya ciclos.
+- **Remoto (SSH/sshfs)**: una tarea puede apuntar a un proyecto remoto
+  (`Task.remote`, spec canónico `user@host:/ruta`; `workdir` guarda entonces la
+  ruta EN el host remoto). Todo acceso al proyecto usa
+  `remote.effective_workdir(task.remote, task.workdir)`: montaje sshfs bajo
+  `~/.grafeno/mounts/<slug>-<hash>/` (transparente para los CLIs), o la ruta
+  directa cuando el host es la propia máquina (`is_self`). Los datos de la
+  tarea se espejan con rsync (`push` tras cada fase y tras los tests; `pull`
+  al arrancar la ejecución y al abrir el detalle), siempre mejor esfuerzo: la
+  sincronización nunca rompe el pipeline. En el listado, las remotas muestran
+  el spec SSH en la columna de directorio y solo aparecen en el scope
+  "All tasks". El SO del destino se sondea una vez por tarea
+  (remote.detect_os), se persiste en Task.remote_os, se muestra en el detalle
+  y se inyecta en los prompts del pipeline (seccion "Entorno remoto") para que
+  el plan y las pruebas lo tengan en cuenta.
 - **Log en vivo**: cada entrada formateada del log de la pestaña Log se
   persiste en `logs/live.jsonl` (`live_log.py`) y se restaura al crear el
   `TaskRuntime`, de modo que sobrevive al cierre de la app. El fichero

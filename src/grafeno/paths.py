@@ -76,3 +76,10 @@ def logs_dir(task_id: str) -> Path:
     path = task_dir(task_id) / "logs"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def mounts_dir() -> Path:
+    """Local mount points for remote (sshfs) projects."""
+    path = home() / "mounts"
+    path.mkdir(parents=True, exist_ok=True)
+    return path

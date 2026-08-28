@@ -25,7 +25,7 @@ from textual.widgets import (
 
 from ... import config as config_module, scheduler
 from ... import gh as gh_module
-from ... import models
+from ... import models, remote
 from ...i18n import t
 from ...models import Task, task_state_label
 from ...pipeline.hooks import HOOK_STAGES, format_stages
@@ -56,6 +56,8 @@ class NewTaskScreen(ModalScreen[Task | None]):
             yield Select([], id="nt-issue", allow_blank=True)
             yield Label(t("nt.workdir"))
             yield DirectoryPicker(os.getcwd(), input_id="nt-workdir")
+            yield Label(t("nt.remote"))
+            yield Input(placeholder=t("nt.remote.placeholder"), id="nt-remote")
             yield Label(t("nt.schedule"))
             yield Input(placeholder=t("nt.schedule.placeholder"), id="nt-schedule")
             yield Label(t("nt.parent"))
@@ -171,10 +173,22 @@ class NewTaskScreen(ModalScreen[Task | None]):
         if not name:
             self.notify(t("nt.error.name_required"), severity="error")
             return
-        workdir = Path(self.query_one("#nt-workdir", Input).value.strip() or ".").expanduser()
-        if not workdir.is_dir():
-            self.notify(t("nt.error.bad_dir", path=workdir), severity="error")
+        remote_text = self.query_one("#nt-remote", Input).value.strip()
+        spec = remote.parse_spec(remote_text) if remote_text else None
+        if remote_text and spec is None:
+            self.notify(t("nt.error.bad_remote"), severity="error")
             return
+        if spec is not None:
+            # Remote task: workdir is the path ON THE REMOTE HOST.
+            workdir = Path(spec.path)
+            if not remote.sshfs_available() and not remote.is_self(spec):
+                self.notify(t("nt.warn.no_sshfs"), severity="warning")
+        else:
+            workdir = Path(self.query_one("#nt-workdir", Input).value.strip() or ".").expanduser()
+            if not workdir.is_dir():
+                self.notify(t("nt.error.bad_dir", path=workdir), severity="error")
+                return
+            workdir = workdir.resolve()
 
         try:
             scheduled_at = scheduler.parse_schedule(
@@ -204,8 +218,9 @@ class NewTaskScreen(ModalScreen[Task | None]):
         task = models.Task.create(
             name=name,
             description=self.query_one("#nt-description", TextArea).text.strip(),
-            workdir=str(workdir.resolve()),
+            workdir=str(workdir),
             config=cfg,
+            remote=spec.canonical if spec is not None else "",
             automode=automode_value,
             test_command=self.query_one("#nt-tests", Input).value.strip(),
             create_branch=self.query_one("#nt-branch", Checkbox).value,
@@ -307,6 +322,7 @@ class TaskListScreen(Screen[None]):
             self._tasks = list(self._all_tasks)
         else:
             cwd = str(Path.cwd().resolve())
+            # Remote tasks never match a local cwd: they show under "All tasks".
             self._tasks = [
                 task for task in self._all_tasks
                 if str(Path(task.workdir).resolve()) == cwd
@@ -332,7 +348,7 @@ class TaskListScreen(Screen[None]):
                 self._format_task_tokens(task),
                 self._format_task_duration(task, running),
                 task.updated_at.replace("T", " "),
-                task.workdir,
+                task.remote if task.is_remote else task.workdir,
                 key=task.id,
             )
             if selected == task.id:

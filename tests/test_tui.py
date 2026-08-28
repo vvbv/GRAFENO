@@ -1440,4 +1440,62 @@ def test_edit_task_rejects_completed_parent():
             assert "p-done" not in option_values
             assert select.value is Select.NULL
 
+
+def test_create_remote_task_via_modal():
+    """A remote spec creates a task whose ``remote`` is the SSH string and ``workdir`` the remote path."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.tui.screens.detail import TaskDetailScreen
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            assert isinstance(app.screen, NewTaskScreen)
+
+            app.screen.query_one("#nt-name", Input).value = "Remota"
+            app.screen.query_one("#nt-remote", Input).value = "dev@box.example:/srv/app"
+            app.screen.query_one("#nt-create").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#nt-create")
+            await pilot.pause()
+
+            assert isinstance(app.screen, TaskDetailScreen)
+            tasks = models.list_all()
+            assert len(tasks) == 1
+            assert tasks[0].remote == "dev@box.example:/srv/app"
+            assert tasks[0].workdir == "/srv/app"
+            assert tasks[0].is_remote
+
+            # The list shows the SSH spec instead of a local directory.
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, TaskListScreen)
+
+    asyncio.run(scenario())
+
+
+def test_create_task_bad_remote_rejected():
+    """A malformed remote value is rejected without creating a task."""
+    async def scenario():
+        from grafeno import models
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            app.screen.query_one("#nt-name", Input).value = "Mal remota"
+            app.screen.query_one("#nt-remote", Input).value = "sin-host-ni-path"
+            app.screen.query_one("#nt-create").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#nt-create")
+            await pilot.pause()
+            # The modal stays open: no task was created.
+            assert isinstance(app.screen, NewTaskScreen)
+            assert models.list_all() == []
+
     asyncio.run(scenario())

@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from .. import models, paths, ratelimit, triggers
+from .. import models, paths, ratelimit, remote, triggers
 from ..config import RoleConfig
 from ..drivers import RunEvent, RunRequest, get_driver
 from ..drivers.base import CLIDriver, EventKind, RunResult
@@ -128,7 +128,7 @@ class Orchestrator:
         request = RunRequest(
             prompt=prompt,
             model=role.model,
-            workdir=Path(task.workdir),
+            workdir=remote.effective_workdir(task.remote, task.workdir),
             session_id=task.sessions.get(role_name) or None,
             log_path=paths.logs_dir(task.id) / log_name,
             title=f"grafeno:{task.id}",
@@ -147,6 +147,7 @@ class Orchestrator:
                 if result.session_id:
                     task.sessions[role_name] = result.session_id
                     request.session_id = result.session_id  # retry continues the session
+                    models.save(task)  # persist: a crash mid-wait keeps the session
                 if result.usage_wait is None or attempt >= ratelimit.MAX_ATTEMPTS:
                     break
                 attempt += 1
@@ -172,6 +173,7 @@ class Orchestrator:
         )
         await self._run_hooks(phase, "ok")
         await self._run_triggers(phase, "after")
+        await self._sync_remote_push()
         return result
 
     def _record_duration(self, phase: str, elapsed: float) -> None:
@@ -203,6 +205,44 @@ class Orchestrator:
         except Exception as exc:  # noqa: BLE001 - triggers never break the pipeline
             self._info(t("trig.error", name=stage, error=exc))
 
+    async def _prepare_remote(self) -> None:
+        """Ensure the remote project is mounted (remote tasks only).
+
+        A failure here fails the phase before running the CLI: the agents
+        cannot work without the project directory.
+        """
+        if not self.task.is_remote:
+            return
+        ok = await remote.ensure_mounted_for(self.task, on_info=self._info)
+        if not ok:
+            self._set_state(TaskState.FAILED)
+            raise PhaseError(t("remote.mount.fail", error=self.task.remote))
+        await self._probe_remote_os()
+
+    async def _probe_remote_os(self) -> None:
+        """Detect and persist the destination OS of a remote task (once)."""
+        task = self.task
+        if task.remote_os:
+            return  # already probed in a previous phase/run
+        spec = remote.parse_spec(task.remote)
+        if spec is None or remote.is_self(spec):
+            return
+        detected = await remote.detect_os(spec)
+        if not detected:
+            return
+        task.remote_os = detected
+        models.save(task)
+        self._info(t("remote.os.detected", os=detected))
+
+    async def _sync_remote_push(self) -> None:
+        """Mirror task data to the remote host after a phase (best effort)."""
+        if not self.task.is_remote:
+            return
+        try:
+            await remote.push_task_for(self.task, on_info=self._info)
+        except Exception as exc:  # noqa: BLE001 - sync never breaks the pipeline
+            self._info(t("remote.sync.push.fail", error=exc))
+
     # ------------------------------------------------------------------ #
     # Phases
     # ------------------------------------------------------------------ #
@@ -214,7 +254,7 @@ class Orchestrator:
         planner CLI problems are already handled by the plan phase with
         its usual error handling.
         """
-        workdir = Path(self.task.workdir)
+        workdir = remote.effective_workdir(self.task.remote, self.task.workdir)
         if (workdir / "AGENTS.md").exists():
             return
         role = self.task.role("planner")
@@ -249,6 +289,7 @@ class Orchestrator:
             self._info(t("orch.agents_md.failed", error=result.error or "?"))
 
     async def run_plan(self) -> None:
+        await self._prepare_remote()
         self._set_state(TaskState.PLANNING)  # includes AGENTS.md generation
         await self.ensure_agents_md()
         result = await self._execute(
@@ -282,6 +323,7 @@ class Orchestrator:
         present) and with the re-evaluation prompt. If there are no plan
         files, it falls back to ``run_plan``.
         """
+        await self._prepare_remote()
         if not self._plan_files():
             await self.run_plan()
             return
@@ -305,6 +347,7 @@ class Orchestrator:
             )
 
     async def run_implement(self) -> None:
+        await self._prepare_remote()
         self._ensure_branch()
         await self._execute(
             "implementer",
@@ -316,6 +359,7 @@ class Orchestrator:
         )
 
     async def run_review(self) -> Verdict:
+        await self._prepare_remote()
         review_number = self.task.iteration + 1
         result = await self._execute(
             "reviewer",
@@ -346,17 +390,23 @@ class Orchestrator:
         return verdict
 
     async def run_fix(self) -> None:
-        self.task.iteration += 1
+        await self._prepare_remote()
+        fix_number = self.task.iteration + 1
         await self._execute(
             "implementer",
             "fix",
-            prompts.fix_prompt(self.task, self.task.iteration),
-            f"fix-{self.task.iteration:02d}.jsonl",
+            prompts.fix_prompt(self.task, fix_number),
+            f"fix-{fix_number:02d}.jsonl",
             TaskState.FIXING,
             TaskState.IMPLEMENTED,
         )
+        # Committed only after a successful fix: a failed or paused run
+        # retries with the same review file, log name and iteration budget.
+        self.task.iteration = fix_number
+        models.save(self.task)
 
     async def run_final(self) -> None:
+        await self._prepare_remote()
         result = await self._execute(
             "final",
             "final",
@@ -372,6 +422,7 @@ class Orchestrator:
             final_path.write_text(normalize_markdown(result.text), encoding="utf-8")
 
     async def run_tests(self) -> bool:
+        await self._prepare_remote()
         command = self.task.test_command.strip()
         if not command:
             return True
@@ -381,7 +432,7 @@ class Orchestrator:
         try:
             process = await asyncio.create_subprocess_shell(
                 command,
-                cwd=self.task.workdir,
+                cwd=remote.effective_workdir(self.task.remote, self.task.workdir),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
@@ -404,6 +455,7 @@ class Orchestrator:
         )
         await self._run_hooks("tests", "ok" if returncode == 0 else "failed")
         await self._run_triggers("tests", "after")
+        await self._sync_remote_push()
         return returncode == 0
 
     # ------------------------------------------------------------------ #
@@ -462,7 +514,7 @@ class Orchestrator:
         task = self.task
         if not task.create_branch or task.branch:
             return
-        workdir = Path(task.workdir)
+        workdir = remote.effective_workdir(task.remote, task.workdir)
         if not gitops.is_git_repo(workdir):
             self._info(t("orch.not_git"))
             return
