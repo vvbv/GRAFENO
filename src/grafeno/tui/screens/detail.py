@@ -35,7 +35,7 @@ from ...models import Task, TaskState
 from ...pipeline.orchestrator import Orchestrator, phase_label
 from ...timefmt import format_duration
 from ...tokenfmt import format_tokens
-from ..widgets import GrafenoHeader, PhaseBar, markdown_set
+from ..widgets import GrafenoHeader, LocationBar, PhaseBar, markdown_set
 
 _SPINNER = "⠋⠙⠹⠸⠼⠴⦦⣾"
 _WARN_AFTER_S = 90    # no output: yellow warning
@@ -326,6 +326,7 @@ class TaskDetailScreen(Screen[None]):
     # ------------------------------------------------------------------ #
     def compose(self) -> ComposeResult:
         yield GrafenoHeader()
+        yield LocationBar(task=self.current_task, id="location-bar")
         yield Static("", id="task-title")
         yield PhaseBar(
             self.current_task.state,
@@ -571,6 +572,7 @@ class TaskDetailScreen(Screen[None]):
         self.query_one("#task-title", Static).update(
             f"[b]{task.name}[/b]{cycle}  [b]·[/b]  {task.workdir}{extra}"
         )
+        self.query_one("#location-bar", LocationBar).set_task(self.current_task)
 
     def _reload_files(self) -> None:
         self.query_one("#plan-files", FileList).load_dir(paths.plan_dir(self.current_task.id))

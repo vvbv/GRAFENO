@@ -29,7 +29,7 @@ from ...pipeline.hooks import HOOK_STAGES, format_stages, parse_stages
 from ..refform import ReferencesForm
 from ..rolesform import ROLES, RolesForm
 from ..trigform import TriggersForm
-from ..widgets import GrafenoHeader
+from ..widgets import GrafenoHeader, LocationBar
 
 
 class ConfigScreen(Screen[None]):
@@ -37,6 +37,7 @@ class ConfigScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield GrafenoHeader()
+        yield LocationBar(id="location-bar")
         with Vertical(id="config-container"):
             yield Label(t("cfg.title", path=paths.config_path()), id="config-title")
             yield Static(t("cfg.roles"), classes="section-title")

@@ -49,7 +49,7 @@ src/grafeno/
     ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol; incluye filtro de texto sobre el selector de modelos
     ├── refform.py          # Editor reutilizable de referencias (tabla + añadir/borrar)
     ├── trigform.py         # Editor reutilizable de triggers globales (tabla + añadir/borrar)
-    ├── widgets.py          # Widgets comunes (cabecera GrafenoHeader con reloj fecha/hora, barra de fases, helpers Markdown)
+    ├── widgets.py          # Widgets comunes (cabecera GrafenoHeader con reloj fecha/hora, LocationBar con la ruta actual y la de la tarea + distintivo SSH, barra de fases, helpers Markdown)
     └── screens/            # tasks (lista), detail (detalle+acciones), config, roles
 tests/                      # pytest; conftest aísla GRAFENO_HOME e idioma por test
 install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), vía pipx; la ausencia de CLIs de agente es siempre un warning (nunca un error)

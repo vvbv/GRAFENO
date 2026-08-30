@@ -33,7 +33,7 @@ from ...timefmt import format_duration
 from ...tokenfmt import format_tokens
 from ..dirpicker import DirectoryPicker
 from ..refform import ReferencesForm
-from ..widgets import GrafenoHeader
+from ..widgets import GrafenoHeader, LocationBar
 
 
 class NewTaskScreen(ModalScreen[Task | None]):
@@ -269,6 +269,7 @@ class TaskListScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield GrafenoHeader()
+        yield LocationBar(id="location-bar")
         with Horizontal(id="tasks-header"):
             yield Static(t("tasks.subtitle"), id="subtitle")
             yield Button(t("tasks.scope.project"), id="scope-toggle")

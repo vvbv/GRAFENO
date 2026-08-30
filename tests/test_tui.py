@@ -1499,3 +1499,76 @@ def test_create_task_bad_remote_rejected():
             assert models.list_all() == []
 
     asyncio.run(scenario())
+
+
+def test_location_bar_shows_cwd_on_task_list_and_config():
+    """The location bar always shows the current directory."""
+    import os
+
+    from grafeno.tui.screens.config import ConfigScreen
+    from textual.widgets import Static
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            bar = app.screen.query_one("#location-bar", Static)
+            text = str(bar.render())
+            assert f"cwd: {os.getcwd()}" in text
+
+            app.push_screen(ConfigScreen())
+            await pilot.pause()
+            bar = app.screen.query_one("#location-bar", Static)
+            assert f"cwd: {os.getcwd()}" in str(bar.render())
+
+    asyncio.run(scenario())
+
+
+def test_location_bar_in_detail_shows_cwd_and_task_path():
+    """Inside a task the bar shows the current path AND the task path."""
+    import os
+
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task
+    from grafeno.tui.screens.detail import TaskDetailScreen
+    from textual.widgets import Static
+
+    task = Task.create("Barra ruta", "desc", "/tmp", Config())
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+            text = str(app.screen.query_one("#location-bar", Static).render())
+            assert f"cwd: {os.getcwd()}" in text
+            assert "/tmp" in text
+            assert "[SSH]" not in text
+
+    asyncio.run(scenario())
+
+
+def test_location_bar_remote_task_shows_ssh_badge():
+    """A remote task shows the SSH spec and the [SSH] badge in the bar."""
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task
+    from grafeno.tui.screens.detail import TaskDetailScreen
+    from textual.widgets import Static
+
+    task = Task.create("Barra remota", "desc", "/srv/app", Config(),
+                       remote="user@example.com:/srv/app")
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+            text = str(app.screen.query_one("#location-bar", Static).render())
+            assert "user@example.com:/srv/app" in text
+            assert "[SSH]" in text
+
+    asyncio.run(scenario())

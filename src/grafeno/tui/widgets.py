@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 from datetime import datetime
 
 from rich.text import Text
@@ -11,10 +12,10 @@ from textual.widgets import Header, Markdown, Static
 from textual.widgets._header import HeaderIcon, HeaderTitle
 
 from ..i18n import t
-from ..models import TaskState, state_label
+from ..models import Task, TaskState, state_label
 from ..timefmt import format_duration
 
-__all__ = ["DateTimeClock", "GrafenoHeader", "PhaseBar", "markdown_set", "format_duration"]
+__all__ = ["DateTimeClock", "GrafenoHeader", "LocationBar", "PhaseBar", "markdown_set", "format_duration"]
 
 _PHASE_ORDER = (
     ("plan", "phase.plan"),
@@ -120,3 +121,38 @@ class GrafenoHeader(Header):
         yield HeaderIcon().data_bind(Header.icon)
         yield HeaderTitle()
         yield DateTimeClock(id="clock")
+
+
+class LocationBar(Static):
+    """One-line bar with the current path and, optionally, the task path.
+
+    Always shows the directory GRAFENO was launched from; when a task is
+    given it also shows the task's project path, with an ``[SSH]`` badge
+    when the task points to a remote host.
+    """
+
+    def __init__(self, task: Task | None = None, **kwargs):
+        super().__init__(**kwargs)
+        # NOTE: stored as ``_bar_task`` (not ``_task``) because
+        # ``MessagePump._task`` is the asyncio task driving this widget's
+        # message pump and would otherwise be overwritten.
+        self._bar_task: Task | None = task
+
+    def on_mount(self) -> None:
+        self._render_bar()
+
+    def set_task(self, task: Task) -> None:
+        """Update the task shown in the bar (e.g. after remote OS probing)."""
+        self._bar_task = task
+        self._render_bar()
+
+    def _render_bar(self) -> None:
+        line = Text()
+        line.append(t("loc.cwd", path=os.getcwd()), style="dim")
+        if self._bar_task is not None:
+            line.append("  ·  ", style="dim")
+            display = self._bar_task.remote if self._bar_task.is_remote else self._bar_task.workdir
+            line.append(t("loc.task", path=display), style="dim")
+            if self._bar_task.is_remote:
+                line.append(f" {t('loc.remote')}", style="bold yellow")
+        self.update(line)

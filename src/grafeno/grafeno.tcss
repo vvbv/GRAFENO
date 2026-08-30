@@ -19,6 +19,12 @@ Footer {
     margin-bottom: 1;
 }
 
+#location-bar {
+    color: #8b949e;
+    padding: 0 2;
+    height: 1;
+}
+
 #clock {
     dock: right;
     width: auto;
