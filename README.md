@@ -55,6 +55,8 @@ If the hook is an `http(s)` URL, GRAFENO does not execute any command: it sends 
 
 **Usage-limit retries**: when an agent CLI reports an exhausted quota/rate limit (`429`, `rate limit`, `quota exceeded`, `usage limit`, `insufficient_quota`, `out of credits`, etc.), GRAFENO does not fail the phase. If the message carries a `retry after` / `try again in` time hint, the orchestrator waits exactly that long and retries the same phase, reusing the session when possible. When there is no time hint, it probes every 60 s, up to 30 attempts per phase, before giving up. While a phase is waiting, the tasks list and the `PhaseBar` append a `Waiting` suffix to the current state so you can tell at a glance that the pipeline is paused on quota, not stalled.
 
+**Media**: the new-task form and the "Ask for more" modal accept pasted PNG images with `Ctrl+V` (or `Cmd+V` on macOS) on every platform that exposes a clipboard tool (`wl-paste`, `xclip`, `pngpaste` or `osascript`). The image is saved under the task's `media/` directory as `media-NN.png`, and a `media/media-NN.png` token is inserted at the cursor in place of the raw bytes. Images pasted before the task exists are buffered in the form and flushed once the task is created. The detail view exposes a **Media** tab listing every saved image with its absolute path; clicking an entry shows the path and, when the terminal supports it (kitty / WezTerm / iTerm + the optional `textual-image` package), an inline preview, otherwise it opens the image with the system viewer (`xdg-open` / `open`). Vision-capable CLIs also receive the absolute paths of all attached images in the plan, re-evaluation and implementation prompts (review, fix and final-step prompts stay clean).
+
 **Interface language**: the GUI can be displayed in English (default) or Spanish; it is chosen in the configuration screen (`c`) and persisted in `config.toml`. When changing it, new screens apply it immediately and the shortcuts footer updates on app restart.
 
 ## Installation
@@ -124,6 +126,7 @@ GitHub Release with the `vX.Y.Z` tag and attached artifacts.
     ├── plan/*.md            # plans with GRAFENO-EXECUTOR header
     ├── review/*.md          # reviews numbered by iteration
     ├── final/*.md           # final-step reports per cycle
+    ├── media/*.png          # PNGs pasted into the description / ask-for-more
     └── logs/*.jsonl         # raw output from each CLI invocation
 ```
 
