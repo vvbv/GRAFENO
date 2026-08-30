@@ -59,7 +59,20 @@ class FakeConsole:
     def push(self, data: bytes):
         os.write(self._w, data)
 
+    def kill(self):
+        """Simulate the child process exiting: close the write end so the read
+        side sees EOF, but keep the read side open so add_reader still fires.
+        Mirrors the real PTY behaviour where the slave side closes first."""
+        self._alive = False
+        if self._w is not None:
+            try:
+                os.close(self._w)
+            except OSError:
+                pass
+        self._w = None
+
     def close(self):
+        """Full teardown: close both ends of the pipe."""
         self._alive = False
         for fd in (self._r, self._w):
             if fd is not None:
@@ -236,7 +249,7 @@ def test_dead_process_respawns_on_tab_click(monkeypatch, tmp_path):
             app.push_screen(ConsolesScreen(tmp_path))
             await pilot.pause()
             first = FakeConsole.instances[0]
-            first.close()  # simulate the shell exiting
+            first.kill()  # simulate the shell exiting (write end closed)
             await pilot.click("#con-tab-0")
             await pilot.pause()
             assert len(FakeConsole.instances) == 2
@@ -294,5 +307,94 @@ def test_task_detail_opens_consoles_with_task_workdir(monkeypatch, tmp_path):
             await pilot.pause()
             assert isinstance(app.screen, ConsolesScreen)
             assert app.screen._workdir == project
+
+    asyncio.run(scenario())
+
+
+def test_create_after_delete_middle_does_not_duplicate_ids(monkeypatch, tmp_path):
+    """Regression: opening all 3 tabs, deleting the middle one and creating a
+    new console used to raise DuplicateIds because ConsoleView ids were tied
+    to the tab position. Each ConsoleView must keep a unique monotonic id.
+    """
+    _install_fake(monkeypatch)
+    consoles.save_project(
+        tmp_path,
+        [ConsoleSpec(name="A"), ConsoleSpec(name="B"), ConsoleSpec(name="C")],
+    )
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.push_screen(ConsolesScreen(tmp_path))
+            await pilot.pause()
+            # Activate every tab so every spec gets a ConsoleView mounted.
+            await pilot.click("#con-tab-0")
+            await pilot.pause()
+            await pilot.click("#con-tab-1")
+            await pilot.pause()
+            await pilot.click("#con-tab-2")
+            await pilot.pause()
+            # Switch back to the middle tab and delete it (so the trailing
+            # tab keeps the same index, exercising the key-shift path).
+            await pilot.click("#con-tab-1")
+            await pilot.pause()
+            await pilot.click("#con-delete")
+            await pilot.pause()
+            assert consoles.load_project(tmp_path) == [
+                ConsoleSpec(name="A"),
+                ConsoleSpec(name="C"),
+            ]
+            # Now create a new console: this used to crash with DuplicateIds.
+            await pilot.click("#con-new")
+            await pilot.pause()
+            from textual.widgets import Input
+            app.screen.query_one("#cf-name", Input).value = "D"
+            await pilot.click("#cf-save")
+            await pilot.pause()
+            assert consoles.load_project(tmp_path) == [
+                ConsoleSpec(name="A"),
+                ConsoleSpec(name="C"),
+                ConsoleSpec(name="D"),
+            ]
+            # Every ConsoleView mounted on the screen has a unique id.
+            views = list(app.screen.query_one("#console-views").children)
+            ids = [view.id for view in views]
+            assert len(ids) == len(set(ids)), f"duplicate view ids: {ids}"
+
+    asyncio.run(scenario())
+
+
+def test_dead_process_flushes_residual_output_without_newline(monkeypatch, tmp_path):
+    """Regression: a partial last line (no trailing newline) used to be lost
+    when the process exited. It must be flushed to the transcript before the
+    exit announcement is written.
+    """
+    _install_fake(monkeypatch)
+    consoles.save_project(tmp_path, [ConsoleSpec(name="shell")])
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.push_screen(ConsolesScreen(tmp_path))
+            await pilot.pause()
+            fake = FakeConsole.instances[0]
+            # Push a complete line and a partial one (no trailing newline),
+            # then kill the process to trigger the exit branch.
+            fake.push(b"primero\nsegundo")
+            for _ in range(10):
+                await pilot.pause(0.05)
+                if "primero" in _log_text(app.screen):
+                    break
+            fake.kill()  # closes write end: read side will see EOF
+            for _ in range(10):
+                await pilot.pause(0.05)
+                text = _log_text(app.screen)
+                if "segundo" in text:
+                    break
+            text = _log_text(app.screen)
+            assert "primero" in text
+            assert "segundo" in text  # flushed even without a final newline
 
     asyncio.run(scenario())

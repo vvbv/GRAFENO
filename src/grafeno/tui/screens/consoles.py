@@ -27,8 +27,13 @@ _MAX_LOG_LINES = 5000  # per-console transcript bound
 class ConsoleView(Vertical):
     """Output area of one console session (its own RichLog transcript)."""
 
-    def __init__(self, index: int):
-        super().__init__(id=f"con-view-{index}")
+    def __init__(self, view_id: str, index: int):
+        # NOTE: the id is intentionally NOT tied to the tab position. Tabs can
+        # be added and removed at any index, and re-keying the views would
+        # force a full unmount/remount every time (racy with Textual's mount
+        # queue). A monotonic counter (managed by ``ConsolesScreen``) keeps
+        # every view id unique for the lifetime of the screen without shifting.
+        super().__init__(id=view_id)
         self.index = index
         # ``Widget.log`` is a read-only property in Textual, so use a distinct
         # name for the per-view transcript widget.
@@ -112,6 +117,10 @@ class ConsolesScreen(Screen[None]):
         self._specs: list[ConsoleSpec] = consoles.load_project(workdir)
         self._sessions: dict[int, _Session] = {}
         self._active: int | None = None
+        # Monotonic id counter for ConsoleView widgets. Decoupling the view id
+        # from the tab index avoids DuplicateIds when tabs are added or removed
+        # in the middle of the list (see _delete_active).
+        self._view_counter: int = 0
 
     def compose(self) -> ComposeResult:
         yield GrafenoHeader()
@@ -202,7 +211,8 @@ class ConsolesScreen(Screen[None]):
     # ------------------------------------------------------------------ #
     def _spawn(self, index: int) -> _Session:
         spec = self._specs[index]
-        view = ConsoleView(index)
+        self._view_counter += 1
+        view = ConsoleView(f"con-view-{self._view_counter - 1}", index)
         self.query_one("#console-views", Vertical).mount(view)
         proc = ConsoleProcess(spec.command, str(self._workdir))
         session = _Session(proc=proc, view=view)
@@ -260,6 +270,15 @@ class ConsolesScreen(Screen[None]):
                 asyncio.get_running_loop().remove_reader(fd)
             code = session.proc.poll()
             session.proc.close()
+            # Flush the residual text waiting for a newline in ``session.buf``
+            # so a partial last line (e.g. ``printf abc``) is not silently lost
+            # when the process exits without a trailing newline.
+            if session.buf:
+                # ``AnsiDecoder.decode`` is a generator: materialise it before
+                # handing the resulting Text segments to RichLog.
+                for tail in session.decoder.decode(session.buf.rstrip("\r")):
+                    session.view.output.write(tail)
+                session.buf = ""
             session.view.output.write(Text(t("consoles.exited", code=code), style="dim"))
 
     @staticmethod
