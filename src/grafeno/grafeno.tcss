@@ -17,6 +17,7 @@ Footer {
     color: #8b949e;
     padding: 0 2;
     margin-bottom: 1;
+    width: 1fr;  /* leave room for the scope button in #tasks-header */
 }
 
 #location-bar {
@@ -310,4 +311,57 @@ ReferencesForm Input {
 
 #am-tests {
     width: 1fr;
+}
+
+/* ---- Consolas del proyecto ---- */
+#consoles-title {
+    padding: 0 2;
+    color: #e6edf3;
+}
+
+#console-tabs {
+    height: auto;
+    padding: 0 2;
+}
+
+.console-tab {
+    margin-right: 1;
+    min-width: 8;
+}
+
+#console-actions {
+    height: auto;
+    padding: 0 2;
+}
+
+#console-actions Button {
+    margin-right: 2;
+}
+
+#console-frame {
+    border: round #30363d;
+    margin: 0 2;
+    height: 1fr;
+}
+
+#console-views {
+    height: 1fr;
+}
+
+ConsoleView {
+    height: 1fr;
+}
+
+ConsoleView RichLog {
+    padding: 0 1;
+    background: #0d1117;
+}
+
+#console-input {
+    margin: 0 1;
+}
+
+#console-empty {
+    color: #8b949e;
+    padding: 1 2;
 }
