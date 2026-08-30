@@ -32,6 +32,7 @@ src/grafeno/
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
 ├── gh.py                   # Integración con GitHub CLI: detección de disponibilidad (repo + gh + acceso) y listado de issues abiertos (best-effort, nunca lanza)
 ├── references.py           # Modelo `Reference` y niveles global/proyecto/tarea con `resolve()`
+├── consoles.py             # Consolas del proyecto: ConsoleSpec (nombre/comando/color), paleta CONSOLE_COLORS y persistencia por proyecto ([[consoles]] en .grafeno.toml preservando el resto de secciones)
 ├── remote.py               # Proyectos remotos por SSH: parseo del spec, montaje sshfs bajo ~/.grafeno/mounts/ y espejo de datos de la tarea con rsync (best-effort), sondeo del SO destino (detect_os)
 ├── triggers.py             # Tareas trigger: modelo, niveles global/proyecto, fire() y spawn() best-effort
 ├── drivers/                # Abstracción de CLIs de agentes
@@ -46,13 +47,15 @@ src/grafeno/
 │   └── gitops.py           # Rama opcional grafeno/<tarea>
 └── tui/
     ├── runtime.py          # TaskRuntime: ejecución en segundo plano por tarea (workers Textual); notifica a la App cuando una ejecución termina en DONE (gancho de encadenamiento/repetición)
+    ├── console_pty.py      #   Proceso shell sobre PTY (POSIX): start/read/write/interrupt/close, sin shell=True; lectura no bloqueante
     ├── dirpicker.py        # Autocompletado de rutas en el formulario
     ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol; incluye filtro de texto sobre el selector de modelos
     ├── refform.py          # Editor reutilizable de referencias (tabla + añadir/borrar)
     ├── trigform.py         # Editor reutilizable de triggers globales (tabla + añadir/borrar)
     ├── widgets.py          # Widgets comunes (cabecera GrafenoHeader con reloj fecha/hora, LocationBar con la ruta actual y la de la tarea + distintivo SSH, barra de fases, helpers Markdown, MediaTextArea que guarda imágenes pegadas e inserta tokens media/media-NN.png)
-    └── screens/            # tasks (lista), detail (detalle+acciones), config, roles
+    └── screens/            # tasks (lista), detail (detalle+acciones), config, roles, consoles (tabs de shells del proyecto)
 tests/                      # pytest; conftest aísla GRAFENO_HOME e idioma por test
+docs/screenshot.png         # captura de la lista de tareas usada en el README
 install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), vía pipx; la ausencia de CLIs de agente es siempre un warning (nunca un error)
 ```
 
@@ -157,6 +160,17 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   si no se abren con el visor del SO) y sus rutas absolutas se inyectan en
   los prompts de plan, reevaluación e implementación (nunca en revisión,
   corrección ni pasos finales, igual que las referencias).
+- **Consolas por proyecto**: la lista de tareas (botón/tecla `k`) y el
+  detalle de cada tarea (`k`) abren la pantalla de consolas del proyecto
+  (en remotas, sobre el montaje sshfs vía `remote.effective_workdir`).
+  Cada consola es un `ConsoleSpec` (nombre, comando —vacío = shell del
+  usuario— y color) persistido en `[[consoles]]` del `.grafeno.toml` del
+  proyecto; el color tiñe el fondo del tab y el marco del área. Los
+  procesos son shells sobre PTY (`tui/console_pty.py`, solo POSIX: en
+  Windows se muestra un aviso), orientados a líneas (sin programas a
+  pantalla completa), con decodificación ANSI vía `rich.ansi.AnsiDecoder`
+  y lectura con `loop.add_reader` sobre el fd maestro. Solo se persisten
+  las definiciones: los procesos nacen y mueren con la pantalla.
 - **Tests**: un archivo `test_<modulo>.py` por módulo; fixtures autouse en
   `conftest.py` ya aíslan `GRAFENO_HOME` y fijan idioma inglés; drivers falsos
   para el orquestador; smoke tests TUI con el modo headless de Textual
