@@ -36,6 +36,7 @@ from ...pipeline.orchestrator import Orchestrator, phase_label
 from ...timefmt import format_duration
 from ...tokenfmt import format_tokens
 from ..widgets import GrafenoHeader, LocationBar, MediaTextArea, PhaseBar, markdown_set
+from .consoles import ConsolesScreen
 from .roles import TaskRolesScreen
 
 _SPINNER = "⠋⠙⠹⠸⠼⠴⦦⣾"
@@ -314,6 +315,7 @@ class TaskDetailScreen(Screen[None]):
         Binding("t", "run_tests", t("det.bind.tests")),
         Binding("a", "run_automode", t("det.bind.automode")),
         Binding("m", "ask_more", t("det.bind.more")),
+        Binding("k", "consoles", t("det.bind.consoles")),
         Binding("e", "edit_roles", t("det.bind.agents")),
         Binding("E", "edit_info", t("det.bind.edit")),
         Binding("d", "mark_done", t("det.bind.complete")),
@@ -892,6 +894,11 @@ class TaskDetailScreen(Screen[None]):
     def action_back(self) -> None:
         # Going back never interrupts: the pipeline keeps running in the background.
         self.dismiss()
+
+    def action_consoles(self) -> None:
+        """Open the consoles of the task's project (sshfs mount if remote)."""
+        workdir = remote.effective_workdir(self.current_task.remote, self.current_task.workdir)
+        self.app.push_screen(ConsolesScreen(workdir))
 
     # ------------------------------------------------------------------ #
     # Manual state change (force complete / discard)

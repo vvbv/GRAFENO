@@ -38,6 +38,7 @@ from ..widgets import GrafenoHeader, LocationBar, MediaTextArea
 # upgrade while the TUI is running cannot splice new on-disk modules into
 # the already-loaded old process.
 from .config import ConfigScreen
+from .consoles import ConsolesScreen
 from .detail import TaskDetailScreen
 
 
@@ -265,6 +266,7 @@ class TaskListScreen(Screen[None]):
         Binding("enter", "open_task", t("tasks.bind.open")),
         Binding("r", "reload", t("tasks.bind.reload")),
         Binding("v", "toggle_scope", t("tasks.bind.scope")),
+        Binding("k", "consoles", t("tasks.bind.consoles")),
         Binding("q", "quit_hint", t("common.quit")),
     ]
 
@@ -281,6 +283,7 @@ class TaskListScreen(Screen[None]):
         with Horizontal(id="tasks-header"):
             yield Static(t("tasks.subtitle"), id="subtitle")
             yield Button(t("tasks.scope.project"), id="scope-toggle")
+            yield Button(t("tasks.bind.consoles"), id="consoles-open")
         yield DataTable(id="tasks-table", cursor_type="row", zebra_stripes=True)
         yield Static("", id="empty-hint")
         yield Static("", id="token-summary")
@@ -321,6 +324,8 @@ class TaskListScreen(Screen[None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "scope-toggle":
             self.action_toggle_scope()
+        elif event.button.id == "consoles-open":
+            self.action_consoles()
 
     def _reload(self, *, preserve_cursor: bool = False) -> None:
         table = self.query_one(DataTable)
@@ -435,6 +440,10 @@ class TaskListScreen(Screen[None]):
     def action_quit_hint(self) -> None:
         """Block closing with q: you can only quit via the quit shortcut."""
         self.notify(t("tasks.quit_hint", key=_QUIT_KEY_LABEL), severity="warning")
+
+    def action_consoles(self) -> None:
+        """Open the consoles of the current project (the cwd)."""
+        self.app.push_screen(ConsolesScreen(Path(os.getcwd())))
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.row_key.value:

@@ -243,3 +243,56 @@ def test_dead_process_respawns_on_tab_click(monkeypatch, tmp_path):
             assert FakeConsole.instances[1].running
 
     asyncio.run(scenario())
+
+
+def test_task_list_opens_consoles_via_button_and_binding(monkeypatch, tmp_path):
+    """The task list has a Consoles button and the 'k' binding."""
+    _install_fake(monkeypatch)
+    monkeypatch.chdir(tmp_path)  # consoles persist into <cwd>/.grafeno.toml
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            from grafeno.tui.screens.tasks import TaskListScreen
+            assert isinstance(app.screen, TaskListScreen)
+            keys = {b.key for b in TaskListScreen.BINDINGS if isinstance(b.key, str)}
+            assert "k" in keys
+            await pilot.click("#consoles-open")
+            await pilot.pause()
+            assert isinstance(app.screen, ConsolesScreen)
+            assert app.screen._workdir == tmp_path
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, TaskListScreen)
+
+    asyncio.run(scenario())
+
+
+def test_task_detail_opens_consoles_with_task_workdir(monkeypatch, tmp_path):
+    """The task detail opens the consoles of the task's project via 'k'."""
+    _install_fake(monkeypatch)
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task
+
+    project = tmp_path / "proyecto"
+    project.mkdir()
+    task = Task.create("Con consolas", "desc", str(project), Config())
+    models.save(task)
+
+    async def scenario():
+        from grafeno.tui.screens.detail import TaskDetailScreen
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+            keys = {b.key for b in TaskDetailScreen.BINDINGS if isinstance(b.key, str)}
+            assert "k" in keys
+            await pilot.press("k")
+            await pilot.pause()
+            assert isinstance(app.screen, ConsolesScreen)
+            assert app.screen._workdir == project
+
+    asyncio.run(scenario())
