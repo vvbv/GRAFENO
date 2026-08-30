@@ -34,6 +34,11 @@ from ...tokenfmt import format_tokens
 from ..dirpicker import DirectoryPicker
 from ..refform import ReferencesForm
 from ..widgets import GrafenoHeader, LocationBar, MediaTextArea
+# Screen modules are imported eagerly (not lazily inside actions) so a pipx
+# upgrade while the TUI is running cannot splice new on-disk modules into
+# the already-loaded old process.
+from .config import ConfigScreen
+from .detail import TaskDetailScreen
 
 
 class NewTaskScreen(ModalScreen[Task | None]):
@@ -417,8 +422,6 @@ class TaskListScreen(Screen[None]):
         self.app.push_screen(NewTaskScreen(), opened)
 
     def action_config(self) -> None:
-        from .config import ConfigScreen
-
         self.app.push_screen(ConfigScreen())
 
     def action_open_task(self) -> None:
@@ -438,8 +441,6 @@ class TaskListScreen(Screen[None]):
             self._open(str(event.row_key.value))
 
     def _open(self, task_id: str) -> None:
-        from .detail import TaskDetailScreen
-
         try:
             task = models.load(task_id)
         except Exception as exc:

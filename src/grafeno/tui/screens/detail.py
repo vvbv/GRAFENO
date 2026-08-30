@@ -36,6 +36,7 @@ from ...pipeline.orchestrator import Orchestrator, phase_label
 from ...timefmt import format_duration
 from ...tokenfmt import format_tokens
 from ..widgets import GrafenoHeader, LocationBar, MediaTextArea, PhaseBar, markdown_set
+from .roles import TaskRolesScreen
 
 _SPINNER = "⠋⠙⠹⠸⠼⠴⦦⣾"
 _WARN_AFTER_S = 90    # no output: yellow warning
@@ -885,8 +886,6 @@ class TaskDetailScreen(Screen[None]):
                     reviewer_model=self.current_task.reviewer.model or "default",
                 )
             )
-
-        from .roles import TaskRolesScreen
 
         self.app.push_screen(TaskRolesScreen(self.current_task), closed)
 
