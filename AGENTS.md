@@ -22,6 +22,7 @@ src/grafeno/
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
 ├── live_log.py             # Persistencia del log en vivo (Text -> logs/live.jsonl, carga al crear el runtime; best-effort)
 ├── mdnorm.py               # Normalización de Markdown: colapsa saltos de línea y compacta listas sueltas en los .md de cada etapa
+├── media.py                # Imágenes del portapapeles: lectura (wl-paste/xclip/pngpaste/osascript), guardado en media/ de la tarea, listado y apertura con el visor del SO; preview inline opcional vía textual-image
 ├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
 ├── timefmt.py              # Formateo de duraciones (42s, 3m 05s, 1h 02m 03s)
 ├── ratelimit.py            # Detección de usage agotado en CLIs: patrones de error, pista de espera (retry-after, duración relativa u hora absoluta de reseteo con zona horaria) y constantes de sondeo/reintento
@@ -49,14 +50,14 @@ src/grafeno/
     ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol; incluye filtro de texto sobre el selector de modelos
     ├── refform.py          # Editor reutilizable de referencias (tabla + añadir/borrar)
     ├── trigform.py         # Editor reutilizable de triggers globales (tabla + añadir/borrar)
-    ├── widgets.py          # Widgets comunes (cabecera GrafenoHeader con reloj fecha/hora, LocationBar con la ruta actual y la de la tarea + distintivo SSH, barra de fases, helpers Markdown)
+    ├── widgets.py          # Widgets comunes (cabecera GrafenoHeader con reloj fecha/hora, LocationBar con la ruta actual y la de la tarea + distintivo SSH, barra de fases, helpers Markdown, MediaTextArea que guarda imágenes pegadas e inserta tokens media/media-NN.png)
     └── screens/            # tasks (lista), detail (detalle+acciones), config, roles
 tests/                      # pytest; conftest aísla GRAFENO_HOME e idioma por test
 install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), vía pipx; la ausencia de CLIs de agente es siempre un warning (nunca un error)
 ```
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
-`task.toml`, `plan/`, `review/`, `final/`, `logs/live.jsonl`, `logs/*.jsonl`); no
+`task.toml`, `plan/`, `review/`, `final/`, `media/`, `logs/live.jsonl`, `logs/*.jsonl`); no
 en el repo.
 
 ## Compilar / ejecutar / tests
@@ -149,6 +150,13 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `TaskRuntime`, de modo que sobrevive al cierre de la app. El fichero
   guarda todo el historial; en memoria solo se cargan las últimas
   `_MAX_LOG_ENTRIES` entradas. `reset_to_draft` lo borra.
+- **Media**: las imágenes pegadas en la descripción o en "ask for more" se
+  guardan en `media/` de la tarea (token `media/media-NN.png` en el texto),
+  se listan en la pestaña Media del detalle (ruta absoluta siempre visible;
+  preview inline solo con `textual-image` instalado y terminal compatible,
+  si no se abren con el visor del SO) y sus rutas absolutas se inyectan en
+  los prompts de plan, reevaluación e implementación (nunca en revisión,
+  corrección ni pasos finales, igual que las referencias).
 - **Tests**: un archivo `test_<modulo>.py` por módulo; fixtures autouse en
   `conftest.py` ya aíslan `GRAFENO_HOME` y fijan idioma inglés; drivers falsos
   para el orquestador; smoke tests TUI con el modo headless de Textual

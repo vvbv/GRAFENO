@@ -1572,3 +1572,26 @@ def test_location_bar_remote_task_shows_ssh_badge():
             assert "[SSH]" in text
 
     asyncio.run(scenario())
+
+
+def test_detail_screen_has_media_tab_and_files_list():
+    """The detail screen exposes the #tab-media tab and the #media-files list."""
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task
+    from grafeno.tui.screens.detail import TaskDetailScreen
+
+    task = Task.create("Demo media ui", "desc", "/tmp", Config())
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+
+            assert app.screen.query("#tab-media") is not None
+            assert app.screen.query("#media-files") is not None
+
+    asyncio.run(scenario())

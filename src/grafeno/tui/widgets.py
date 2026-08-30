@@ -7,15 +7,26 @@ import os
 from datetime import datetime
 
 from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
-from textual.widgets import Header, Markdown, Static
+from textual.binding import Binding
+from textual.widgets import Header, Markdown, Static, TextArea
 from textual.widgets._header import HeaderIcon, HeaderTitle
 
+from .. import media
 from ..i18n import t
 from ..models import Task, TaskState, state_label
 from ..timefmt import format_duration
 
-__all__ = ["DateTimeClock", "GrafenoHeader", "LocationBar", "PhaseBar", "markdown_set", "format_duration"]
+__all__ = [
+    "DateTimeClock",
+    "GrafenoHeader",
+    "LocationBar",
+    "MediaTextArea",
+    "PhaseBar",
+    "markdown_set",
+    "format_duration",
+]
 
 _PHASE_ORDER = (
     ("plan", "phase.plan"),
@@ -156,3 +167,51 @@ class LocationBar(Static):
             if self._bar_task.is_remote:
                 line.append(f" {t('loc.remote')}", style="bold yellow")
         self.update(line)
+
+
+class MediaTextArea(TextArea):
+    """TextArea that stores pasted clipboard images under the task media dir.
+
+    When the clipboard holds a PNG at paste time, the image is saved and a
+    ``media/media-NN.png`` token is inserted at the cursor instead of text.
+    Without a ``task_id`` (task not created yet) images are buffered in
+    ``pending`` and must be flushed with :func:`media.save_pending`.
+    """
+
+    BINDINGS = [Binding("ctrl+v", "paste_media", show=False, priority=True)]
+
+    def __init__(self, *args, task_id: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._media_task_id = task_id
+        self.pending: list[tuple[str, bytes]] = []  # (suggested name, png bytes)
+
+    async def _on_paste(self, event: events.Paste) -> None:
+        if await self._try_paste_image():
+            return
+        await super()._on_paste(event)
+
+    async def action_paste_media(self) -> None:
+        if not await self._try_paste_image():
+            self.action_paste()  # normal text paste fallback
+
+    async def _try_paste_image(self) -> bool:
+        data = await media.read_clipboard_image_async()
+        if data is None:
+            return False
+        name = self._store_image(data)
+        if name is None:
+            return False
+        self.insert(media.MEDIA_TOKEN_PREFIX + name)
+        self.notify(t("media.pasted", name=name))
+        return True
+
+    def _store_image(self, data: bytes) -> str | None:
+        """Persist ``data`` and return the final on-disk file name (or None)."""
+        if self._media_task_id is None:
+            name = media.next_pending_name(self.pending)
+            self.pending.append((name, data))
+            return name
+        path = media.save_image(self._media_task_id, data)
+        if path is None:
+            return None
+        return path.name

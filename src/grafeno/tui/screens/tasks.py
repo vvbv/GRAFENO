@@ -25,7 +25,7 @@ from textual.widgets import (
 
 from ... import config as config_module, scheduler
 from ... import gh as gh_module
-from ... import models, remote
+from ... import media, models, remote
 from ...i18n import t
 from ...models import Task, task_state_label
 from ...pipeline.hooks import HOOK_STAGES, format_stages
@@ -33,7 +33,7 @@ from ...timefmt import format_duration
 from ...tokenfmt import format_tokens
 from ..dirpicker import DirectoryPicker
 from ..refform import ReferencesForm
-from ..widgets import GrafenoHeader, LocationBar
+from ..widgets import GrafenoHeader, LocationBar, MediaTextArea
 
 
 class NewTaskScreen(ModalScreen[Task | None]):
@@ -51,7 +51,7 @@ class NewTaskScreen(ModalScreen[Task | None]):
             yield Label(t("nt.name"))
             yield Input(placeholder=t("nt.name.placeholder"), id="nt-name")
             yield Label(t("nt.description"))
-            yield TextArea(id="nt-description")
+            yield MediaTextArea(id="nt-description")
             yield Label(t("nt.issue"), id="nt-issue-label")
             yield Select([], id="nt-issue", allow_blank=True)
             yield Label(t("nt.workdir"))
@@ -242,6 +242,9 @@ class NewTaskScreen(ModalScreen[Task | None]):
             references=self.query_one("#nt-refs", ReferencesForm).references(),
         )
         models.save(task)
+        desc_area = self.query_one("#nt-description", MediaTextArea)
+        if desc_area.pending:
+            media.save_pending(task.id, desc_area.pending)
         self.dismiss(task)
 
 

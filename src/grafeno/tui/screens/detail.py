@@ -28,14 +28,14 @@ from textual.widgets import (
     TextArea,
 )
 
-from ... import models, paths, remote, scheduler
+from ... import media, models, paths, remote, scheduler
 from ...i18n import t
 from ...mdnorm import normalize_markdown
 from ...models import Task, TaskState
 from ...pipeline.orchestrator import Orchestrator, phase_label
 from ...timefmt import format_duration
 from ...tokenfmt import format_tokens
-from ..widgets import GrafenoHeader, LocationBar, PhaseBar, markdown_set
+from ..widgets import GrafenoHeader, LocationBar, MediaTextArea, PhaseBar, markdown_set
 
 _SPINNER = "⠋⠙⠹⠸⠼⠴⦦⣾"
 _WARN_AFTER_S = 90    # no output: yellow warning
@@ -58,6 +58,16 @@ class FileList(ListView):
         self.clear()
         for entry in sorted(directory.glob("**/*.md")):
             self.append(FileItem(entry, directory))
+
+
+class MediaList(ListView):
+    """Image list of the task media dir."""
+
+    def load_dir(self, directory: Path) -> None:
+        self.clear()
+        if directory.is_dir():
+            for entry in sorted(directory.glob("*.png")):
+                self.append(FileItem(entry))
 
 
 class PlanConfirmScreen(ModalScreen[bool]):
@@ -192,7 +202,7 @@ class RequestMoreScreen(ModalScreen[str | None]):
         with Vertical(id="new-task-dialog"):
             yield Label(t("rm.title", cycle=self._gtask.cycle + 1), id="new-task-title")
             yield Label(t("rm.prompt"))
-            yield TextArea(id="rm-text")
+            yield MediaTextArea(id="rm-text", task_id=self._gtask.id)
             body = t(
                 "rm.body",
                 planner=self._gtask.planner.cli,
@@ -237,7 +247,7 @@ class EditTaskScreen(ModalScreen[bool]):
             yield Label(t("et.name"))
             yield Input(self._gtask.name, id="et-name")
             yield Label(t("et.description"))
-            yield TextArea(id="et-description")
+            yield MediaTextArea(id="et-description", task_id=self._gtask.id)
             yield Label(t("et.parent"))
             yield Select([], id="et-parent", allow_blank=True)
             with Horizontal(id="nt-buttons"):
@@ -340,6 +350,12 @@ class TaskDetailScreen(Screen[None]):
             with TabPane(t("det.tab.desc"), id="tab-desc"):
                 with VerticalScroll(id="desc-scroll"):
                     yield Static("", id="desc-view")
+            with TabPane(t("det.tab.media"), id="tab-media"):
+                with Horizontal():
+                    yield MediaList(id="media-files")
+                    with VerticalScroll(id="media-scroll"):
+                        yield Static("", id="media-preview")
+                yield Static("", id="media-path")
             with TabPane(t("det.tab.plan"), id="tab-plan"):
                 with Horizontal():
                     yield FileList(id="plan-files")
@@ -381,7 +397,14 @@ class TaskDetailScreen(Screen[None]):
         self.set_interval(1.0, self._tick)
         self._maybe_plan_confirm()
         # Focusable Markdown viewers: the keyboard (arrows, PgDn...) scrolls.
-        for scroll_id in ("#desc-scroll", "#plan-scroll", "#review-scroll", "#final-scroll", "#tokens-scroll"):
+        for scroll_id in (
+            "#desc-scroll",
+            "#plan-scroll",
+            "#review-scroll",
+            "#final-scroll",
+            "#tokens-scroll",
+            "#media-scroll",
+        ):
             self.query_one(scroll_id, VerticalScroll).can_focus = True
         self.query_one("#desc-view", Static).update(
             self.current_task.description or t("det.desc.empty")
@@ -578,20 +601,51 @@ class TaskDetailScreen(Screen[None]):
         self.query_one("#plan-files", FileList).load_dir(paths.plan_dir(self.current_task.id))
         self.query_one("#review-files", FileList).load_dir(paths.review_dir(self.current_task.id))
         self.query_one("#final-files", FileList).load_dir(paths.final_dir(self.current_task.id))
+        self.query_one("#media-files", MediaList).load_dir(paths.task_dir(self.current_task.id) / "media")
+        self.query_one("#media-path", Static).update("")
+        self.query_one("#media-preview", Static).update("")
 
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         list_id = event.list_view.id
         views = {"plan-files": "#plan-view", "review-files": "#review-view", "final-files": "#final-view"}
-        if list_id not in views or not isinstance(event.item, FileItem):
+        if list_id in views and isinstance(event.item, FileItem):
+            target = event.item.file_path
+            view_id = views[list_id]
+            try:
+                text = normalize_markdown(target.read_text(encoding="utf-8"))
+            except OSError as exc:
+                self.notify(t("det.error.read", name=target.name, error=exc), severity="error")
+                return
+            await markdown_set(self.query_one(view_id, Markdown), text)
             return
-        target = event.item.file_path
-        view_id = views[list_id]
+        if list_id == "media-files" and isinstance(event.item, FileItem):
+            self._show_media(event.item.file_path)
+            return
+
+    def _show_media(self, path: Path) -> None:
+        """Show the absolute path, inline preview when possible, else open."""
+        self.query_one("#media-path", Static).update(t("media.path", path=str(path)))
+        if media.inline_preview_supported():
+            if self._render_preview(path):
+                return
+        if media.open_media(path):
+            self.notify(t("media.opened", name=path.name))
+        else:
+            self.notify(t("media.open_failed", name=path.name), severity="warning")
+
+    def _render_preview(self, path: Path) -> bool:
+        """Best-effort inline preview via the optional textual-image package."""
         try:
-            text = normalize_markdown(target.read_text(encoding="utf-8"))
-        except OSError as exc:
-            self.notify(t("det.error.read", name=target.name, error=exc), severity="error")
-            return
-        await markdown_set(self.query_one(view_id, Markdown), text)
+            from textual_image.widget import Image  # type: ignore[import-not-found]
+        except ImportError:
+            return False
+        try:
+            container = self.query_one("#media-scroll", VerticalScroll)
+            container.remove_children()
+            container.mount(Image(str(path)))
+            return True
+        except Exception:  # renderer failures must never break the TUI
+            return False
 
     # ------------------------------------------------------------------ #
     # Pipeline execution (through the App's runtime)

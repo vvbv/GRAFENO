@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from ..models import Task
 from ..references import resolve
-from .. import paths
+from .. import media, paths
 
 EXECUTOR_HEADER_TEMPLATE = """<!-- GRAFENO-EXECUTOR
 cli: {cli}
@@ -105,6 +105,15 @@ mucho el consumo de tokens.
 """
 
 
+def _media_section(task: Task) -> str:
+    """Attached images (absolute paths so vision-capable CLIs can read them)."""
+    files = media.list_media(task.id)
+    if not files:
+        return ""
+    lines = "\n".join(f"- {path}" for path in files)
+    return f"\n\nImágenes adjuntas a la tarea (puedes leerlas si tu CLI lo soporta):\n{lines}\n"
+
+
 def _remote_section(task: Task, *, for_plan: bool = False) -> str:
     """Sección de entorno remoto para tareas SSH (vacía en tareas locales)."""
     if not task.is_remote:
@@ -147,7 +156,7 @@ tarea de programación orquestada por GRAFENO.
 - Nombre: {task.name}
 - Descripción: {task.description or "(sin descripción)"}
 - Proyecto (directorio de trabajo): {task.workdir}
-{_cycle_section(task)}{_remote_section(task, for_plan=True)}{_references_section(task)}
+{_cycle_section(task)}{_remote_section(task, for_plan=True)}{_references_section(task)}{_media_section(task)}
 # Tu entrega
 1. Explora el proyecto para entender su estructura, stack y convenciones.
 2. Escribe el plan en UNO O VARIOS archivos Markdown dentro de:
@@ -196,7 +205,7 @@ plan existente, NO una planificación desde cero.
 - Nombre: {task.name}
 - Descripción: {task.description or "(sin descripción)"}
 - Proyecto (directorio de trabajo): {task.workdir}
-{_cycle_section(task)}{_remote_section(task, for_plan=True)}{_references_section(task)}
+{_cycle_section(task)}{_remote_section(task, for_plan=True)}{_references_section(task)}{_media_section(task)}
 # Tu entrega
 1. La tarea YA TIENE archivos de plan en:
    {plan_dir}
@@ -242,7 +251,7 @@ def implement_prompt(task: Task) -> str:
 # Tarea
 - Nombre: {task.name}
 - Proyecto (directorio de trabajo): {task.workdir}
-{_remote_section(task)}{_references_section(task)}
+{_remote_section(task)}{_references_section(task)}{_media_section(task)}
 # Tu entrega
 1. Lee TODOS los archivos Markdown del directorio de plan, en orden alfabético:
    {plan_dir}

@@ -241,3 +241,39 @@ def test_remote_section_absent_for_local_tasks(tmp_path):
 def test_remote_section_fallback_when_os_unknown(tmp_path):
     task = _task(tmp_path, remote="u@h:/srv/app")
     assert "no detectado" in prompts.plan_prompt(task)
+
+
+def test_prompts_without_media_omit_section(tmp_path):
+    """Without images, no media section is appended to the prompts."""
+    task = _task(tmp_path)
+    for prompt in (
+        prompts.plan_prompt(task),
+        prompts.reevaluate_plan_prompt(task),
+        prompts.implement_prompt(task),
+        prompts.review_prompt(task, 1),
+        prompts.fix_prompt(task, 1),
+        prompts.final_prompt(task),
+    ):
+        assert "Imágenes adjuntas" not in prompt
+
+
+def test_prompts_inject_media_paths(tmp_path):
+    """Images are listed in plan/reevaluate/implement; not in review/fix/final."""
+    task = _task(tmp_path)
+    # Fake image: media.list_media only lists the PNG, it does not read it,
+    # so the bytes do not need to be a real PNG.
+    media_dir = paths.media_dir(task.id)
+    (media_dir / "media-01.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    absolute = str((media_dir / "media-01.png").resolve())
+    plan = prompts.plan_prompt(task)
+    reevaluate = prompts.reevaluate_plan_prompt(task)
+    implement = prompts.implement_prompt(task)
+    review = prompts.review_prompt(task, 1)
+    fix = prompts.fix_prompt(task, 1)
+    final = prompts.final_prompt(task)
+    for prompt in (plan, reevaluate, implement):
+        assert "Imágenes adjuntas" in prompt
+        assert absolute in prompt
+    for prompt in (review, fix, final):
+        assert "Imágenes adjuntas" not in prompt
+        assert absolute not in prompt

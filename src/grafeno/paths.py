@@ -78,6 +78,13 @@ def logs_dir(task_id: str) -> Path:
     return path
 
 
+def media_dir(task_id: str) -> Path:
+    """Directory with the images pasted into the task (description/requests)."""
+    path = task_dir(task_id) / "media"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def mounts_dir() -> Path:
     """Local mount points for remote (sshfs) projects."""
     path = home() / "mounts"

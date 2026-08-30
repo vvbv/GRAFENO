@@ -1,0 +1,135 @@
+"""Tests for the clipboard image module (media.py)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from grafeno import media, paths
+
+
+def test_next_media_name_first_in_empty_dir(tmp_path):
+    assert media.next_media_name(tmp_path) == "media-01.png"
+
+
+def test_next_media_name_skips_existing(tmp_path):
+    (tmp_path / "media-01.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "media-02.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    assert media.next_media_name(tmp_path) == "media-03.png"
+
+
+def test_save_image_writes_and_list_media_returns_it(tmp_path):
+    # Ensure GRAFENO_HOME isolation: just call save_image with any id.
+    task_id = "t1"
+    data = b"\x89PNG\r\n\x1a\n" + b"x" * 32
+    path = media.save_image(task_id, data)
+    assert path is not None
+    assert path.exists()
+    assert path.read_bytes() == data
+    listed = media.list_media(task_id)
+    assert listed == [path]
+    # Sorted output.
+    other = media.save_image(task_id, data)
+    assert other is not None
+    assert media.list_media(task_id) == sorted([path, other])
+
+
+def test_list_media_unknown_task_returns_empty(tmp_path):
+    assert media.list_media("no-such-task") == []
+
+
+def test_save_pending_writes_all_pairs(tmp_path):
+    task_id = "t-pending"
+    data1 = b"\x89PNG\r\n\x1a\n" + b"a" * 8
+    data2 = b"\x89PNG\r\n\x1a\n" + b"b" * 8
+    written = media.save_pending(task_id, [("media-01.png", data1), ("media-02.png", data2)])
+    assert [p.name for p in written] == ["media-01.png", "media-02.png"]
+    listed = media.list_media(task_id)
+    assert [p.name for p in listed] == ["media-01.png", "media-02.png"]
+    assert listed[0].read_bytes() == data1
+    assert listed[1].read_bytes() == data2
+
+
+def test_read_clipboard_image_returns_none_without_command(monkeypatch):
+    monkeypatch.setattr(media, "_clipboard_command", lambda: None)
+    assert media.read_clipboard_image() is None
+
+
+def test_read_clipboard_image_returns_png_bytes(monkeypatch):
+    png_bytes = b"\x89PNG\r\n\x1a\nrest"
+    monkeypatch.setattr(media, "_clipboard_command", lambda: ["fake"])
+    monkeypatch.setattr(
+        media.subprocess,
+        "run",
+        lambda *a, **kw: type("R", (), {"returncode": 0, "stdout": png_bytes})(),
+    )
+    assert media.read_clipboard_image() == png_bytes
+
+
+def test_read_clipboard_image_returns_none_when_no_png_header(monkeypatch):
+    monkeypatch.setattr(media, "_clipboard_command", lambda: ["fake"])
+    monkeypatch.setattr(
+        media.subprocess,
+        "run",
+        lambda *a, **kw: type("R", (), {"returncode": 0, "stdout": b"not a png"})(),
+    )
+    assert media.read_clipboard_image() is None
+
+
+def test_read_clipboard_image_returns_none_on_subprocess_error(monkeypatch):
+    import subprocess as sp
+
+    monkeypatch.setattr(media, "_clipboard_command", lambda: ["fake"])
+
+    def boom(*_a, **_kw):
+        raise sp.TimeoutExpired(cmd=["fake"], timeout=5)
+
+    monkeypatch.setattr(media.subprocess, "run", boom)
+    assert media.read_clipboard_image() is None
+
+
+def test_open_media_returns_false_without_executable(monkeypatch):
+    monkeypatch.setattr(media.shutil, "which", lambda _name: None)
+    assert media.open_media(Path("/tmp/x.png")) is False
+
+
+def test_open_media_invokes_popen(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class FakePopen:
+        def __init__(self, argv, **_kw):
+            captured["argv"] = argv
+
+    monkeypatch.setattr(media.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(media.subprocess, "Popen", FakePopen)
+    assert media.open_media(Path("/tmp/x.png")) is True
+    argv = captured["argv"]
+    assert isinstance(argv, list)
+    assert argv[0] in {"open", "xdg-open"}
+    assert argv[-1] == "/tmp/x.png"
+
+
+def test_inline_preview_supported_returns_bool(monkeypatch):
+    # Unsupported terminal -> False even with the package available.
+    monkeypatch.setenv("TERM", "xterm")
+    monkeypatch.delenv("KITTY_WINDOW_ID", raising=False)
+    monkeypatch.setattr(media.importlib.util, "find_spec", lambda _name: object())
+    assert media.inline_preview_supported() is False
+
+    # Supported terminal without the package -> False.
+    monkeypatch.setenv("TERM_PROGRAM", "WezTerm")
+    monkeypatch.delenv("KITTY_WINDOW_ID", raising=False)
+    monkeypatch.setattr(media.importlib.util, "find_spec", lambda _name: None)
+    assert media.inline_preview_supported() is False
+
+    # Supported terminal with the package -> True.
+    monkeypatch.setattr(media.importlib.util, "find_spec", lambda _name: object())
+    assert media.inline_preview_supported() is True
+
+
+def test_paths_media_dir_creates_directory(tmp_path):
+    """paths.media_dir creates the directory on first call."""
+    task_id = "t-media-paths"
+    target = paths.media_dir(task_id)
+    assert target.exists()
+    assert target.is_dir()
+    assert target.name == "media"
