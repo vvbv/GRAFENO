@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from ..drivers.base import CLIDriver, RunRequest
+from ..i18n import LANGUAGES
 from ..models import Task, state_label
 
 ACTIONS = (
@@ -67,6 +68,7 @@ class Intent:
     task_ref: str = ""   # id or name fragment the user refers to
     question: str = ""   # question for the "ask" action
     error: str = ""      # parser CLI infrastructure failure (not "unknown")
+    lang: str = ""       # ISO code of the user's language ("" = unknown)
 
 
 def tasks_summary(tasks: list[Task], *, limit: int = _SUMMARY_LIMIT) -> str:
@@ -99,10 +101,12 @@ Responde SOLO con un objeto JSON (sin texto alrededor, sin Markdown) con esta fo
   "action": "create_tasks" | "list_tasks" | "task_status" | "send_files" | "ask" | "help" | "unknown",
   "tasks": [{{"name": "...", "description": "...", "workdir": "...", "test_command": "..."}}],
   "task_ref": "id o fragmento del nombre de la tarea (para task_status, send_files, ask)",
-  "question": "la pregunta concreta del usuario (solo para ask)"
+  "question": "la pregunta concreta del usuario (solo para ask)",
+  "lang": "código ISO 639-1 del idioma del mensaje del usuario (es, en, ...)"
 }}
 
 Reglas:
+- "lang": SIEMPRE el idioma en que el usuario escribió o dictó el mensaje.
 - "create_tasks": una entrada por cada tarea que pida el mensaje; name corto y
   descriptivo; description detallada incluyendo TODO lo que pida el usuario;
   workdir solo si el usuario lo indica (si no, déjalo vacío); test_command solo
@@ -152,6 +156,12 @@ def _extract_json(text: str) -> dict[str, Any] | None:
     return None
 
 
+def _parse_lang(value: Any) -> str:
+    """ISO code of the user's language; only catalog languages are kept."""
+    lang = str(value or "").strip().lower()[:2]
+    return lang if lang in LANGUAGES else ""
+
+
 def parse_intent_payload(text: str) -> Intent:
     """Tolerant parse of the parser CLI output into an Intent."""
     payload = _extract_json(text)
@@ -174,6 +184,7 @@ def parse_intent_payload(text: str) -> Intent:
         tasks=specs,
         task_ref=str(payload.get("task_ref", "") or "").strip(),
         question=str(payload.get("question", "") or "").strip(),
+        lang=_parse_lang(payload.get("lang")),
     )
     if intent.action == "create_tasks" and not intent.tasks:
         intent.action = "unknown"  # nothing valid to create

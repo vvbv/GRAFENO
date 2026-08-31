@@ -119,6 +119,16 @@ class EditorConfig:
         )
 
 
+def _sanitize_key(value: str) -> str:
+    """Clean a pasted API key: strips whitespace and label prefixes.
+
+    Users paste values like ``"groq gsk_..."`` or ``"Bearer <key>"``; API
+    keys never contain whitespace, so the last token is the key itself.
+    """
+    parts = value.split()
+    return parts[-1] if parts else ""
+
+
 @dataclass
 class TelegramConfig:
     """Telegram bot integration: voice/text notes become GRAFENO tasks.
@@ -148,15 +158,15 @@ class TelegramConfig:
 
     def resolve_token(self) -> str:
         """Bot token: the environment variable wins over the stored one."""
-        return os.environ.get(TELEGRAM_TOKEN_ENV, "").strip() or self.bot_token.strip()
+        return _sanitize_key(os.environ.get(TELEGRAM_TOKEN_ENV, "")) or _sanitize_key(self.bot_token)
 
     def resolve_stt_key(self) -> str:
-        return os.environ.get(TELEGRAM_STT_KEY_ENV, "").strip() or self.stt_key.strip()
+        return _sanitize_key(os.environ.get(TELEGRAM_STT_KEY_ENV, "")) or _sanitize_key(self.stt_key)
 
     def resolve_tts_key(self) -> str:
         """TTS key: own env/field first, then the STT key (usually same provider)."""
-        from_env = os.environ.get(TELEGRAM_TTS_KEY_ENV, "").strip()
-        return from_env or self.tts_key.strip() or self.resolve_stt_key()
+        from_env = _sanitize_key(os.environ.get(TELEGRAM_TTS_KEY_ENV, ""))
+        return from_env or _sanitize_key(self.tts_key) or self.resolve_stt_key()
 
     def chat_ids(self) -> set[int]:
         """Whitelisted chat ids (unparseable entries are ignored)."""

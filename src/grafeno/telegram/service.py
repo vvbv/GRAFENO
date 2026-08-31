@@ -25,7 +25,7 @@ from .. import _toml, media, models, paths
 from ..config import TelegramConfig
 from ..drivers import get_driver
 from ..drivers.base import CLIDriver, RunRequest
-from ..i18n import t
+from ..i18n import t, t_lang
 from ..models import Task, state_label
 from ..timefmt import format_duration
 from . import intents, stt, tts
@@ -134,6 +134,7 @@ class TelegramService:
         self._bot_username = ""  # filled from getMe at startup
         self._bot_id = 0         # bot user id (reply detection in groups)
         self._unauth_notified: dict[int, float] = {}  # chat_id -> last notice
+        self._chat_lang: dict[int, str] = {}  # chat_id -> language of its last message
 
     # ------------------------------------------------------------------ #
     # Polling loop
@@ -203,6 +204,18 @@ class TelegramService:
         """Whitelist check; empty whitelist denies everyone."""
         return chat_id in self.cfg.chat_ids()
 
+    def _tt(self, chat_id: int, key: str, **kwargs: Any) -> str:
+        """Translate for a chat: language of its last message, else UI language."""
+        lang = self._chat_lang.get(chat_id, "")
+        return t_lang(lang, key, **kwargs) if lang else t(key, **kwargs)
+
+    def _state_label(self, chat_id: int, task: Task) -> str:
+        """Task state label in the chat's language."""
+        lang = self._chat_lang.get(chat_id, "")
+        if lang:
+            return t_lang(lang, f"state.{task.state.value}")
+        return state_label(task.state)
+
     async def _typing_loop(self, chat_id: int, action: str, stop: asyncio.Event) -> None:
         """Refresh the chat action every TYPING_REFRESH until ``stop`` is set."""
         while not stop.is_set():
@@ -245,12 +258,15 @@ class TelegramService:
     def _addressed_to_bot(self, message: TgMessage) -> bool:
         """Group gating: group chatter must not reach the parser CLI.
 
-        In groups/superchannels the bot only processes commands, messages
-        that mention it and replies to its own messages. This matters once
-        privacy mode is disabled (BotFather /setprivacy), when every group
-        message is delivered to the bot.
+        In groups/supergroups the bot only processes commands, messages
+        that mention it, replies to its own messages and voice notes (they
+        cannot carry mentions: in the bot's group they are deliberate).
+        This matters once privacy mode is disabled (BotFather /setprivacy),
+        when every group message is delivered to the bot.
         """
         if message.chat_type == "private":
+            return True
+        if message.voice_file_id:
             return True
         text = (message.text or message.caption).strip()
         if text.startswith("/"):
@@ -322,7 +338,7 @@ class TelegramService:
         if text:
             await self._parse_and_reply(message.chat_id, text)
         elif message.photo_file_id or message.video_file_id:
-            await self._send(message.chat_id, t("tg.attachment.pending"))
+            await self._send(message.chat_id, self._tt(message.chat_id, "tg.attachment.pending"))
 
     async def _handle_voice(self, message: TgMessage) -> None:
         """Download a voice note, transcribe it and treat the text as input."""
@@ -332,25 +348,31 @@ class TelegramService:
                 file_path = await asyncio.to_thread(self.client.get_file_path, message.voice_file_id)
                 data = await asyncio.to_thread(self.client.download_file, file_path)
             except TelegramError as exc:
-                await self._send(chat_id, t("tg.download_failed", error=exc))
+                await self._send(chat_id, self._tt(chat_id, "tg.download_failed", error=exc))
                 return
             key = self.cfg.resolve_stt_key()
             if not key:
-                await self._send(chat_id, t("tg.stt.not_configured"))
+                await self._send(chat_id, self._tt(chat_id, "tg.stt.not_configured"))
                 return
+            reasons: list[str] = []
             text = await asyncio.to_thread(
                 stt.transcribe,
                 url=self.cfg.stt_url,
                 api_key=key,
                 model=self.cfg.stt_model,
                 data=data,
-                filename="voice.oga",
+                filename="voice.ogg",
+                on_error=reasons.append,
             )
         if not text:
-            await self._send(chat_id, t("tg.stt.failed"))
+            if reasons:
+                self._log(f"stt failed for chat {chat_id}: {reasons[0]}")
+                await self._send(chat_id, self._tt(chat_id, "tg.stt.failed_reason", error=reasons[0]))
+            else:
+                await self._send(chat_id, self._tt(chat_id, "tg.stt.failed"))
             return
-        await self._send(chat_id, t("tg.heard", text=text))
-        await self._parse_and_reply(chat_id, text)
+        # The transcription notice goes out in the detected message language.
+        await self._parse_and_reply(chat_id, text, heard=text)
 
     async def _buffer_attachment(self, chat_id: int, file_id: str, fallback_name: str) -> None:
         """Download a photo/video and buffer it for the next created task."""
@@ -391,11 +413,13 @@ class TelegramService:
         candidate = Path(self.default_workdir or ".")
         return candidate if candidate.is_dir() else Path(".")
 
-    async def _parse_and_reply(self, chat_id: int, text: str) -> None:
+    async def _parse_and_reply(self, chat_id: int, text: str, *, heard: str | None = None) -> None:
         tasks = models.list_all()
         driver = self._parser_driver()
         if driver is None:
-            await self._send(chat_id, t("tg.parser_unavailable", cli=self.parser_cli))
+            if heard is not None:
+                await self._send(chat_id, self._tt(chat_id, "tg.heard", text=heard))
+            await self._send(chat_id, self._tt(chat_id, "tg.parser_unavailable", cli=self.parser_cli))
             return
         async with self._typing(chat_id):
             intent = await intents.parse_intent(
@@ -406,11 +430,15 @@ class TelegramService:
                 self._run_workdir(),
                 default_workdir=self.default_workdir,
             )
+        if intent.lang:
+            self._chat_lang[chat_id] = intent.lang  # answer in the user's language
+        if heard is not None:
+            await self._send(chat_id, self._tt(chat_id, "tg.heard", text=heard))
         if intent.error:
             # Infrastructure failure (timeout, crash): surface it, don't
             # hide it behind the generic help text.
             self._log(f"parser error for chat {chat_id}: {intent.error}")
-            await self._send(chat_id, t("tg.parser_error", error=intent.error))
+            await self._send(chat_id, self._tt(chat_id, "tg.parser_error", error=intent.error))
             return
         self._log(f"chat {chat_id}: intent={intent.action} tasks={len(intent.tasks)} ref={intent.task_ref!r}")
         await self._dispatch(chat_id, intent, tasks)
@@ -419,7 +447,7 @@ class TelegramService:
         if intent.action == "create_tasks":
             await self._propose_or_create(chat_id, intent.tasks)
         elif intent.action == "list_tasks":
-            await self._send(chat_id, self._format_task_list(tasks))
+            await self._send(chat_id, self._format_task_list(chat_id, tasks))
         elif intent.action == "task_status":
             await self._send_status(chat_id, intent, tasks)
         elif intent.action == "send_files":
@@ -427,28 +455,32 @@ class TelegramService:
         elif intent.action == "ask":
             await self._answer_question(chat_id, intent, tasks)
         else:  # help | unknown
-            await self._send(chat_id, t("tg.help"))
+            await self._send(chat_id, self._tt(chat_id, "tg.help"))
 
-    def _format_task_list(self, tasks: list[Task]) -> str:
+    def _format_task_list(self, chat_id: int, tasks: list[Task]) -> str:
         if not tasks:
-            return t("tg.list.empty")
+            return self._tt(chat_id, "tg.list.empty")
         items = "\n".join(
-            t("tg.list.item", name=task.name, state=state_label(task.state), id=task.id)
+            self._tt(
+                chat_id, "tg.list.item",
+                name=task.name, state=self._state_label(chat_id, task), id=task.id,
+            )
             for task in tasks[:10]
         )
-        return t("tg.list.header", items=items)
+        return self._tt(chat_id, "tg.list.header", items=items)
 
     async def _send_status(self, chat_id: int, intent: Intent, tasks: list[Task]) -> None:
         task = intents.fuzzy_find_task(intent.task_ref, tasks)
         if task is None:
-            await self._send(chat_id, t("tg.task_not_found", ref=intent.task_ref))
+            await self._send(chat_id, self._tt(chat_id, "tg.task_not_found", ref=intent.task_ref))
             return
         await self._send(
             chat_id,
-            t(
+            self._tt(
+                chat_id,
                 "tg.status",
                 name=task.name,
-                state=state_label(task.state),
+                state=self._state_label(chat_id, task),
                 workdir=task.workdir,
                 iteration=task.iteration,
                 duration=format_duration(task.total_duration_seconds()),
@@ -469,13 +501,13 @@ class TelegramService:
     async def _send_files(self, chat_id: int, intent: Intent, tasks: list[Task]) -> None:
         task = intents.fuzzy_find_task(intent.task_ref, tasks)
         if task is None:
-            await self._send(chat_id, t("tg.task_not_found", ref=intent.task_ref))
+            await self._send(chat_id, self._tt(chat_id, "tg.task_not_found", ref=intent.task_ref))
             return
         files = self._artifact_files(task)
         if not files:
-            await self._send(chat_id, t("tg.files.none", name=task.name))
+            await self._send(chat_id, self._tt(chat_id, "tg.files.none", name=task.name))
             return
-        await self._send(chat_id, t("tg.files.sent", count=len(files), name=task.name))
+        await self._send(chat_id, self._tt(chat_id, "tg.files.sent", count=len(files), name=task.name))
         async with self._typing(chat_id, action="upload_document"):
             for path in files[:20]:
                 try:
@@ -486,11 +518,11 @@ class TelegramService:
     async def _answer_question(self, chat_id: int, intent: Intent, tasks: list[Task]) -> None:
         task = intents.fuzzy_find_task(intent.task_ref, tasks)
         if task is None:
-            await self._send(chat_id, t("tg.task_not_found", ref=intent.task_ref))
+            await self._send(chat_id, self._tt(chat_id, "tg.task_not_found", ref=intent.task_ref))
             return
         driver = self._parser_driver()
         if driver is None:
-            await self._send(chat_id, t("tg.parser_unavailable", cli=self.parser_cli))
+            await self._send(chat_id, self._tt(chat_id, "tg.parser_unavailable", cli=self.parser_cli))
             return
         context = self._task_context(task)
         prompt = _ASK_PROMPT.format(context=context, question=intent.question)
@@ -507,7 +539,7 @@ class TelegramService:
             except Exception:  # noqa: BLE001 - the bot never propagates CLI errors
                 result = None
         answer = result.text.strip() if result is not None and result.ok else ""
-        await self._send(chat_id, answer or t("tg.ask.failed"))
+        await self._send(chat_id, answer or self._tt(chat_id, "tg.ask.failed"))
 
     def _task_context(self, task: Task) -> str:
         """Name, description, state and truncated artifacts of a task."""
@@ -536,26 +568,27 @@ class TelegramService:
     async def _propose_or_create(self, chat_id: int, specs: list[TaskSpec]) -> None:
         if not self.cfg.confirm_create:
             created, errors = self._create_tasks(chat_id, specs)
-            await self._send(chat_id, self._format_created(created, errors))
+            await self._send(chat_id, self._format_created(chat_id, created, errors))
             return
         proposal = PendingProposal(id=secrets.token_hex(4), chat_id=chat_id, specs=specs)
         self._proposals[proposal.id] = proposal
         markup = {
             "inline_keyboard": [
                 [
-                    {"text": t("tg.btn.create"), "callback_data": f"{CALLBACK_PREFIX}c:{proposal.id}"},
-                    {"text": t("tg.btn.cancel"), "callback_data": f"{CALLBACK_PREFIX}x:{proposal.id}"},
+                    {"text": self._tt(chat_id, "tg.btn.create"), "callback_data": f"{CALLBACK_PREFIX}c:{proposal.id}"},
+                    {"text": self._tt(chat_id, "tg.btn.cancel"), "callback_data": f"{CALLBACK_PREFIX}x:{proposal.id}"},
                 ]
             ]
         }
-        await self._send(chat_id, self._format_proposal(specs), reply_markup=markup)
+        await self._send(chat_id, self._format_proposal(chat_id, specs), reply_markup=markup)
 
-    def _format_proposal(self, specs: list[TaskSpec]) -> str:
+    def _format_proposal(self, chat_id: int, specs: list[TaskSpec]) -> str:
         items = []
         for spec in specs:
             workdir = spec.workdir.strip() or self.default_workdir or "."
             items.append(
-                t(
+                self._tt(
+                    chat_id,
                     "tg.proposal.item",
                     name=spec.name,
                     workdir=workdir,
@@ -563,7 +596,7 @@ class TelegramService:
                     description=spec.description or "-",
                 )
             )
-        return t("tg.proposal.title", count=len(specs)) + "\n" + "\n".join(items)
+        return self._tt(chat_id, "tg.proposal.title", count=len(specs)) + "\n" + "\n".join(items)
 
     async def _handle_callback(self, data: str, chat_id: int) -> None:
         if not data.startswith(CALLBACK_PREFIX):
@@ -574,16 +607,16 @@ class TelegramService:
         action, proposal_id = parts
         proposal = self._proposals.pop(proposal_id, None)
         if proposal is None or proposal.expired or proposal.chat_id != chat_id:
-            await self._send(chat_id, t("tg.proposal.expired"))
+            await self._send(chat_id, self._tt(chat_id, "tg.proposal.expired"))
             return
         if action == "x":
             self._take_attachments(chat_id)  # discard buffered attachments too
-            await self._send(chat_id, t("tg.proposal.cancelled"))
+            await self._send(chat_id, self._tt(chat_id, "tg.proposal.cancelled"))
             return
         if action != "c":
             return
         created, errors = self._create_tasks(chat_id, proposal.specs)
-        await self._send(chat_id, self._format_created(created, errors))
+        await self._send(chat_id, self._format_created(chat_id, created, errors))
 
     def _create_tasks(self, chat_id: int, specs: list[TaskSpec]) -> tuple[list[Task], list[str]]:
         """Create the confirmed tasks; the scheduler tick starts them.
@@ -600,7 +633,7 @@ class TelegramService:
         for spec in specs:
             workdir = spec.workdir.strip() or self.default_workdir or "."
             if not Path(workdir).is_dir():
-                errors.append(t("tg.bad_workdir", workdir=workdir))
+                errors.append(self._tt(chat_id, "tg.bad_workdir", workdir=workdir))
                 continue
             try:
                 task = models.Task.create(
@@ -647,16 +680,17 @@ class TelegramService:
             )
             models.save(task)
 
-    def _format_created(self, created: list[Task], errors: list[str]) -> str:
+    def _format_created(self, chat_id: int, created: list[Task], errors: list[str]) -> str:
         parts: list[str] = []
         if created:
             items = "\n".join(
-                t("tg.created.item", name=task.name, workdir=task.workdir) for task in created
+                self._tt(chat_id, "tg.created.item", name=task.name, workdir=task.workdir)
+                for task in created
             )
-            parts.append(t("tg.created", count=len(created), items=items))
+            parts.append(self._tt(chat_id, "tg.created", count=len(created), items=items))
         if errors:
-            parts.append(t("tg.create.failed", names="; ".join(errors)))
-        return "\n".join(parts) if parts else t("tg.create.failed", names="?")
+            parts.append(self._tt(chat_id, "tg.create.failed", names="; ".join(errors)))
+        return "\n".join(parts) if parts else self._tt(chat_id, "tg.create.failed", names="?")
 
     # ------------------------------------------------------------------ #
     # Replies (text + optional TTS voice)
@@ -712,10 +746,11 @@ class TelegramService:
             return
         await self._send(
             chat_id,
-            t(
+            self._tt(
+                chat_id,
                 "tg.finished",
                 name=task.name,
-                state=state_label(task.state),
+                state=self._state_label(chat_id, task),
                 duration=format_duration(task.total_duration_seconds()),
             ),
         )

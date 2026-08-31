@@ -109,6 +109,23 @@ def test_parse_payload_ask_keeps_question_and_ref():
     assert intent.question == "¿por qué falló?"
 
 
+def test_parse_payload_lang():
+    """The parser reports the user's language; unknown ones are dropped."""
+    intent = intents.parse_intent_payload('{"action": "help", "lang": "es"}')
+    assert intent.lang == "es"
+    intent = intents.parse_intent_payload('{"action": "help", "lang": "EN"}')
+    assert intent.lang == "en"
+    intent = intents.parse_intent_payload('{"action": "help", "lang": "fr"}')
+    assert intent.lang == ""  # no catalog for it: caller falls back
+    intent = intents.parse_intent_payload('{"action": "help"}')
+    assert intent.lang == ""
+
+
+def test_parser_prompt_asks_for_language(tmp_path):
+    prompt = intents.build_parser_prompt("hola", "", "/tmp")
+    assert '"lang"' in prompt
+
+
 def test_parse_payload_tasks_capped():
     payload = json.dumps({
         "action": "create_tasks",

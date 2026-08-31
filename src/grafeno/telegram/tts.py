@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from typing import Callable
 
-from .api import default_opener
+from .api import USER_AGENT, default_opener
 
 TTS_TIMEOUT = 60.0
 MAX_TTS_INPUT = 1500  # chars sent to the provider (voice replies are summaries)
@@ -54,6 +54,7 @@ def synthesize(
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
+            "User-Agent": USER_AGENT,
         },
         method="POST",
     )

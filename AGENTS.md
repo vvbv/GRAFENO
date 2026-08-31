@@ -147,9 +147,18 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   procesa (STT, interpretación, consultas, envío de archivos) muestra el
   indicador "typing…"/"upload_document" (sendChatAction, refresco cada 4s).
   Con privacy mode desactivado, el gating propio filtra el tráfico de
-  grupo: solo se procesan comandos, menciones y respuestas al bot. El
-  parser CLI tiene timeout (120s) y sus fallos se contestan en el chat en
-  vez de quedar en silencio. Actividad del bot en `~/.grafeno/telegram.log`
+  grupo: solo se procesan comandos, menciones, respuestas al bot y notas
+  de voz (no pueden llevar mención: en el grupo del bot son deliberadas).
+  El parser CLI tiene timeout (120s) y sus fallos se contestan en el chat
+  en vez de quedar en silencio. El parser devuelve además el idioma del
+  mensaje (`lang`) y el bot contesta en ese idioma (`i18n.t_lang`, por
+  chat, sin tocar el idioma global de la TUI). Las claves STT/TTS/token
+  se sanealan al resolverlas (toleran prefijos pegados como
+  `"groq gsk_..."` o `"Bearer ..."`). Las peticiones HTTP llevan un
+  User-Agent de producto (`grafeno/...`): el UA por defecto de urllib es
+  bloqueado por Cloudflare en algunos proveedores (Groq: 403/1010), y los
+  fallos de STT reportan el motivo al chat (con la clave enmascarada).
+  Actividad del bot en `~/.grafeno/telegram.log`
   (recibidos, decisiones, errores; acotado a 1 MB; nunca el token).
   Estado en `~/.grafeno/telegram-state.toml`
   (offset de updates + mapeo task_id→chat_id para la notificación de fin,

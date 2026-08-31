@@ -23,6 +23,9 @@ MAX_MESSAGE_LEN = 4096       # Telegram message text limit
 MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024  # bots may download files up to 20 MB
 POLL_TIMEOUT = 30.0          # long polling timeout (seconds)
 CA_BUNDLE_ENV = "GRAFENO_SSL_CA_BUNDLE"  # custom CA bundle (corporate proxies)
+# urllib's default UA ("Python-urllib/3.x") is blocked by Cloudflare on some
+# providers (e.g. Groq: HTTP 403 error 1010); a product UA goes through.
+USER_AGENT = "grafeno/1.33 (+https://github.com/vvbv/GRAFENO)"
 
 
 def ssl_context() -> ssl.SSLContext:
@@ -275,7 +278,7 @@ class TelegramBotClient:
         request = urllib.request.Request(
             url,
             data=body,
-            headers={"Content-Type": content_type},
+            headers={"Content-Type": content_type, "User-Agent": USER_AGENT},
             method="POST",
         )
         try:
@@ -424,7 +427,7 @@ class TelegramBotClient:
     def download_file(self, file_path: str) -> bytes:
         """Download a file by its path (size-capped at MAX_DOWNLOAD_BYTES)."""
         url = f"{API_BASE}/file/bot{self._token}/{file_path}"
-        request = urllib.request.Request(url, method="GET")
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT}, method="GET")
         try:
             data = self._opener(request, 60.0)
         except urllib.error.HTTPError as exc:

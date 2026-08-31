@@ -103,6 +103,19 @@ def test_config_screen_language_select_persists():
     asyncio.run(scenario())
 
 
+def test_t_lang_translates_without_changing_global_state():
+    """t_lang renders an explicit language; the global one is untouched."""
+    i18n.set_language("en")
+    assert i18n.t_lang("es", "common.save") == "Guardar"
+    assert i18n.t_lang("en", "common.save") == "Save"
+    assert t("common.save") == "Save"  # global language unchanged
+
+
+def test_t_lang_unknown_language_falls_back_to_default():
+    assert i18n.t_lang("fr", "common.save") == "Save"
+    assert i18n.t_lang("fr", "no.existe") == "no.existe"
+
+
 def test_quit_hint_uses_platform_key() -> None:
     """The quit hint interpolates the platform key label."""
     from grafeno.i18n import t

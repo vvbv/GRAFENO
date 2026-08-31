@@ -368,6 +368,71 @@ def test_group_command_is_processed(tmp_path, monkeypatch):
     assert len(driver.prompts) == 1
 
 
+def test_group_voice_note_is_processed(tmp_path, monkeypatch):
+    """Voice notes cannot carry mentions: in the bot's group they are always
+    addressed to it (they are deliberate dictation)."""
+    driver = FakeDriver([_json_result({"action": "list_tasks", "lang": "es"})])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    service._bot_username = "GrafenoCLI_bot"
+    service._bot_id = 1
+    client.files["vf"] = ("voice/file_1.oga", b"AUDIO")
+    monkeypatch.setattr(service_module.stt, "transcribe", lambda **kwargs: "lista mis tareas")
+
+    _run(service._handle_message(_group_msg(voice_file_id="vf")))
+
+    assert len(driver.prompts) == 1
+    assert any("escuchado" in text for _, text, _ in client.sent)  # tg.heard in Spanish
+
+
+# ---------------------------------------------------------------------- #
+# Per-chat language
+# ---------------------------------------------------------------------- #
+def test_reply_follows_message_language_spanish(tmp_path, monkeypatch):
+    driver = FakeDriver([_json_result({"action": "help", "lang": "es"})])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "ayuda por favor"))
+
+    assert "Convierto tus mensajes" in client.sent[-1][1]  # tg.help in Spanish
+
+
+def test_reply_follows_message_language_english(tmp_path, monkeypatch):
+    driver = FakeDriver([_json_result({"action": "help", "lang": "en"})])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "help me"))
+
+    assert "I turn your messages" in client.sent[-1][1]  # tg.help in English
+
+
+def test_reply_language_persists_for_notifications(tmp_path, monkeypatch):
+    """The finish notification uses the language of the chat's last message."""
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks", "lang": "es",
+        "tasks": [{"name": "Algo"}],
+    })])
+    cfg = TelegramConfig(
+        enabled=True, bot_token="T", allowed_chat_ids="555",
+        confirm_create=False, default_workdir=str(tmp_path),
+    )
+    service, client = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
+    _run(service._parse_and_reply(555, "crea algo"))
+    task = models.list_all()[0]
+
+    _run(service.notify_task_finished(task))
+
+    assert "Tarea terminada" in client.sent[-1][1]  # tg.finished in Spanish
+
+
+def test_invalid_lang_falls_back_to_ui_language(tmp_path, monkeypatch):
+    driver = FakeDriver([_json_result({"action": "help", "lang": "fr"})])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "aidez-moi"))
+
+    assert "I turn your messages" in client.sent[-1][1]  # UI language (en)
+
+
 # ---------------------------------------------------------------------- #
 # Parser failure surfacing + bot log
 # ---------------------------------------------------------------------- #
@@ -636,6 +701,32 @@ def test_voice_stt_failure(tmp_path, monkeypatch):
 
     assert client.sent  # friendly failure message
     assert driver.prompts == []
+
+
+def test_voice_stt_failure_reports_reason(tmp_path, monkeypatch):
+    """An STT provider error (e.g. 401 invalid key) is told to the user."""
+    driver = FakeDriver([])
+    cfg = TelegramConfig(
+        enabled=True, bot_token="T", allowed_chat_ids="555",
+        stt_key="KEY", default_workdir=str(tmp_path),
+    )
+    service, client = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
+    client.files["vf"] = ("voice/file_1.oga", b"AUDIO")
+
+    def _failing(**kwargs):
+        on_error = kwargs.get("on_error")
+        if on_error:
+            on_error("HTTP 401: Invalid API Key")
+        return None
+
+    monkeypatch.setattr(service_module.stt, "transcribe", _failing)
+
+    _run(service._handle_message(_msg(voice_file_id="vf")))
+
+    assert "HTTP 401" in client.sent[-1][1]
+    # …and the reason lands in the bot log for post-mortem diagnosis.
+    log = paths.telegram_log_path().read_text(encoding="utf-8")
+    assert "stt failed" in log and "HTTP 401" in log
 
 
 def test_tts_voice_reply_when_enabled(tmp_path, monkeypatch):

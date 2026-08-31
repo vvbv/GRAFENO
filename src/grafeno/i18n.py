@@ -39,6 +39,19 @@ def t(key_id: str, **kwargs: object) -> str:
     return text.format(**kwargs) if kwargs else text
 
 
+def t_lang(language: str, key_id: str, **kwargs: object) -> str:
+    """Translate into an explicit language (no global state change).
+
+    Unknown languages fall back to the default; used by the Telegram bot to
+    answer each chat in the language of its last message.
+    """
+    catalog = _MESSAGES.get(language, _MESSAGES[DEFAULT_LANGUAGE])
+    text = catalog.get(key_id)
+    if text is None:
+        text = _MESSAGES[DEFAULT_LANGUAGE].get(key_id, key_id)
+    return text.format(**kwargs) if kwargs else text
+
+
 _MESSAGES: dict[str, dict[str, str]] = {
     "en": {
         # app / comunes
@@ -494,6 +507,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tg.heard": 'I heard: "{text}"',
         "tg.stt.not_configured": "Voice notes need a speech-to-text API key (Settings → Telegram).",
         "tg.stt.failed": "Could not transcribe the voice note; try again or type your request.",
+        "tg.stt.failed_reason": "Could not transcribe the voice note: {error}",
         "tg.download_failed": "Could not download the attachment: {error}",
         "tg.attachment.pending": "Attachment received. Now send or dictate the task to create with it.",
         "tg.parser_unavailable": "The intent parser CLI '{cli}' is not available; check the Telegram settings.",
@@ -978,6 +992,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tg.heard": 'He escuchado: "{text}"',
         "tg.stt.not_configured": "Las notas de voz necesitan una API key de transcripción (Configuración → Telegram).",
         "tg.stt.failed": "No pude transcribir la nota de voz; inténtalo de nuevo o escribe tu petición.",
+        "tg.stt.failed_reason": "No pude transcribir la nota de voz: {error}",
         "tg.download_failed": "No se pudo descargar el adjunto: {error}",
         "tg.attachment.pending": "Adjunto recibido. Ahora envía o dicta la tarea a crear con él.",
         "tg.parser_unavailable": "El CLI interpretador '{cli}' no está disponible; revisa la configuración de Telegram.",

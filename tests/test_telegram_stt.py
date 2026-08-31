@@ -48,9 +48,42 @@ def test_not_configured_returns_none():
 
 def test_network_error_returns_none():
     http = FakeHTTP(error=urllib.error.URLError("down"))
+    errors: list[str] = []
     assert stt.transcribe(
-        url="https://u", api_key="K", model="m", data=b"x", opener=http
+        url="https://u", api_key="K", model="m", data=b"x", opener=http,
+        on_error=errors.append,
     ) is None
+    assert errors and "down" in errors[0]
+
+
+def test_request_carries_product_user_agent():
+    """Cloudflare blocks urllib's default UA on some providers (e.g. Groq)."""
+    http = FakeHTTP(json.dumps({"text": "ok"}).encode())
+    stt.transcribe(url="https://u", api_key="K", model="m", data=b"x", opener=http)
+    ua = http.requests[0].headers.get("User-agent", "")
+    assert ua.startswith("grafeno/")
+    assert "Python-urllib" not in ua
+
+
+def test_http_error_reports_provider_message_and_redacts_key():
+    import io
+
+    def failing(request, timeout):
+        raise urllib.error.HTTPError(
+            request.full_url, 401, "Unauthorized", {},
+            io.BytesIO(b'{"error":{"message":"Invalid API Key gsk_secret"}}'),
+        )
+
+    errors: list[str] = []
+    result = stt.transcribe(
+        url="https://u", api_key="gsk_secret", model="m", data=b"x",
+        opener=failing, on_error=errors.append,
+    )
+    assert result is None
+    assert errors
+    assert "401" in errors[0]
+    assert "Invalid API Key" in errors[0]
+    assert "gsk_secret" not in errors[0]  # the key is always redacted
 
 
 def test_invalid_json_returns_none():

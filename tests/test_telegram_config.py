@@ -120,3 +120,14 @@ def test_masked_token():
     assert TelegramConfig(bot_token="1234567890").masked_token() == "…7890"
     assert TelegramConfig(bot_token="ab").masked_token() == "…"
     assert TelegramConfig().masked_token() == ""
+
+
+def test_keys_tolerate_pasted_labels_and_whitespace():
+    """'groq gsk_…', 'Bearer <key>' or padded values resolve to the key."""
+    tg = TelegramConfig(stt_key="groq gsk_real123")
+    assert tg.resolve_stt_key() == "gsk_real123"
+    tg = TelegramConfig(stt_key="  gsk_padded  ")
+    assert tg.resolve_stt_key() == "gsk_padded"
+    tg = TelegramConfig(tts_key="Bearer tts-9")
+    assert tg.resolve_tts_key() == "tts-9"
+    assert TelegramConfig(bot_token="  tok \n").resolve_token() == "tok"
