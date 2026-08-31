@@ -701,10 +701,12 @@ class TelegramService:
 
         The first created task receives the chat's buffered attachments
         (images as ``media/`` tokens, videos as absolute-path references).
-        With ``chain_mode == "last"`` each task is chained after the last
-        in-progress task of its project; when there is none (or the
-        position is invalid) it is created parallel and its name is
-        returned in the third list.
+        With ``chain_mode == "last"`` the first task of the batch chains
+        after the last in-progress task of its project and every following
+        task chains after the previous one of the batch (same project), so
+        a multi-task message runs sequentially; when there is no
+        in-progress candidate (or the position is invalid) the task is
+        created parallel and its name is returned in the third list.
         """
         from .. import config as config_module
 
@@ -714,6 +716,9 @@ class TelegramService:
         created: list[Task] = []
         errors: list[str] = []
         unchained: list[str] = []
+        # Sequential chaining within the batch: workdir -> id of the last
+        # task created in this batch (chain_mode == "last" only).
+        last_in_batch: dict[str, str] = {}
         for spec in specs:
             workdir = intents.resolve_workdir(spec.workdir, known_tasks, self.default_workdir)
             if not Path(workdir).is_dir():
@@ -721,11 +726,13 @@ class TelegramService:
                 continue
             parent_id = ""
             if chain_mode == "last":
-                parent = _last_in_progress(workdir, known_tasks)
-                if parent is None:
-                    unchained.append(spec.name.strip())
-                else:
-                    parent_id = parent.id
+                parent_id = last_in_batch.get(workdir, "")
+                if not parent_id:
+                    parent = _last_in_progress(workdir, known_tasks)
+                    if parent is None:
+                        unchained.append(spec.name.strip())
+                    else:
+                        parent_id = parent.id
             try:
                 task = models.Task.create(
                     spec.name.strip(),
@@ -740,6 +747,7 @@ class TelegramService:
                 )
                 if task.parent_id:
                     by_id = {item.id: item for item in known_tasks}
+                    by_id.update({item.id: item for item in created})  # include this batch
                     if scheduler.rechain_error(task, task.parent_id, by_id):
                         task.parent_id = ""  # invalid position: fall back to parallel
                         unchained.append(task.name)
@@ -751,6 +759,8 @@ class TelegramService:
             self._state.chats[task.id] = chat_id
             created.append(task)
             self._log(f"task created: {task.id} ({task.name}) for chat {chat_id}")
+            if chain_mode == "last":
+                last_in_batch[workdir] = task.id  # the next spec chains after this one
             if attachments and len(created) == 1:
                 self._attach_to_task(task, attachments)
         if created:

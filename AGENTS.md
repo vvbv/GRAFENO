@@ -131,12 +131,16 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   prompt one-shot que exige JSON estricto, propone la(s) tarea(s) y las
   crea tras la confirmación con botones inline (automode, `scheduled_at`=
   ahora, `origin="telegram"`: el tick del planificador las arranca
-  desatendidas, igual que los triggers). Antes de crearlas, el bot
+  desatendidas, igual que los triggers).   Antes de crearlas, el bot
   pregunta siempre el encadenamiento con dos botones inline ("ninguna" =
   paralela, "a la última del proyecto" = `parent_id` a la última tarea en
   progreso del proyecto según `IN_PROGRESS_STATES` de
   `telegram/service.py`; sin candidata o con posición inválida según
-  `scheduler.rechain_error`, se crea paralela y se avisa). La pregunta es
+  `scheduler.rechain_error`, se crea paralela y se avisa). Cuando un mismo
+  mensaje crea varias tareas y el usuario elige encadenar, el lote se
+  encadena de forma secuencial: la primera tras la última en progreso de
+  su proyecto (o paralela con aviso si no hay candidata) y cada una de las
+  siguientes tras la anterior del lote del mismo proyecto. La pregunta es
   obligatoria también con `confirm_create` desactivado. El contexto del
   parser incluye las tareas existentes con su directorio (columna extra en
   `intents.tasks_summary`), de modo que las tareas nuevas se enrutan al

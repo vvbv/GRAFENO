@@ -235,6 +235,7 @@ def test_multiple_tasks_created(tmp_path, monkeypatch):
     _run(service._handle_update(_callback_update(f"tg:n:{pid}")))
 
     assert sorted(task.name for task in models.list_all()) == ["A", "B"]
+    assert all(task.parent_id == "" for task in models.list_all())
 
 
 def test_create_with_bad_workdir_reports_error(tmp_path, monkeypatch):
@@ -727,6 +728,66 @@ def test_chaining_question_without_confirmation_config(tmp_path, monkeypatch):
     task = models.list_all()[0]
     assert task.parent_id == ""
     assert "parallel task" in client.sent[-1][1]
+
+
+def test_chain_last_batch_chains_sequentially(tmp_path, monkeypatch):
+    """A multi-task message with 'chain last' chains the batch in order."""
+    en_curso = _in_progress_task("En curso", str(tmp_path))
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "A"}, {"name": "B"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    _run(service._parse_and_reply(555, "dos tareas"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:l:{pid}")))
+
+    by_name = {task.name: task for task in models.list_all()}
+    assert by_name["A"].parent_id == en_curso.id
+    assert by_name["B"].parent_id == by_name["A"].id
+
+
+def test_chain_last_batch_without_candidate_chains_among_themselves(tmp_path, monkeypatch):
+    """With no in-progress task, the first goes parallel and the rest chain."""
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "A"}, {"name": "B"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    _run(service._parse_and_reply(555, "dos tareas"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:l:{pid}")))
+
+    by_name = {task.name: task for task in models.list_all()}
+    assert by_name["A"].parent_id == ""
+    assert by_name["B"].parent_id == by_name["A"].id
+    assert "parallel task" in client.sent[-1][1]  # notice only for A
+
+
+def test_chain_last_batch_respects_each_project(tmp_path, monkeypatch):
+    """Specs of different projects chain within their own project only."""
+    otro = tmp_path / "otro"
+    otro.mkdir()
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [
+            {"name": "A", "workdir": str(tmp_path)},
+            {"name": "B", "workdir": str(otro)},
+            {"name": "C", "workdir": str(tmp_path)},
+        ],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    _run(service._parse_and_reply(555, "tres tareas"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:l:{pid}")))
+
+    by_name = {task.name: task for task in models.list_all()}
+    assert by_name["A"].parent_id == ""
+    assert by_name["B"].parent_id == ""
+    assert by_name["C"].parent_id == by_name["A"].id
 
 
 # ---------------------------------------------------------------------- #
