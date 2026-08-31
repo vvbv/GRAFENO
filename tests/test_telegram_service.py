@@ -13,6 +13,7 @@ from grafeno.config import Config, TelegramConfig
 from grafeno.drivers.base import CLIDriver, RunResult
 from grafeno.telegram import service as service_module
 from grafeno.telegram.api import TelegramError, TgMessage, Update
+from grafeno.telegram.intents import TaskSpec
 from grafeno.telegram.service import (
     ORIGIN_TELEGRAM,
     PendingProposal,
@@ -241,6 +242,26 @@ def test_create_with_bad_workdir_reports_error(tmp_path, monkeypatch):
 
     assert models.list_all() == []
     assert "/no/existe/esto" in client.sent[-1][1]
+
+
+def test_create_task_routes_to_existing_project_workdir(tmp_path, monkeypatch):
+    """The parser-chosen workdir is normalized to the existing task's directory."""
+    existing = models.Task.create("Api", "d", str(tmp_path), Config())
+    models.save(existing)
+    driver = FakeDriver([])
+    cfg = TelegramConfig(
+        enabled=True, bot_token="T", allowed_chat_ids="555",
+        confirm_create=False, default_workdir="/default",
+    )
+    service, _ = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
+
+    created, errors = service._create_tasks(555, [
+        TaskSpec(name="Nueva", description="d", workdir=str(tmp_path).upper()),
+    ])
+
+    assert errors == []
+    assert len(created) == 1
+    assert created[0].workdir == str(tmp_path)
 
 
 # ---------------------------------------------------------------------- #

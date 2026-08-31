@@ -207,3 +207,41 @@ def test_tasks_summary_format():
     summary = intents.tasks_summary(tasks)
     assert tasks[0].id in summary
     assert "Demo" in summary
+
+
+# ---------------------------------------------------------------------- #
+# project-aware routing (workdir context)
+# ---------------------------------------------------------------------- #
+def test_tasks_summary_includes_workdir(tmp_path):
+    task = models.Task.create("Demo", "d", str(tmp_path), Config())
+    summary = intents.tasks_summary([task])
+    assert str(tmp_path) in summary
+    assert summary.count("|") >= 3  # id | name | state | workdir
+
+
+def test_tasks_summary_remote_shows_ssh_spec(tmp_path):
+    task = models.Task.create("Remota", "d", "/home/u/proj", Config())
+    task.remote = "user@host:/home/u/proj"
+    assert "user@host:/home/u/proj" in intents.tasks_summary([task])
+
+
+def test_parser_prompt_describes_workdir_routing(tmp_path):
+    prompt = intents.build_parser_prompt("hola", "", "/tmp")
+    assert "id | nombre | estado | directorio" in prompt
+    assert "directorio por defecto" in prompt
+    assert "EXACTAMENTE el\n  directorio" in prompt or "EXACTAMENTE el directorio" in prompt
+
+
+def test_resolve_workdir_empty_falls_back_to_default():
+    assert intents.resolve_workdir("", [], "/default") == "/default"
+    assert intents.resolve_workdir("  ", [], "") == "."
+
+
+def test_resolve_workdir_matches_existing_task(tmp_path):
+    task = models.Task.create("Demo", "d", str(tmp_path), Config())
+    # Case differences still resolve to the canonical task workdir.
+    assert intents.resolve_workdir(str(tmp_path).upper(), [task]) == str(tmp_path)
+
+
+def test_resolve_workdir_passthrough_unknown_path():
+    assert intents.resolve_workdir("/otra/ruta", [], "/d") == "/otra/ruta"

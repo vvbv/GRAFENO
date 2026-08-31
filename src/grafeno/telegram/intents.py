@@ -72,12 +72,21 @@ class Intent:
 
 
 def tasks_summary(tasks: list[Task], *, limit: int = _SUMMARY_LIMIT) -> str:
-    """Compact ``- id | name | state`` listing used as parser context."""
+    """Compact ``- id | name | state | workdir`` listing used as parser context.
+
+    The workdir column lets the parser route new tasks to the right project
+    and disambiguate task references; remote tasks show their SSH spec.
+    """
     lines = [
-        f"- {task.id} | {task.name} | {state_label(task.state)}"
+        f"- {task.id} | {task.name} | {state_label(task.state)} | {_task_dir(task)}"
         for task in tasks[:limit]
     ]
     return "\n".join(lines)
+
+
+def _task_dir(task: Task) -> str:
+    """Directory shown in the parser context: SSH spec for remote tasks."""
+    return task.remote if task.is_remote else task.workdir
 
 
 def build_parser_prompt(user_text: str, summary: str, default_workdir: str) -> str:
@@ -86,7 +95,7 @@ def build_parser_prompt(user_text: str, summary: str, default_workdir: str) -> s
 programación. El usuario escribe o dicta por voz mensajes para crear tareas o
 consultar las existentes.
 
-Tareas existentes (id | nombre | estado):
+Tareas existentes (id | nombre | estado | directorio):
 {summary or "(ninguna)"}
 
 Directorio de trabajo por defecto para tareas nuevas: {default_workdir or "."}
@@ -108,9 +117,14 @@ Responde SOLO con un objeto JSON (sin texto alrededor, sin Markdown) con esta fo
 Reglas:
 - "lang": SIEMPRE el idioma en que el usuario escribió o dictó el mensaje.
 - "create_tasks": una entrada por cada tarea que pida el mensaje; name corto y
-  descriptivo; description detallada incluyendo TODO lo que pida el usuario;
-  workdir solo si el usuario lo indica (si no, déjalo vacío); test_command solo
-  si lo indica.
+  descriptivo; description detallada incluyendo TODO lo que pida el usuario.
+  Para "workdir": si el mensaje se refiere a un proyecto con tareas
+  existentes (por nombre de proyecto o de directorio), usa EXACTAMENTE el
+  directorio de esa tarea del listado (sin inventar rutas); si el usuario
+  indica una ruta explícita, úsala tal cual; si no se puede determinar el
+  proyecto, déjalo vacío (se usará el directorio por defecto). Las rutas
+  "user@host:..." son proyectos remotos: no las uses para tareas nuevas.
+  test_command solo si lo indica.
 - Si el mensaje pide varias tareas, inclúyelas todas en "tasks".
 - "list_tasks": el usuario quiere un resumen de sus tareas.
 - "task_status": pregunta por el estado de una tarea concreta.
@@ -120,6 +134,10 @@ Reglas:
 - "help": pide ayuda o no queda claro qué hacer.
 - "unknown": no se puede interpretar.
 - No inventes tareas: crea solo lo que el mensaje pida explícitamente.
+- Usa el listado de tareas (id | nombre | estado | directorio) para resolver
+  "task_ref" de forma inequívoca: devuelve el id exacto de la tarea que mejor
+  encaje con lo que pide el usuario; el directorio ayuda a distinguir tareas
+  con nombres parecidos en proyectos distintos.
 """
 
 
@@ -247,3 +265,24 @@ def fuzzy_find_task(query: str, tasks: list[Task]) -> Task | None:
         if needle in task.name.lower():
             return task
     return None
+
+
+def resolve_workdir(spec_workdir: str, tasks: list[Task], default: str = "") -> str:
+    """Canonical workdir for a parsed TaskSpec.
+
+    Empty means "not determined" and falls back to the default directory
+    (current behavior). A value matching the directory of an existing task
+    (local workdir or remote spec) is normalized to that exact string. Any
+    other value is passed through stripped: the service validates that the
+    directory exists, as it does today for explicit paths.
+    """
+    candidate = spec_workdir.strip()
+    if not candidate:
+        return default.strip() or "."
+    lowered = candidate.lower()
+    for task in tasks:
+        if candidate == task.workdir or lowered == task.workdir.strip().lower():
+            return task.workdir
+        if task.is_remote and lowered == task.remote.strip().lower():
+            return task.remote
+    return candidate

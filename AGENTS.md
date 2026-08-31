@@ -131,8 +131,14 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   prompt one-shot que exige JSON estricto, propone la(s) tarea(s) y las
   crea tras la confirmación con botones inline (automode, `scheduled_at`=
   ahora, `origin="telegram"`: el tick del planificador las arranca
-  desatendidas, igual que los triggers). Fotos/vídeos adjuntos se guardan
-  en `media/` de la primera tarea creada. También responde consultas:
+  desatendidas, igual que los triggers). El contexto del parser incluye las
+  tareas existentes con su directorio (columna extra en
+  `intents.tasks_summary`), de modo que las tareas nuevas se enrutan al
+  proyecto correspondiente (`workdir` exacto del listado, vía
+  `intents.resolve_workdir`; vacío = directorio por defecto como fallback) y
+  las referencias a tareas se resuelven de forma inequívoca. Fotos/vídeos
+  adjuntos se guardan en `media/` de la primera tarea creada. También
+  responde consultas:
   resumen/estado de tareas, envío de los .md de plan/revisión/final como
   documentos y preguntas concretas sobre una tarea (one-shot con los
   artefactos como contexto). Las respuestas de voz (TTS OpenAI-compatible,

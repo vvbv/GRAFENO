@@ -627,11 +627,12 @@ class TelegramService:
         from .. import config as config_module
 
         cfg = config_module.load()
+        known_tasks = models.list_all()  # to normalize parser-chosen workdirs
         attachments = self._take_attachments(chat_id)
         created: list[Task] = []
         errors: list[str] = []
         for spec in specs:
-            workdir = spec.workdir.strip() or self.default_workdir or "."
+            workdir = intents.resolve_workdir(spec.workdir, known_tasks, self.default_workdir)
             if not Path(workdir).is_dir():
                 errors.append(self._tt(chat_id, "tg.bad_workdir", workdir=workdir))
                 continue
