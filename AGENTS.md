@@ -167,8 +167,12 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   usuario— y color) persistido en `[[consoles]]` del `.grafeno.toml` del
   proyecto; el color tiñe el fondo del tab y el marco del área. Los
   procesos son shells sobre PTY (`tui/console_pty.py`, solo POSIX: en
-  Windows se muestra un aviso), orientados a líneas (sin programas a
-  pantalla completa), con decodificación ANSI vía `rich.ansi.AnsiDecoder`
+  Windows se muestra un aviso), orientados a líneas: los programas a
+  pantalla completa (alternate screen) se detectan por sus secuencias de
+  escape, muestran un aviso y su salida se descarta hasta que salen de
+  ese modo; el botón Terminal abre una terminal externa en el directorio
+  del proyecto (reutilizando la detección de editor.py), con
+  decodificación ANSI vía `rich.ansi.AnsiDecoder`
   y lectura con `loop.add_reader` sobre el fd maestro. Solo se persisten
   las definiciones: los procesos nacen y mueren con la pantalla. Los
   botones de la pantalla (tabs y acciones) usan el modo compacto de
