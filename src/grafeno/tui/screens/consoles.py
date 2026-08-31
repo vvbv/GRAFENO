@@ -23,6 +23,12 @@ from ..widgets import GrafenoHeader, LocationBar
 
 _MAX_LOG_LINES = 5000  # per-console transcript bound
 
+# Alternate-screen escape sequences (full-screen TUIs cannot be rendered by
+# the line-oriented RichLog).
+_ALT_ENTER = (b"\x1b[?1049h", b"\x1b[?1047h", b"\x1b[?47h")
+_ALT_EXIT = (b"\x1b[?1049l", b"\x1b[?1047l", b"\x1b[?47l")
+_SCAN_TAIL = 15  # bytes kept across reads so split markers still match
+
 
 class ConsoleView(Vertical):
     """Output area of one console session (its own RichLog transcript)."""
@@ -53,6 +59,9 @@ class _Session:
     view: ConsoleView
     decoder: AnsiDecoder = field(default_factory=AnsiDecoder)
     buf: str = ""  # decoded text waiting for a newline
+    scan_tail: bytes = b""       # tail of the previous chunk (marker scanning)
+    fullscreen: bool = False     # the process is in the alternate screen
+    fullscreen_notified: bool = False  # the notice was already shown once
 
 
 class ConsoleFormScreen(ModalScreen["ConsoleSpec | None"]):
@@ -132,6 +141,7 @@ class ConsolesScreen(Screen[None]):
             yield Button(t("consoles.edit"), id="con-edit", compact=True)
             yield Button(t("consoles.delete"), id="con-delete", compact=True)
             yield Button(t("consoles.interrupt"), id="con-interrupt", compact=True)
+            yield Button(t("consoles.terminal"), id="con-terminal", compact=True)
         with Vertical(id="console-frame"):
             yield Vertical(id="console-views")
             yield Input(placeholder=t("consoles.input.placeholder"), id="console-input")
@@ -262,8 +272,38 @@ class ConsolesScreen(Screen[None]):
             return
         data = session.proc.read()
         if data:
-            for line in self._feed(session, data):
-                session.view.output.write(line)
+            # Split the chunk at the first alt-screen transition so any bytes
+            # BEFORE the marker are rendered under the old state and any bytes
+            # AFTER it (typically escape soup) are routed under the new state.
+            was_fullscreen = session.fullscreen
+            split, entered, exited = self._scan_fullscreen(session, data)
+            if split == 0:
+                # No transition in this chunk: render or discard under the
+                # current state (the scan already updated ``session.fullscreen``
+                # in case the marker lived in the cross-read tail).
+                if not session.fullscreen:
+                    for line in self._feed(session, data):
+                        session.view.output.write(line)
+            else:
+                before, after = data[:split], data[split:]
+                # ``before`` belongs to the OLD state (rendered when not
+                # fullscreen; silently dropped when fullscreen since it is
+                # escape soup that the user already missed).
+                if before and not was_fullscreen:
+                    for line in self._feed(session, before):
+                        session.view.output.write(line)
+                # Apply the transition. Show the notice the first time the
+                # alternate screen is entered in this session.
+                if entered and not session.fullscreen_notified:
+                    session.fullscreen_notified = True
+                    session.view.output.write(
+                        Text(t("consoles.fullscreen.notice"), style="bold yellow")
+                    )
+                # Trailing bytes after the marker belong to the NEW state:
+                # discard while fullscreen, render otherwise.
+                if after and not session.fullscreen:
+                    for line in self._feed(session, after):
+                        session.view.output.write(line)
         if session.proc.poll() is not None and not data:
             fd = session.proc.fd
             if fd is not None:
@@ -280,6 +320,47 @@ class ConsolesScreen(Screen[None]):
                     session.view.output.write(tail)
                 session.buf = ""
             session.view.output.write(Text(t("consoles.exited", code=code), style="dim"))
+
+    @staticmethod
+    def _scan_fullscreen(
+        session: _Session, data: bytes,
+    ) -> tuple[int, bool, bool]:
+        """Track alternate-screen transitions in the raw pty byte stream.
+
+        Returns ``(split_in_data, entered, exited)``:
+        - ``split_in_data``: offset inside ``data`` where the first
+          transition marker starts (0 when none in this chunk).
+        - ``entered``: True iff the first marker was an enter marker.
+        - ``exited``: True iff the first marker was an exit marker.
+
+        The ``session.fullscreen`` flag is updated to reflect the new state,
+        and the rolling ``scan_tail`` keeps the last ``_SCAN_TAIL`` bytes so
+        a marker split across reads still matches.
+        """
+        window = session.scan_tail + data
+        session.scan_tail = window[-_SCAN_TAIL:]
+        # Find the FIRST transition (enter or exit) in the window so the
+        # returned split point is the exact position of the marker that
+        # flipped the state.
+        candidates: list[tuple[int, str]] = []
+        for marker in _ALT_ENTER:
+            pos = window.find(marker)
+            if pos != -1:
+                candidates.append((pos, "enter"))
+        for marker in _ALT_EXIT:
+            pos = window.find(marker)
+            if pos != -1:
+                candidates.append((pos, "exit"))
+        if not candidates:
+            return 0, False, False
+        candidates.sort()
+        first_pos, kind = candidates[0]
+        # Offset inside ``data`` (clip to 0 if the marker started in the tail).
+        split_in_data = max(0, first_pos - (len(window) - len(data)))
+        # Redundant markers (e.g. an ``enter`` while already fullscreen) are
+        # no-ops: the resulting state is simply the marker kind.
+        session.fullscreen = kind == "enter"
+        return split_in_data, kind == "enter", kind == "exit"
 
     @staticmethod
     def _feed(session: _Session, data: bytes) -> list[Text]:
@@ -310,6 +391,11 @@ class ConsolesScreen(Screen[None]):
             session = self._sessions.get(self._active) if self._active is not None else None
             if session is not None and session.proc.running:
                 session.proc.interrupt()
+        elif button_id == "con-terminal":
+            if consoles.open_external_terminal(str(self._workdir)):
+                self.notify(t("consoles.terminal.opened"))
+            else:
+                self.notify(t("consoles.terminal.unsupported"), severity="warning")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id != "console-input":

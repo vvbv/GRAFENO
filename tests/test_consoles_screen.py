@@ -416,10 +416,72 @@ def test_console_buttons_are_compact(monkeypatch, tmp_path):
             # Consoles screen: action buttons and tabs.
             app.push_screen(ConsolesScreen(tmp_path))
             await pilot.pause()
-            for button_id in ("#con-new", "#con-edit", "#con-delete", "#con-interrupt"):
+            for button_id in ("#con-new", "#con-edit", "#con-delete", "#con-interrupt", "#con-terminal"):
                 assert app.screen.query_one(button_id, Button).compact is True
             tab = app.screen.query_one("#con-tab-0", Button)
             assert tab.compact is True
             assert tab.outer_size.height == 1
+
+    asyncio.run(scenario())
+
+
+def test_fullscreen_program_shows_notice_and_suppresses_output(monkeypatch, tmp_path):
+    """Alt-screen output triggers a one-time notice and its escape soup is hidden."""
+    _install_fake(monkeypatch)
+    consoles.save_project(tmp_path, [ConsoleSpec(name="shell")])
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.push_screen(ConsolesScreen(tmp_path))
+            await pilot.pause()
+            fake = FakeConsole.instances[0]
+            fake.push(b"antes\n\x1b[?1049h")          # enters full-screen mode
+            fake.push(b"\x1b[2J\x1b[1;1Htui-basura")  # swallowed while full-screen
+            for _ in range(10):
+                await pilot.pause(0.05)
+                if "full-screen" in _log_text(app.screen):
+                    break
+            text = _log_text(app.screen)
+            assert "antes" in text
+            assert "full-screen" in text
+            assert "tui-basura" not in text
+            fake.push(b"\x1b[?1049hmas-basura")        # second enter: no new notice
+            for _ in range(5):
+                await pilot.pause(0.05)
+            assert _log_text(app.screen).count("full-screen program detected") == 1
+            fake.push(b"\x1b[?1049l" + b"despues\n")   # leaves full-screen mode
+            for _ in range(10):
+                await pilot.pause(0.05)
+                if "despues" in _log_text(app.screen):
+                    break
+            text = _log_text(app.screen)
+            assert "despues" in text
+            assert "mas-basura" not in text
+
+    asyncio.run(scenario())
+
+
+def test_terminal_button_opens_external_terminal(monkeypatch, tmp_path):
+    """The Terminal button delegates to consoles.open_external_terminal."""
+    _install_fake(monkeypatch)
+    opened: list[str] = []
+    monkeypatch.setattr(
+        consoles,
+        "open_external_terminal",
+        lambda workdir: opened.append(workdir) or True,
+    )
+    consoles.save_project(tmp_path, [ConsoleSpec(name="shell")])
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.push_screen(ConsolesScreen(tmp_path))
+            await pilot.pause()
+            await pilot.click("#con-terminal")
+            await pilot.pause()
+            assert opened == [str(tmp_path)]
 
     asyncio.run(scenario())

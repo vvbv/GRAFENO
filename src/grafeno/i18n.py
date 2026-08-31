@@ -255,6 +255,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "consoles.color.magenta": "Magenta",
         "consoles.color.cyan": "Cyan",
         "consoles.error.name_required": "The console needs a name.",
+        "consoles.terminal": "Terminal",
+        "consoles.terminal.opened": "External terminal opened in the project directory.",
+        "consoles.terminal.unsupported": "No supported terminal detected to open an external window.",
+        "consoles.fullscreen.notice": "[full-screen program detected: this console is line-oriented and cannot display it. Use the Terminal button to open a real terminal here, or the Ctrl+C button to stop it.]",
         # modal de agentes por tarea
         "roles.title": "Task agents · {name}",
         "roles.body": "CLI and model that will execute each phase of THIS task.",
@@ -664,6 +668,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "consoles.color.magenta": "Magenta",
         "consoles.color.cyan": "Cian",
         "consoles.error.name_required": "La consola necesita un nombre.",
+        "consoles.terminal": "Terminal",
+        "consoles.terminal.opened": "Terminal externa abierta en el directorio del proyecto.",
+        "consoles.terminal.unsupported": "No se detectó una terminal soportada para abrir una ventana externa.",
+        "consoles.fullscreen.notice": "[programa a pantalla completa detectado: esta consola es orientada a líneas y no puede mostrarlo. Usa el botón Terminal para abrir una terminal real aquí, o el botón Ctrl+C para detenerlo.]",
         # modal de agentes por tarea
         "roles.title": "Agentes de la tarea · {name}",
         "roles.body": "CLI y modelo que ejecutará cada fase de ESTA tarea.",

@@ -9,6 +9,7 @@ consoles screen is opened.
 from __future__ import annotations
 
 import os
+import subprocess
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -101,3 +102,46 @@ def _safe(data: dict[str, Any]) -> dict[str, Any]:
         elif isinstance(value, list) and all(isinstance(item, dict) for item in value):
             safe[key] = value
     return safe
+
+
+def external_terminal_command(workdir: str) -> list[str] | None:
+    """Command that opens a new external terminal window in ``workdir``.
+
+    Reuses the terminal detection of ``editor``; returns None when the
+    terminal is unknown (best effort, like the editor opening).
+    """
+    # Lazy import: tests patch ``grafeno.editor.detect_terminal`` and a module
+    # level import would defeat that patch. Keeps the domain module decoupled
+    # from the editor module at import time too.
+    from .editor import detect_terminal
+
+    terminal = detect_terminal()
+    if not terminal.window_command:
+        return None
+    if terminal.name == "tmux":
+        # tmux runs inside a server: cwd must be passed explicitly with -c
+        # because the new-window does not inherit the parent's cwd.
+        return terminal.window_command + ["-c", workdir]
+    if terminal.name == "terminal.app":
+        # Terminal.app knows how to open a folder in a new window directly.
+        return ["open", "-a", "Terminal", workdir]
+    # Ghostty/wezterm/kitty/alacritty/iterm: append the shell so the new
+    # window has something to run; cwd is inherited from ``Popen(cwd=...)``.
+    return terminal.window_command + [default_shell()]
+
+
+def open_external_terminal(workdir: str) -> bool:
+    """Open a new terminal window with a shell in ``workdir`` (best effort)."""
+    command = external_terminal_command(workdir)
+    if command is None:
+        return False
+    try:
+        subprocess.Popen(
+            command,
+            cwd=workdir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    return True
