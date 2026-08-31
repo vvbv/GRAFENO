@@ -130,21 +130,8 @@ def _parse_list(data: dict[str, Any]) -> list[ConsoleSpec]:
 def _safe(data: dict[str, Any]) -> dict[str, Any]:
     """Keep only values the mini TOML serializer supports (root scalars,
     tables and arrays of tables), so a hand-edited exotic value cannot make
-    saving fail. Still used by ``_strip_legacy`` to avoid breaking on exotic
+    saving fail. Used by ``_strip_legacy`` to avoid breaking on exotic
     hand-edited values when rewriting the project file."""
-    safe: dict[str, Any] = {}
-    for key, value in data.items():
-        if isinstance(value, (str, int, float, bool, dict)):
-            safe[key] = value
-        elif isinstance(value, list) and all(isinstance(item, dict) for item in value):
-            safe[key] = value
-    return safe
-
-
-def _safe(data: dict[str, Any]) -> dict[str, Any]:
-    """Keep only values the mini TOML serializer supports (root scalars,
-    tables and arrays of tables), so a hand-edited exotic value cannot make
-    saving fail."""
     safe: dict[str, Any] = {}
     for key, value in data.items():
         if isinstance(value, (str, int, float, bool, dict)):
