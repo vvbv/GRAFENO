@@ -106,6 +106,7 @@ class ConfigScreen(Screen[None]):
             with Horizontal(classes="automode-row"):
                 yield Checkbox(t("cfg.tg.enabled"), id="tg-enabled")
                 yield Checkbox(t("cfg.tg.confirm"), id="tg-confirm")
+                yield Checkbox(t("cfg.tg.group_all"), id="tg-group-all")
             with Horizontal(classes="automode-row"):
                 yield Label(t("cfg.tg.token"))
                 yield Input(id="tg-token", password=True, placeholder=t("cfg.tg.token.placeholder"))
@@ -193,6 +194,7 @@ class ConfigScreen(Screen[None]):
         tg = self._config.telegram
         self.query_one("#tg-enabled", Checkbox).value = tg.enabled
         self.query_one("#tg-confirm", Checkbox).value = tg.confirm_create
+        self.query_one("#tg-group-all", Checkbox).value = tg.group_all
         self.query_one("#tg-token", Input).value = tg.bot_token
         self.query_one("#tg-chats", Input).value = tg.allowed_chat_ids
         parser_select = self.query_one("#tg-parser-cli", Select)
@@ -304,6 +306,7 @@ class ConfigScreen(Screen[None]):
         tg = cfg.telegram
         tg.enabled = self.query_one("#tg-enabled", Checkbox).value
         tg.confirm_create = self.query_one("#tg-confirm", Checkbox).value
+        tg.group_all = self.query_one("#tg-group-all", Checkbox).value
         tg.bot_token = self.query_one("#tg-token", Input).value.strip()
         tg.allowed_chat_ids = self.query_one("#tg-chats", Input).value.strip()
         tg.parser_cli = str(self.query_one("#tg-parser-cli", Select).value)

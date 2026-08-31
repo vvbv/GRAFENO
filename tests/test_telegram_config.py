@@ -22,6 +22,7 @@ def test_telegram_defaults():
     assert tg.parser_cli == ""
     assert tg.parser_model == ""
     assert tg.confirm_create is True
+    assert tg.group_all is False
     assert tg.default_workdir == ""
     assert tg.stt_url == DEFAULT_STT_URL
     assert tg.stt_model == "whisper-large-v3-turbo"
@@ -48,6 +49,7 @@ def test_telegram_roundtrip():
     cfg.telegram.parser_cli = "kimi"
     cfg.telegram.parser_model = "kimi-code/k3"
     cfg.telegram.confirm_create = False
+    cfg.telegram.group_all = True
     cfg.telegram.default_workdir = "/tmp/proyecto"
     cfg.telegram.stt_url = "https://stt.example.com/v1/audio/transcriptions"
     cfg.telegram.stt_key = "stt-key"
@@ -66,6 +68,7 @@ def test_telegram_roundtrip():
     assert loaded.parser_cli == "kimi"
     assert loaded.parser_model == "kimi-code/k3"
     assert loaded.confirm_create is False
+    assert loaded.group_all is True
     assert loaded.default_workdir == "/tmp/proyecto"
     assert loaded.stt_url == "https://stt.example.com/v1/audio/transcriptions"
     assert loaded.stt_key == "stt-key"

@@ -245,3 +245,35 @@ def test_resolve_workdir_matches_existing_task(tmp_path):
 
 def test_resolve_workdir_passthrough_unknown_path():
     assert intents.resolve_workdir("/otra/ruta", [], "/d") == "/otra/ruta"
+
+
+# ---------------------------------------------------------------------- #
+# project listing (global scope directories)
+# ---------------------------------------------------------------------- #
+def test_parse_payload_list_projects():
+    assert intents.parse_intent_payload('{"action": "list_projects"}').action == "list_projects"
+
+
+def test_project_dirs_groups_counts_and_order(tmp_path):
+    a = _task("A")
+    b = _task("B")
+    c = models.Task.create("C", "d", str(tmp_path), Config())
+    # Two tasks in "." and one in tmp_path; first-seen order is kept.
+    assert intents.project_dirs([a, b, c]) == [(".", 2), (str(tmp_path), 1)]
+
+
+def test_project_dirs_remote_uses_ssh_spec():
+    task = _task("Remota")
+    task.remote = "user@host:/home/u/proj"
+    assert intents.project_dirs([task]) == [("user@host:/home/u/proj", 1)]
+
+
+def test_projects_summary_format():
+    summary = intents.projects_summary([_task("A"), _task("B")])
+    assert summary == "- . | 2"
+
+
+def test_parser_prompt_includes_projects_section_and_action(tmp_path):
+    prompt = intents.build_parser_prompt("hola", "", "/tmp", projects="- /x | 2")
+    assert "- /x | 2" in prompt
+    assert "list_projects" in prompt

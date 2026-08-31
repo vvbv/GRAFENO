@@ -262,9 +262,13 @@ class TelegramService:
         that mention it, replies to its own messages and voice notes (they
         cannot carry mentions: in the bot's group they are deliberate).
         This matters once privacy mode is disabled (BotFather /setprivacy),
-        when every group message is delivered to the bot.
+        when every group message is delivered to the bot. With
+        ``cfg.group_all`` the gate is open: every whitelisted group
+        message is treated as addressed to the bot.
         """
         if message.chat_type == "private":
+            return True
+        if self.cfg.group_all:
             return True
         if message.voice_file_id:
             return True
@@ -429,6 +433,7 @@ class TelegramService:
                 intents.tasks_summary(tasks),
                 self._run_workdir(),
                 default_workdir=self.default_workdir,
+                projects=intents.projects_summary(tasks),
             )
         if intent.lang:
             self._chat_lang[chat_id] = intent.lang  # answer in the user's language
@@ -448,6 +453,8 @@ class TelegramService:
             await self._propose_or_create(chat_id, intent.tasks)
         elif intent.action == "list_tasks":
             await self._send(chat_id, self._format_task_list(chat_id, tasks))
+        elif intent.action == "list_projects":
+            await self._send(chat_id, self._format_project_list(chat_id, tasks))
         elif intent.action == "task_status":
             await self._send_status(chat_id, intent, tasks)
         elif intent.action == "send_files":
@@ -468,6 +475,17 @@ class TelegramService:
             for task in tasks[:10]
         )
         return self._tt(chat_id, "tg.list.header", items=items)
+
+    def _format_project_list(self, chat_id: int, tasks: list[Task]) -> str:
+        """Distinct task directories (global scope) with their task count."""
+        directories = intents.project_dirs(tasks)
+        if not directories:
+            return self._tt(chat_id, "tg.projects.empty")
+        items = "\n".join(
+            self._tt(chat_id, "tg.projects.item", workdir=directory, count=count)
+            for directory, count in directories[:10]
+        )
+        return self._tt(chat_id, "tg.projects.header", items=items)
 
     async def _send_status(self, chat_id: int, intent: Intent, tasks: list[Task]) -> None:
         task = intents.fuzzy_find_task(intent.task_ref, tasks)

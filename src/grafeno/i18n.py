@@ -500,7 +500,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tg.help": (
             "I turn your messages into GRAFENO tasks and answer questions about them.\n"
             "- Send or dictate what you need: I will propose the task(s) and you confirm.\n"
-            "- 'List my tasks' · 'Status of <name>' · 'Send me the files of <name>'.\n"
+            "- 'List my tasks' · 'List my projects' · 'Status of <name>' · 'Send me the files of <name>'.\n"
             "- Ask anything about a task: 'why did <name> fail?'\n"
             "Attach photos/videos and they will be added to the next task you create."
         ),
@@ -525,6 +525,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tg.list.empty": "No tasks yet.",
         "tg.list.header": "Latest tasks:\n{items}",
         "tg.list.item": "• {name} — {state} ({id})",
+        "tg.projects.empty": "No projects with tasks yet.",
+        "tg.projects.header": "Projects with tasks:\n{items}",
+        "tg.projects.item": "• {workdir} — {count} task(s)",
         "tg.task_not_found": "I could not find a task matching '{ref}'.",
         "tg.status": "{name}\nState: {state}\nDirectory: {workdir}\nFix iterations: {iteration} · Time: {duration}",
         "tg.files.none": "Task '{name}' has no .md artifacts yet.",
@@ -541,6 +544,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cfg.tg.parser.default": "planner role",
         "cfg.tg.parser_model": "Parser model (empty = CLI default)",
         "cfg.tg.confirm": "Confirm tasks with inline buttons before creating",
+        "cfg.tg.group_all": "In groups, answer every message (no @mention needed)",
         "cfg.tg.workdir": "Default directory for bot-created tasks (empty = cwd)",
         "cfg.tg.stt": "Speech-to-text (OpenAI-compatible endpoint; for voice notes)",
         "cfg.tg.stt.url": "STT URL",
@@ -985,7 +989,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tg.help": (
             "Convierto tus mensajes en tareas de GRAFENO y respondo preguntas sobre ellas.\n"
             "- Envía o dicta lo que necesitas: te propondré la(s) tarea(s) y tú confirmas.\n"
-            "- 'Lista mis tareas' · 'Estado de <nombre>' · 'Envíame los archivos de <nombre>'.\n"
+            "- 'Lista mis tareas' · 'Lista mis proyectos' · 'Estado de <nombre>' · 'Envíame los archivos de <nombre>'.\n"
             "- Pregunta lo que quieras sobre una tarea: '¿por qué falló <nombre>?'\n"
             "Adjunta fotos/vídeos y se añadirán a la próxima tarea que crees."
         ),
@@ -1010,6 +1014,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tg.list.empty": "Aún no hay tareas.",
         "tg.list.header": "Últimas tareas:\n{items}",
         "tg.list.item": "• {name} — {state} ({id})",
+        "tg.projects.empty": "Aún no hay proyectos con tareas.",
+        "tg.projects.header": "Proyectos con tareas:\n{items}",
+        "tg.projects.item": "• {workdir} — {count} tarea(s)",
         "tg.task_not_found": "No encontré ninguna tarea que coincida con '{ref}'.",
         "tg.status": "{name}\nEstado: {state}\nDirectorio: {workdir}\nIteraciones de corrección: {iteration} · Tiempo: {duration}",
         "tg.files.none": "La tarea '{name}' aún no tiene archivos .md.",
@@ -1026,6 +1033,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cfg.tg.parser.default": "rol planificador",
         "cfg.tg.parser_model": "Modelo del interpretador (vacío = por defecto del CLI)",
         "cfg.tg.confirm": "Confirmar tareas con botones antes de crearlas",
+        "cfg.tg.group_all": "En grupos, responder a todos los mensajes (sin @mención)",
         "cfg.tg.workdir": "Directorio por defecto de las tareas del bot (vacío = cwd)",
         "cfg.tg.stt": "Transcripción de voz (endpoint OpenAI-compatible; para notas de voz)",
         "cfg.tg.stt.url": "URL de STT",

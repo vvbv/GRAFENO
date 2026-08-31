@@ -22,6 +22,7 @@ from ..models import Task, state_label
 ACTIONS = (
     "create_tasks",  # create one or more tasks (params in ``tasks``)
     "list_tasks",    # summary of the existing tasks
+    "list_projects",  # distinct work directories present in the tasks (global scope)
     "task_status",   # status of one task (``task_ref``)
     "send_files",    # send the task .md artifacts (``task_ref``)
     "ask",           # answer a question about a task (``task_ref`` + ``question``)
@@ -89,7 +90,32 @@ def _task_dir(task: Task) -> str:
     return task.remote if task.is_remote else task.workdir
 
 
-def build_parser_prompt(user_text: str, summary: str, default_workdir: str) -> str:
+def project_dirs(tasks: list[Task]) -> list[tuple[str, int]]:
+    """Distinct task directories with their task count, in first-seen order.
+
+    The directory is the remote SSH spec for remote tasks (same rule as
+    ``tasks_summary``). ``tasks`` comes from ``models.list_all`` (newest
+    first), so the most recently used projects appear first. A plain dict
+    keeps insertion order, which gives the grouping in a single pass.
+    """
+    counts: dict[str, int] = {}
+    for task in tasks:
+        directory = _task_dir(task)
+        counts[directory] = counts.get(directory, 0) + 1
+    return list(counts.items())
+
+
+def projects_summary(tasks: list[Task]) -> str:
+    """Compact ``- dir | count`` listing of project dirs (parser context)."""
+    return "\n".join(f"- {directory} | {count}" for directory, count in project_dirs(tasks))
+
+
+def build_parser_prompt(
+    user_text: str,
+    summary: str,
+    default_workdir: str,
+    projects: str = "",
+) -> str:
     """One-shot prompt: interpret the user message and answer with strict JSON."""
     return f"""Eres el interpretador de mensajes de GRAFENO, un orquestador de tareas de
 programación. El usuario escribe o dicta por voz mensajes para crear tareas o
@@ -97,6 +123,9 @@ consultar las existentes.
 
 Tareas existentes (id | nombre | estado | directorio):
 {summary or "(ninguna)"}
+
+Proyectos con tareas (directorio | nº tareas):
+{projects or "(ninguno)"}
 
 Directorio de trabajo por defecto para tareas nuevas: {default_workdir or "."}
 
@@ -107,7 +136,7 @@ Mensaje del usuario:
 
 Responde SOLO con un objeto JSON (sin texto alrededor, sin Markdown) con esta forma:
 {{
-  "action": "create_tasks" | "list_tasks" | "task_status" | "send_files" | "ask" | "help" | "unknown",
+  "action": "create_tasks" | "list_tasks" | "list_projects" | "task_status" | "send_files" | "ask" | "help" | "unknown",
   "tasks": [{{"name": "...", "description": "...", "workdir": "...", "test_command": "..."}}],
   "task_ref": "id o fragmento del nombre de la tarea (para task_status, send_files, ask)",
   "question": "la pregunta concreta del usuario (solo para ask)",
@@ -118,15 +147,18 @@ Reglas:
 - "lang": SIEMPRE el idioma en que el usuario escribió o dictó el mensaje.
 - "create_tasks": una entrada por cada tarea que pida el mensaje; name corto y
   descriptivo; description detallada incluyendo TODO lo que pida el usuario.
-  Para "workdir": si el mensaje se refiere a un proyecto con tareas
-  existentes (por nombre de proyecto o de directorio), usa EXACTAMENTE el
-  directorio de esa tarea del listado (sin inventar rutas); si el usuario
-  indica una ruta explícita, úsala tal cual; si no se puede determinar el
-  proyecto, déjalo vacío (se usará el directorio por defecto). Las rutas
-  "user@host:..." son proyectos remotos: no las uses para tareas nuevas.
+  Para "workdir": si el mensaje se refiere a un proyecto del listado de
+  proyectos o con tareas existentes (por nombre de proyecto o de
+  directorio), usa EXACTAMENTE el directorio de ese listado (sin inventar
+  rutas); si el usuario indica una ruta explícita, úsala tal cual; si no se
+  puede determinar el proyecto, déjalo vacío (se usará el directorio por defecto).
+  Las rutas "user@host:..." son proyectos remotos: no las uses para tareas nuevas.
   test_command solo si lo indica.
 - Si el mensaje pide varias tareas, inclúyelas todas en "tasks".
 - "list_tasks": el usuario quiere un resumen de sus tareas.
+- "list_projects": el usuario pide el listado de PROYECTOS o directorios en
+  los que hay tareas (no el listado de tareas): "qué proyectos tengo",
+  "lista los directorios", "en qué proyectos estoy trabajando".
 - "task_status": pregunta por el estado de una tarea concreta.
 - "send_files": el usuario quiere que le envíes los archivos .md resultantes de
   una tarea (plan, revisiones, informe final).
@@ -219,6 +251,7 @@ async def parse_intent(
     workdir: Path,
     *,
     default_workdir: str = "",
+    projects: str = "",
     timeout: float = PARSER_TIMEOUT,
 ) -> Intent:
     """Run the parser CLI one-shot and interpret its JSON answer.
@@ -227,7 +260,7 @@ async def parse_intent(
     ``Intent.error`` so the caller can tell them apart from a genuine
     "unknown" intent and surface them to the user instead of staying silent.
     """
-    prompt = build_parser_prompt(user_text, summary, default_workdir)
+    prompt = build_parser_prompt(user_text, summary, default_workdir, projects)
     request = RunRequest(
         prompt=prompt,
         model=model,

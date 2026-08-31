@@ -40,7 +40,7 @@ src/grafeno/
 │   ├── api.py              #   Cliente Bot API con urllib (long polling, multipart a mano, troceo 4096); transporte inyectable; el token nunca se loguea
 │   ├── stt.py              #   Transcripción vía endpoint OpenAI-compatible (Groq whisper-large-v3-turbo por defecto), best-effort
 │   ├── tts.py              #   Voz generada vía endpoint OpenAI-compatible (Groq orpheus, voz masculina `troy` por defecto), opt-in
-│   ├── intents.py          #   Interpretación del mensaje con un CLI de agente (prompt one-shot -> JSON): crear/listar/estado/archivos/preguntar
+│   ├── intents.py          #   Interpretación del mensaje con un CLI de agente (prompt one-shot -> JSON): crear/listar tareas/listar proyectos (directorios del scope global)/estado/archivos/preguntar
 │   └── service.py          #   Bucle de polling (worker de la App), whitelist de chats, propuestas con botones inline, creación origin="telegram", notificación de fin
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL; expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
@@ -139,6 +139,8 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   las referencias a tareas se resuelven de forma inequívoca. Fotos/vídeos
   adjuntos se guardan en `media/` de la primera tarea creada. También
   responde consultas:
+  listado de proyectos (directorios distintos con tareas del scope global,
+  con su nº de tareas; acción `list_projects` del parser),
   resumen/estado de tareas, envío de los .md de plan/revisión/final como
   documentos y preguntas concretas sobre una tarea (one-shot con los
   artefactos como contexto). Las respuestas de voz (TTS OpenAI-compatible,
@@ -154,7 +156,9 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   indicador "typing…"/"upload_document" (sendChatAction, refresco cada 4s).
   Con privacy mode desactivado, el gating propio filtra el tráfico de
   grupo: solo se procesan comandos, menciones, respuestas al bot y notas
-  de voz (no pueden llevar mención: en el grupo del bot son deliberadas).
+  de voz (no pueden llevar mención: en el grupo del bot son deliberadas);
+  la opción `group_all` del config desactiva ese filtro y todo mensaje de
+  un grupo whitelisted llega al parser sin necesidad de mención.
   El parser CLI tiene timeout (120s) y sus fallos se contestan en el chat
   en vez de quedar en silencio. El parser devuelve además el idioma del
   mensaje (`lang`) y el bot contesta en ese idioma (`i18n.t_lang`, por

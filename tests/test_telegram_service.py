@@ -346,6 +346,27 @@ def test_group_chatter_is_ignored(tmp_path, monkeypatch):
     assert client.sent == []
 
 
+def test_group_all_processes_chatter(tmp_path, monkeypatch):
+    """With group_all enabled, every whitelisted group message reaches the
+    parser without needing a mention, reply or command."""
+    driver = FakeDriver([_json_result({"action": "list_tasks"})])
+    tg = TelegramConfig(
+        enabled=True,
+        bot_token="TOKEN",
+        allowed_chat_ids="555",
+        stt_key="STT-KEY",
+        default_workdir=str(tmp_path),
+        group_all=True,
+    )
+    service, client = _make_service(tmp_path, monkeypatch, driver, cfg=tg)
+    service._bot_username = "GrafenoCLI_bot"
+    service._bot_id = 1
+
+    _run(service._handle_message(_group_msg(text="conversación entre humanos")))
+
+    assert len(driver.prompts) == 1
+
+
 def test_group_mention_is_processed(tmp_path, monkeypatch):
     driver = FakeDriver([_json_result({"action": "list_tasks"})])
     service, client = _make_service(tmp_path, monkeypatch, driver)
@@ -561,6 +582,44 @@ def test_list_tasks(tmp_path, monkeypatch):
 
     assert "Arreglar login" in client.sent[-1][1]
     assert task.id in client.sent[-1][1]
+
+
+def test_list_projects(tmp_path, monkeypatch):
+    """'list_projects' answers with the distinct task workdirs and counts."""
+    models.save(models.Task.create("A", "d", str(tmp_path), Config()))
+    models.save(models.Task.create("B", "d", str(tmp_path), Config()))
+    other = tmp_path / "otro"
+    other.mkdir()
+    models.save(models.Task.create("C", "d", str(other), Config()))
+    driver = FakeDriver([_json_result({"action": "list_projects"})])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "lista mis proyectos"))
+
+    message = client.sent[-1][1]
+    assert str(tmp_path) in message
+    assert str(other) in message
+    assert "2" in message  # tmp_path group has two tasks
+
+
+def test_list_projects_empty(tmp_path, monkeypatch):
+    driver = FakeDriver([_json_result({"action": "list_projects"})])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "lista mis proyectos"))
+
+    assert "No projects" in client.sent[-1][1]  # conftest fixes English
+
+
+def test_parser_receives_projects_context(tmp_path, monkeypatch):
+    """The parser prompt carries the projects listing for workdir routing."""
+    models.save(models.Task.create("A", "d", str(tmp_path), Config()))
+    driver = FakeDriver([_json_result({"action": "list_projects"})])
+    service, _ = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "lista mis proyectos"))
+
+    assert f"- {tmp_path} | 1" in driver.prompts[0]
 
 
 def test_task_status(tmp_path, monkeypatch):

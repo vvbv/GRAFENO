@@ -146,6 +146,7 @@ class TelegramConfig:
     parser_cli: str = ""       # empty = planner role CLI
     parser_model: str = ""     # empty = default model of the parser CLI
     confirm_create: bool = True  # inline Create/Cancel buttons before creating
+    group_all: bool = False    # True = answer every whitelisted group message (no mention needed)
     default_workdir: str = ""  # empty = app cwd
     stt_url: str = DEFAULT_STT_URL
     stt_key: str = ""          # GRAFENO_TELEGRAM_STT_KEY overrides
@@ -194,6 +195,7 @@ class TelegramConfig:
             "parser_cli": self.parser_cli,
             "parser_model": self.parser_model,
             "confirm_create": self.confirm_create,
+            "group_all": self.group_all,
             "default_workdir": self.default_workdir,
             "stt_url": self.stt_url,
             "stt_key": self.stt_key,
@@ -214,6 +216,7 @@ class TelegramConfig:
             parser_cli=str(data.get("parser_cli", "")),
             parser_model=str(data.get("parser_model", "")),
             confirm_create=bool(data.get("confirm_create", True)),
+            group_all=bool(data.get("group_all", False)),
             default_workdir=str(data.get("default_workdir", "")),
             stt_url=str(data.get("stt_url", DEFAULT_STT_URL)),
             stt_key=str(data.get("stt_key", "")),
