@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from grafeno import remote
 
@@ -94,3 +95,100 @@ def test_detect_os_failure_returns_empty(monkeypatch):
     spec = remote.parse_spec("u@h:/x")
     assert spec is not None
     assert asyncio.run(remote.detect_os(spec)) == ""
+
+
+# ---------------------------------------------------------------------- #
+# Session mode: shared ssh options, session auth and per-task mounts
+# ---------------------------------------------------------------------- #
+def test_session_helpers_round_trip(tmp_path):
+    spec = remote.parse_spec("u@h:/x")
+    assert spec is not None
+    remote.set_session(spec, mounts_base=tmp_path)
+    try:
+        assert remote.session_active()
+        assert remote.mounts_base() == tmp_path
+        assert remote.mount_dir(spec).parent == tmp_path
+    finally:
+        remote.clear_session()
+    assert not remote.session_active()
+
+
+def test_ssh_options_include_identity(tmp_path):
+    spec = remote.parse_spec("u@h:/x")
+    assert spec is not None
+    remote.set_session(spec, identity="/tmp/id_rsa", mounts_base=tmp_path)
+    try:
+        options = remote._ssh_options(spec)
+        assert "-i" in options
+        assert "/tmp/id_rsa" in options
+        # No password: batch mode is enabled.
+        assert "BatchMode=yes" in options
+    finally:
+        remote.clear_session()
+
+
+def test_ssh_options_include_password_options(tmp_path):
+    spec = remote.parse_spec("u@h:/x")
+    assert spec is not None
+    remote.set_session(spec, password="secret", mounts_base=tmp_path)
+    try:
+        options = remote._ssh_options(spec)
+        assert "BatchMode=no" in options
+        assert "PreferredAuthentications=password" in options
+        # Identity file is NOT added when only a password is configured.
+        assert "-i" not in options
+    finally:
+        remote.clear_session()
+
+
+def test_with_auth_prefixes_sshpass():
+    command = ["ssh", "host", "echo"]
+    assert remote._with_auth(command) == command  # no password: unchanged
+    remote._session_password = "x"
+    try:
+        prefixed = remote._with_auth(command)
+        assert prefixed[:3] == ["sshpass", "-p", "x"]
+        assert prefixed[3:] == command
+    finally:
+        remote._session_password = ""
+
+
+def test_ssh_command_uses_sshpass_with_password(tmp_path):
+    spec = remote.parse_spec("u@h:/x")
+    assert spec is not None
+    remote.set_session(spec, password="pwd", mounts_base=tmp_path)
+    try:
+        argv = remote.ssh_command(spec, "echo hi")
+        assert argv[0] == "sshpass"
+        assert argv[1:3] == ["-p", "pwd"]
+        assert "ssh" in argv and "u@h" in argv
+        assert argv[-1] == "echo hi"
+    finally:
+        remote.clear_session()
+
+
+def test_effective_workdir_session_fallback(tmp_path, monkeypatch):
+    host_spec = remote.parse_spec("u@h:/abs/x")
+    assert host_spec is not None
+    remote.set_session(host_spec, mounts_base=tmp_path)
+    captured: list[RemoteSpec] = []
+
+    def spy(spec: RemoteSpec) -> Path:
+        captured.append(spec)
+        return Path(spec.path)  # return the remote path itself for inspection
+
+    monkeypatch.setattr(remote, "mount_dir", spy)
+    try:
+        # Absolute path: used verbatim on the remote, mounted under tmp_path.
+        result = remote.effective_workdir("", "/srv/app")
+        assert result == Path("/srv/app")
+        # Relative path: anchored at the remote $HOME stored in the session.
+        remote._session_spec.path = "/home/u"  # type: ignore[union-attr]
+        result_rel = remote.effective_workdir("", "project")
+        assert result_rel == Path("/home/u/project")
+        # The spy saw both invocations with the expected absolute paths.
+        assert len(captured) == 2
+        assert captured[0].path == "/srv/app"
+        assert captured[1].path == "/home/u/project"
+    finally:
+        remote.clear_session()

@@ -243,6 +243,29 @@ def test_remote_section_fallback_when_os_unknown(tmp_path):
     assert "no detectado" in prompts.plan_prompt(task)
 
 
+def test_remote_section_session(tmp_path):
+    """In session mode the section is injected even without task.remote."""
+    from grafeno import remote, remotesession
+
+    remote.set_session(
+        remote.RemoteSpec(user="root", host="h", path="/root"),
+        mounts_base=tmp_path,
+    )
+    remotesession._current = remotesession.RemoteSession(
+        spec=remote.RemoteSpec(user="root", host="h", path="/root"),
+        remote_home="/root",
+        remote_os="Linux x86_64",
+    )
+    try:
+        task = _task(tmp_path, workdir="/srv/app")
+        prompt = prompts.plan_prompt(task)
+        assert "Entorno remoto (SSH)" in prompt
+        assert "root@h" in prompt
+        assert "Linux x86_64" in prompt
+    finally:
+        remotesession.deactivate()
+
+
 def test_prompts_without_media_omit_section(tmp_path):
     """Without images, no media section is appended to the prompts."""
     task = _task(tmp_path)

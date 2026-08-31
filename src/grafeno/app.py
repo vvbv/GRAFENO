@@ -2,23 +2,42 @@
 
 from __future__ import annotations
 
+import argparse
+import asyncio
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
 from textual.app import App
 from textual.binding import Binding
 
-from . import __version__, models, paths, scheduler
+from . import __version__, models, paths, remotesession, scheduler
 from .i18n import t
 from .models import Task, TaskState
 from .tui.runtime import TaskRuntime
 
 
 def _window_title() -> str:
-    """Terminal window title: ``Grafeno - <project dir name>``."""
+    """Terminal window title: ``Grafeno - <project dir or session target>``."""
+    if remotesession.active():
+        return f"Grafeno - {remotesession.label()}"
     name = Path(os.getcwd()).name
     return f"Grafeno - {name}" if name else "Grafeno"
+
+
+def _resolve_remote_password(flag_value: str) -> str:
+    """Password from --remote-password, GRAFENO_REMOTE_PASSWORD or a prompt."""
+    if flag_value and flag_value != "-":
+        return flag_value
+    from_env = os.environ.get("GRAFENO_REMOTE_PASSWORD", "")
+    if from_env:
+        return from_env
+    if flag_value == "-":
+        import getpass
+
+        return getpass.getpass(t("rsession.password_prompt"))
+    return ""
 
 
 class GrafenoApp(App):
@@ -53,6 +72,8 @@ class GrafenoApp(App):
             )
         if not self._clis_available():
             self.notify(t("app.no_clis"), severity="warning", timeout=10)
+        if remotesession.active():
+            self.notify(t("rsession.active", target=remotesession.label()), timeout=8)
         # Scheduler tick: starts scheduled, chained and unattended
         # repetitions when it is their turn.
         self.set_interval(10.0, self._scheduler_tick)
@@ -190,13 +211,26 @@ class GrafenoApp(App):
 
 
 def main() -> None:
-    import argparse
-
     from . import config as config_module
     from . import editor
     from .i18n import set_language
 
     parser = argparse.ArgumentParser(prog="grafeno")
+    parser.add_argument(
+        "remote",
+        nargs="?",
+        default="",
+        help="Remote session host: [user@]host[:port] or ssh://[user@]host[:port]",
+    )
+    parser.add_argument("--remote-key", default="", help="SSH identity file (ssh -i).")
+    parser.add_argument(
+        "--remote-password",
+        nargs="?",
+        const="-",
+        default="",
+        help="SSH password; without value, prompts interactively.",
+    )
+    parser.add_argument("--remote-port", type=int, default=0, help="SSH port.")
     parser.add_argument(
         "--noeditor",
         action="store_true",
@@ -204,9 +238,39 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Bootstrap the remote session BEFORE loading the config: that way
+    # ``GRAFENO_HOME`` already points at the remote ``~/.grafeno`` mount
+    # when ``config_module.load()`` reads ``config.toml``.
+    session = None
+    if args.remote:
+        spec = remotesession.parse_host_spec(args.remote)
+        if spec is None:
+            parser.error(t("rsession.bad_spec", spec=args.remote))
+        if args.remote_port:
+            spec.port = args.remote_port
+        password = _resolve_remote_password(args.remote_password)
+        # Bootstrap messages print in English on purpose: the active
+        # language has not been loaded yet (it lives in the remote
+        # config). Deliberate and acceptable.
+        try:
+            session = asyncio.run(
+                remotesession.bootstrap(
+                    spec,
+                    identity=args.remote_key,
+                    password=password,
+                    on_info=lambda message: print(message, file=sys.stderr),
+                )
+            )
+        except remotesession.SessionError as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(2) from exc
+        remotesession.activate(session)
+
     cfg = config_module.load()
     set_language(cfg.language)
-    if not args.noeditor:
+    # Opening a local editor over the cwd is meaningless in session mode
+    # (the project lives on the remote host); skip it then.
+    if not args.noeditor and session is None:
         workdir = os.getcwd()
         editor_cfg = config_module.resolve_editor_config(cfg, Path(workdir))
         try:

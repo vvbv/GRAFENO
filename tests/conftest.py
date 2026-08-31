@@ -19,3 +19,12 @@ def default_language():
     i18n.set_language("en")
     yield
     i18n.set_language("en")
+
+
+@pytest.fixture(autouse=True)
+def _clear_remote_session():
+    """Ensure no remote session leaks between tests."""
+    yield
+    from grafeno import remotesession
+
+    remotesession.deactivate()

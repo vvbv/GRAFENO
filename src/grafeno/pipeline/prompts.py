@@ -115,11 +115,24 @@ def _media_section(task: Task) -> str:
 
 
 def _remote_section(task: Task, *, for_plan: bool = False) -> str:
-    """Sección de entorno remoto para tareas SSH (vacía en tareas locales)."""
-    if not task.is_remote:
+    """Remote environment section (empty for plain local tasks)."""
+    # Import locally to avoid any import cycle during pipeline startup.
+    from .. import remotesession
+
+    session = remotesession.current()
+    if not task.is_remote and session is None:
         return ""
-    target = task.remote.split(":", 1)[0]  # user@host
-    os_label = task.remote_os or "no detectado (compruébalo si es relevante)"
+    if task.is_remote:
+        spec_label = task.remote
+        target = task.remote.split(":", 1)[0]  # user@host
+    else:
+        target = session.spec.target
+        spec_label = f"{target}:{task.workdir}"
+    os_label = (
+        task.remote_os
+        or (session.remote_os if session else "")
+        or "no detectado (compruébalo si es relevante)"
+    )
     mandate = (
         "- El plan DEBE comenzar con una sección \"Entorno remoto\" que fije el SO\n"
         "  de destino y sus implicaciones: shell, rutas, binarios disponibles y cómo\n"
@@ -130,7 +143,7 @@ def _remote_section(task: Task, *, for_plan: bool = False) -> str:
     return f"""
 # Entorno remoto (SSH)
 Esta tarea trabaja sobre un proyecto remoto; tenlo en cuenta en TODO comando:
-- Conexión: `{task.remote}` (el directorio local de trabajo es un montaje sshfs)
+- Conexión: `{spec_label}` (el directorio local de trabajo es un montaje sshfs)
 - SO en el destino: {os_label}
 - Las pruebas o comandos que dependan del SO (shell, rutas, binarios) deben
   pensarse para el destino; cuando convenga, ejecútalos con `ssh {target} <cmd>`.

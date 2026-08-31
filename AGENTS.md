@@ -34,6 +34,7 @@ src/grafeno/
 ├── references.py           # Modelo `Reference` y niveles global/proyecto/tarea con `resolve()`
 ├── consoles.py             # Consolas del proyecto: ConsoleSpec (nombre/comando/color), paleta CONSOLE_COLORS y persistencia por proyecto ([[consoles]] en .grafeno.toml preservando el resto de secciones)
 ├── remote.py               # Proyectos remotos por SSH: parseo del spec, montaje sshfs bajo ~/.grafeno/mounts/ y espejo de datos de la tarea con rsync (best-effort), sondeo del SO destino (detect_os)
+├── remotesession.py        # Modo sesión remota (`grafeno [user@]host[:port]`): bootstrap (sondeo de $HOME remoto, mkdir ~/.grafeno, montaje sshfs), activate() exporta GRAFENO_HOME al montaje; spec_for_task/describe_target para el fallback de sesión
 ├── triggers.py             # Tareas trigger: modelo, niveles global/proyecto, fire() y spawn() best-effort
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL; expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
@@ -148,6 +149,20 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   (remote.detect_os), se persiste en Task.remote_os, se muestra en el detalle
   y se inyecta en los prompts del pipeline (seccion "Entorno remoto") para que
   el plan y las pruebas lo tengan en cuenta.
+
+  Además, `grafeno [user@]host[:port]` (flags `--remote-key`,
+  `--remote-password`, `--remote-port`; password también por
+  GRAFENO_REMOTE_PASSWORD o prompt) arranca el modo sesión remota: el
+  `~/.grafeno` del usuario remoto se monta por sshfs y se exporta como
+  GRAFENO_HOME, de modo que toda la TUI (config, tareas, referencias,
+  triggers, logs) opera sobre el remoto. Las tareas de sesión guardan
+  `workdir` como ruta remota con `task.remote` vacío: el remoto lo aporta la
+  sesión vía `remotesession.spec_for_task` y el fallback de
+  `remote.effective_workdir`; los montajes de sesión viven fuera de
+  GRAFENO_HOME (`<grafeno local>/sessions/<slug>-<hash>/`) y la
+  autenticación ssh/sshfs/rsync se centraliza en `remote.py`
+  (`_ssh_options`/`_with_auth`, identity o sshpass, nunca persistida). Los
+  tests de las tareas de sesión se ejecutan por ssh en el host remoto.
 - **Log en vivo**: cada entrada formateada del log de la pestaña Log se
   persiste en `logs/live.jsonl` (`live_log.py`) y se restaura al crear el
   `TaskRuntime`, de modo que sobrevive al cierre de la app. El fichero

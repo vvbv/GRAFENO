@@ -8,11 +8,12 @@ so they can be replaced by doubles in tests.
 from __future__ import annotations
 
 import asyncio
+import shlex
 import time
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from .. import models, paths, ratelimit, remote, triggers
+from .. import models, paths, ratelimit, remote, remotesession, triggers
 from ..config import RoleConfig
 from ..drivers import RunEvent, RunRequest, get_driver
 from ..drivers.base import CLIDriver, EventKind, RunResult
@@ -206,17 +207,20 @@ class Orchestrator:
             self._info(t("trig.error", name=stage, error=exc))
 
     async def _prepare_remote(self) -> None:
-        """Ensure the remote project is mounted (remote tasks only).
+        """Ensure the (possibly remote) project is mounted before each phase.
 
-        A failure here fails the phase before running the CLI: the agents
-        cannot work without the project directory.
+        In session mode tasks without an explicit ``task.remote`` still work
+        on remote paths: ``remotesession.spec_for_task`` resolves the session
+        spec for them. A mount failure fails the phase: the agents cannot
+        work without the project directory.
         """
-        if not self.task.is_remote:
+        spec = remotesession.spec_for_task(self.task)
+        if spec is None:
             return
-        ok = await remote.ensure_mounted_for(self.task, on_info=self._info)
+        ok = await remote.ensure_mounted(spec, on_info=self._info)
         if not ok:
             self._set_state(TaskState.FAILED)
-            raise PhaseError(t("remote.mount.fail", error=self.task.remote))
+            raise PhaseError(t("remote.mount.fail", error=spec.canonical))
         await self._probe_remote_os()
 
     async def _probe_remote_os(self) -> None:
@@ -224,6 +228,14 @@ class Orchestrator:
         task = self.task
         if task.remote_os:
             return  # already probed in a previous phase/run
+        session = remotesession.current()
+        if not task.is_remote and session is not None:
+            # Session task: reuse the OS probed at bootstrap (avoids an
+            # extra ssh roundtrip per phase).
+            task.remote_os = session.remote_os
+            if task.remote_os:
+                models.save(task)
+            return
         spec = remote.parse_spec(task.remote)
         if spec is None or remote.is_self(spec):
             return
@@ -429,13 +441,28 @@ class Orchestrator:
         self._info(t("orch.tests.run", command=command))
         await self._run_triggers("tests", "before")
         started_at = time.monotonic()
+        session_spec = None
+        if not self.task.is_remote:
+            session_spec = remotesession.spec_for_task(self.task)
         try:
-            process = await asyncio.create_subprocess_shell(
-                command,
-                cwd=remote.effective_workdir(self.task.remote, self.task.workdir),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
+            if session_spec is not None:
+                # Session mode: run the tests ON the remote host (its OS,
+                # shell and binaries), streaming output line by line.
+                argv = remote.ssh_command(
+                    session_spec, f"cd {shlex.quote(self.task.workdir)} && {command}"
+                )
+                process = await asyncio.create_subprocess_exec(
+                    *argv,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+            else:
+                process = await asyncio.create_subprocess_shell(
+                    command,
+                    cwd=remote.effective_workdir(self.task.remote, self.task.workdir),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
         except OSError as exc:
             self._info(t("orch.tests.exec_error", error=exc))
             return False

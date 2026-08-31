@@ -25,7 +25,7 @@ from textual.widgets import (
 
 from ... import config as config_module, scheduler
 from ... import gh as gh_module
-from ... import media, models, remote
+from ... import media, models, remote, remotesession
 from ...i18n import t
 from ...models import Task, task_state_label
 from ...pipeline.hooks import HOOK_STAGES, format_stages
@@ -60,10 +60,19 @@ class NewTaskScreen(ModalScreen[Task | None]):
             yield MediaTextArea(id="nt-description")
             yield Label(t("nt.issue"), id="nt-issue-label")
             yield Select([], id="nt-issue", allow_blank=True)
-            yield Label(t("nt.workdir"))
-            yield DirectoryPicker(os.getcwd(), input_id="nt-workdir")
-            yield Label(t("nt.remote"))
-            yield Input(placeholder=t("nt.remote.placeholder"), id="nt-remote")
+            if remotesession.active():
+                # In session mode the workdir is a remote absolute path
+                # (the remote comes from the session, not the form).
+                yield Label(t("nt.workdir.remote"))
+                yield Input(
+                    placeholder=t("nt.workdir.remote.placeholder"),
+                    id="nt-workdir",
+                )
+            else:
+                yield Label(t("nt.workdir"))
+                yield DirectoryPicker(os.getcwd(), input_id="nt-workdir")
+                yield Label(t("nt.remote"))
+                yield Input(placeholder=t("nt.remote.placeholder"), id="nt-remote")
             yield Label(t("nt.schedule"))
             yield Input(placeholder=t("nt.schedule.placeholder"), id="nt-schedule")
             yield Label(t("nt.parent"))
@@ -132,7 +141,10 @@ class NewTaskScreen(ModalScreen[Task | None]):
         # The issue selector starts hidden until the background load finishes.
         self.query_one("#nt-issue-label", Label).display = False
         self.query_one("#nt-issue", Select).display = False
-        self.run_worker(self._load_issues(), exclusive=True, group="nt-issues")
+        if not remotesession.active():
+            # Session mode: issues live on the remote host; the cwd here
+            # is the local sshfs mount, no gh context to query.
+            self.run_worker(self._load_issues(), exclusive=True, group="nt-issues")
 
     async def _load_issues(self) -> None:
         """Load open GitHub issues in the background; show the selector if any."""
@@ -179,22 +191,33 @@ class NewTaskScreen(ModalScreen[Task | None]):
         if not name:
             self.notify(t("nt.error.name_required"), severity="error")
             return
-        remote_text = self.query_one("#nt-remote", Input).value.strip()
-        spec = remote.parse_spec(remote_text) if remote_text else None
-        if remote_text and spec is None:
-            self.notify(t("nt.error.bad_remote"), severity="error")
-            return
-        if spec is not None:
-            # Remote task: workdir is the path ON THE REMOTE HOST.
-            workdir = Path(spec.path)
-            if not remote.sshfs_available() and not remote.is_self(spec):
-                self.notify(t("nt.warn.no_sshfs"), severity="warning")
-        else:
-            workdir = Path(self.query_one("#nt-workdir", Input).value.strip() or ".").expanduser()
-            if not workdir.is_dir():
-                self.notify(t("nt.error.bad_dir", path=workdir), severity="error")
+        if remotesession.active():
+            # Session mode: the remote is implicit (task.remote stays empty
+            # so the same task data works from a local grafeno on the
+            # remote host). The workdir is an absolute remote path.
+            spec = None
+            raw_dir = self.query_one("#nt-workdir", Input).value.strip()
+            if not raw_dir or (not raw_dir.startswith("/") and not raw_dir.startswith("~")):
+                self.notify(t("nt.error.bad_remote_dir"), severity="error")
                 return
-            workdir = workdir.resolve()
+            workdir = Path(raw_dir)  # path ON THE REMOTE HOST; not validated locally
+        else:
+            remote_text = self.query_one("#nt-remote", Input).value.strip()
+            spec = remote.parse_spec(remote_text) if remote_text else None
+            if remote_text and spec is None:
+                self.notify(t("nt.error.bad_remote"), severity="error")
+                return
+            if spec is not None:
+                # Remote task: workdir is the path ON THE REMOTE HOST.
+                workdir = Path(spec.path)
+                if not remote.sshfs_available() and not remote.is_self(spec):
+                    self.notify(t("nt.warn.no_sshfs"), severity="warning")
+            else:
+                workdir = Path(self.query_one("#nt-workdir", Input).value.strip() or ".").expanduser()
+                if not workdir.is_dir():
+                    self.notify(t("nt.error.bad_dir", path=workdir), severity="error")
+                    return
+                workdir = workdir.resolve()
 
         try:
             scheduled_at = scheduler.parse_schedule(
@@ -442,8 +465,13 @@ class TaskListScreen(Screen[None]):
         self.notify(t("tasks.quit_hint", key=_QUIT_KEY_LABEL), severity="warning")
 
     def action_consoles(self) -> None:
-        """Open the consoles of the current project (the cwd)."""
-        self.app.push_screen(ConsolesScreen(Path(os.getcwd())))
+        """Open the consoles of the current project (the cwd, or remote mount)."""
+        if remotesession.active():
+            session = remotesession.current()
+            base = session.home_mount if session and session.home_mount else Path(os.getcwd())
+            self.app.push_screen(ConsolesScreen(base))
+        else:
+            self.app.push_screen(ConsolesScreen(Path(os.getcwd())))
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.row_key.value:

@@ -918,18 +918,18 @@ def test_prepare_remote_mount_failure_fails_phase(tmp_path):
         "fake-final": FakeDriver("fake-final", []),
     }
 
-    async def _fail(task, on_info=lambda m: None):
+    async def _fail(spec, on_info=lambda m: None):
         return False
 
-    original = orch_module.remote.ensure_mounted_for
-    orch_module.remote.ensure_mounted_for = _fail
+    original = orch_module.remote.ensure_mounted
+    orch_module.remote.ensure_mounted = _fail
     try:
         orch = Orchestrator(task, drivers=drivers)
         _run(orch.run_plan())
     except PhaseError:
         pass
     finally:
-        orch_module.remote.ensure_mounted_for = original
+        orch_module.remote.ensure_mounted = original
 
     assert task.state is TaskState.FAILED
     assert drivers["fake-planner"].prompts == []  # never invoked
@@ -944,8 +944,8 @@ def test_remote_push_after_phase(tmp_path):
     push_calls: list[str] = []
     mount_calls: list[str] = []
 
-    async def _mount_ok(task, on_info=lambda m: None):
-        mount_calls.append(task.id)
+    async def _mount_ok(spec, on_info=lambda m: None):
+        mount_calls.append(spec.target)
         return True
 
     async def _push_spy(task, on_info=lambda m: None):
@@ -955,10 +955,10 @@ def test_remote_push_after_phase(tmp_path):
     async def _no_os(spec):
         return ""
 
-    original_mount = orch_module.remote.ensure_mounted_for
+    original_mount = orch_module.remote.ensure_mounted
     original_push = orch_module.remote.push_task_for
     original_detect = orch_module.remote.detect_os
-    orch_module.remote.ensure_mounted_for = _mount_ok
+    orch_module.remote.ensure_mounted = _mount_ok
     orch_module.remote.push_task_for = _push_spy
     orch_module.remote.detect_os = _no_os
     try:
@@ -966,12 +966,12 @@ def test_remote_push_after_phase(tmp_path):
         orch = Orchestrator(task, drivers=drivers)
         _run(orch.run_plan())
     finally:
-        orch_module.remote.ensure_mounted_for = original_mount
+        orch_module.remote.ensure_mounted = original_mount
         orch_module.remote.push_task_for = original_push
         orch_module.remote.detect_os = original_detect
 
     assert task.state is TaskState.PLANNED
-    assert mount_calls == [task.id]
+    assert mount_calls == ["u@h"]
     assert push_calls == [task.id]
 
 
@@ -983,24 +983,24 @@ def test_local_task_never_touches_remote(tmp_path):
     push_calls: list[str] = []
     mount_calls: list[str] = []
 
-    async def _fail_mount(task, on_info=lambda m: None):
-        mount_calls.append(task.id)
+    async def _fail_mount(spec, on_info=lambda m: None):
+        mount_calls.append(spec.target)
         return False
 
     async def _fail_push(task, on_info=lambda m: None):
         push_calls.append(task.id)
         return False
 
-    original_mount = orch_module.remote.ensure_mounted_for
+    original_mount = orch_module.remote.ensure_mounted
     original_push = orch_module.remote.push_task_for
-    orch_module.remote.ensure_mounted_for = _fail_mount
+    orch_module.remote.ensure_mounted = _fail_mount
     orch_module.remote.push_task_for = _fail_push
     try:
         drivers = {"fake-planner": FakeDriver("fake-planner", [_ok("plan")])}
         orch = Orchestrator(task, drivers=drivers)
         _run(orch.run_plan())
     finally:
-        orch_module.remote.ensure_mounted_for = original_mount
+        orch_module.remote.ensure_mounted = original_mount
         orch_module.remote.push_task_for = original_push
 
     assert task.state is TaskState.PLANNED
@@ -1016,16 +1016,16 @@ def test_remote_os_probed_once_and_injected_in_plan_prompt(tmp_path):
     task.create_branch = False
     probe_calls: list[str] = []
 
-    async def _mount_ok(task, on_info=lambda m: None):
+    async def _mount_ok(spec, on_info=lambda m: None):
         return True
 
     async def _detect(spec):
         probe_calls.append(spec.target)
         return "Linux 6.1 x86_64"
 
-    original_mount = orch_module.remote.ensure_mounted_for
+    original_mount = orch_module.remote.ensure_mounted
     original_detect = orch_module.remote.detect_os
-    orch_module.remote.ensure_mounted_for = _mount_ok
+    orch_module.remote.ensure_mounted = _mount_ok
     orch_module.remote.detect_os = _detect
     try:
         drivers = {
@@ -1036,7 +1036,7 @@ def test_remote_os_probed_once_and_injected_in_plan_prompt(tmp_path):
         _run(orch.run_plan())
         _run(orch.run_implement())
     finally:
-        orch_module.remote.ensure_mounted_for = original_mount
+        orch_module.remote.ensure_mounted = original_mount
         orch_module.remote.detect_os = original_detect
 
     assert task.remote_os == "Linux 6.1 x86_64"
@@ -1044,3 +1044,182 @@ def test_remote_os_probed_once_and_injected_in_plan_prompt(tmp_path):
     assert "Linux 6.1 x86_64" in drivers["fake-planner"].prompts[-1]
     reloaded = models.load(task.id)
     assert reloaded.remote_os == "Linux 6.1 x86_64"
+
+
+# ---------------------------------------------------------------------- #
+# Remote session mode: orchestrator wires the session spec to the pipeline
+# ---------------------------------------------------------------------- #
+def test_prepare_remote_session(tmp_path):
+    """Session tasks (no task.remote) get their workdir mounted from the session."""
+    from grafeno import remote, remotesession
+    from grafeno.pipeline import orchestrator as orch_module
+
+    task = _make_task(tmp_path, workdir="/srv/app")  # remote="" by default
+    mount_calls: list[remote.RemoteSpec] = []
+
+    async def _mount_spy(spec, on_info=lambda m: None):
+        mount_calls.append(spec)
+        return True
+
+    async def _no_os(spec):
+        return ""
+
+    async def _already_mounted(_point):
+        return True
+
+    remote.set_session(
+        remote.RemoteSpec(user="root", host="h", path="/root"),
+        mounts_base=tmp_path,
+    )
+    remotesession._current = remotesession.RemoteSession(
+        spec=remote.RemoteSpec(user="root", host="h", path="/root"),
+        remote_home="/root",
+    )
+    original_mount = orch_module.remote.ensure_mounted
+    original_detect = orch_module.remote.detect_os
+    original_is_mounted = orch_module.remote.is_mounted
+    orch_module.remote.ensure_mounted = _mount_spy
+    orch_module.remote.detect_os = _no_os
+    orch_module.remote.is_mounted = _already_mounted
+    try:
+        orch = Orchestrator(task)
+        _run(orch._prepare_remote())
+        assert mount_calls, "session task must trigger a mount"
+        mounted = mount_calls[0]
+        assert mounted.host == "h"
+        assert mounted.path == "/srv/app"
+    finally:
+        orch_module.remote.ensure_mounted = original_mount
+        orch_module.remote.detect_os = original_detect
+        orch_module.remote.is_mounted = original_is_mounted
+        remotesession.deactivate()
+
+
+def test_probe_remote_os_session_reuses_bootstrap_value(tmp_path):
+    """Session tasks reuse the OS probed at bootstrap (no extra ssh)."""
+    from grafeno import remote, remotesession
+    from grafeno.pipeline import orchestrator as orch_module
+
+    task = _make_task(tmp_path)  # no task.remote
+    assert task.remote_os == ""
+    models.save(task)  # save BEFORE the session redirects GRAFENO_HOME
+
+    detect_calls: list[str] = []
+
+    async def _detect_spy(spec):
+        detect_calls.append(spec.host)
+        return "should not be called"
+
+    remote.set_session(
+        remote.RemoteSpec(user="root", host="h", path="/root"),
+        mounts_base=tmp_path,
+    )
+    remotesession._current = remotesession.RemoteSession(
+        spec=remote.RemoteSpec(user="root", host="h", path="/root"),
+        remote_home="/root",
+        remote_os="Linux x86_64",
+    )
+    original_detect = orch_module.remote.detect_os
+    orch_module.remote.detect_os = _detect_spy
+    try:
+        orch = Orchestrator(task)
+        _run(orch._probe_remote_os())
+        # Assertions inside the try block: deactivate() in the finally
+        # below would pop GRAFENO_HOME and break models.load().
+        assert detect_calls == []  # never called
+        assert task.remote_os == "Linux x86_64"
+        reloaded = models.load(task.id)
+        assert reloaded.remote_os == "Linux x86_64"
+    finally:
+        orch_module.remote.detect_os = original_detect
+        remotesession.deactivate()
+
+
+def test_run_tests_over_ssh(tmp_path):
+    """Session tasks run their tests via ssh (one remote process)."""
+    import asyncio as _asyncio
+
+    from grafeno import remote, remotesession
+    from grafeno.pipeline import orchestrator as orch_module
+
+    task = _make_task(tmp_path, workdir="/srv/app", test_command="pytest -q")
+
+    # Skip _prepare_remote's mount probing by stubbing the async helpers.
+    async def _no_mount(spec, on_info=lambda m: None):
+        return True
+
+    async def _no_os(spec):
+        return ""
+
+    captured: list[list[str]] = []
+    fake_proc = _FakeProc(returncode=0)
+
+    class _FakeProcessFactory:
+        async def __call__(self, *argv, **kwargs):
+            captured.append(list(argv))
+            return fake_proc
+
+    factory = _FakeProcessFactory()
+
+    remote.set_session(
+        remote.RemoteSpec(user="root", host="h", path="/root"),
+        mounts_base=tmp_path,
+    )
+    remotesession._current = remotesession.RemoteSession(
+        spec=remote.RemoteSpec(user="root", host="h", path="/root"),
+        remote_home="/root",
+    )
+
+    original_mount = orch_module.remote.ensure_mounted
+    original_detect = orch_module.remote.detect_os
+    original_exec = _asyncio.create_subprocess_exec
+    original_shell = _asyncio.create_subprocess_shell
+    orch_module.remote.ensure_mounted = _no_mount
+    orch_module.remote.detect_os = _no_os
+    _asyncio.create_subprocess_exec = factory  # type: ignore[assignment]
+    _asyncio.create_subprocess_shell = lambda *a, **kw: (_ for _ in ()).throw(
+        AssertionError("should not use local shell in session mode")
+    )
+
+    try:
+        orch = Orchestrator(task, drivers={})
+        result = _run(orch.run_tests())
+        assert result is True
+        assert captured, "expected a remote subprocess"
+        argv = captured[0]
+        # First arg is either "ssh" (no password) or "sshpass".
+        assert argv[0] in ("ssh", "sshpass")
+        # The remote command must contain the workdir and the test command.
+        joined = " ".join(argv)
+        assert "/srv/app" in joined
+        assert "pytest -q" in joined
+    finally:
+        orch_module.remote.ensure_mounted = original_mount
+        orch_module.remote.detect_os = original_detect
+        _asyncio.create_subprocess_exec = original_exec  # type: ignore[assignment]
+        _asyncio.create_subprocess_shell = original_shell  # type: ignore[assignment]
+        remotesession.deactivate()
+
+
+class _FakeProc:
+    """Minimal async subprocess stub for ``create_subprocess_exec``."""
+
+    def __init__(self, returncode: int = 0):
+        self.returncode = returncode
+        self.stdout = _FakeStream()
+
+    async def wait(self):
+        return self.returncode
+
+
+class _FakeStream:
+    """Async iterator over lines that immediately ends."""
+
+    def __init__(self):
+        self._consumed = False
+
+    async def readline(self):
+        if self._consumed:
+            return b""
+        self._consumed = True
+        return b""

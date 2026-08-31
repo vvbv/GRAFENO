@@ -158,13 +158,20 @@ class LocationBar(Static):
         self._render_bar()
 
     def _render_bar(self) -> None:
+        # Local import avoids cycles: widgets is imported early during boot.
+        from .. import remotesession
+
         line = Text()
-        line.append(t("loc.cwd", path=os.getcwd()), style="dim")
+        if remotesession.active():
+            line.append(t("loc.session", target=remotesession.label()), style="dim")
+        else:
+            line.append(t("loc.cwd", path=os.getcwd()), style="dim")
         if self._bar_task is not None:
             line.append("  ·  ", style="dim")
+            remote_like = self._bar_task.is_remote or remotesession.active()
             display = self._bar_task.remote if self._bar_task.is_remote else self._bar_task.workdir
             line.append(t("loc.task", path=display), style="dim")
-            if self._bar_task.is_remote:
+            if remote_like:
                 line.append(f" {t('loc.remote')}", style="bold yellow")
         self.update(line)
 
