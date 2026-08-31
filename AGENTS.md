@@ -32,7 +32,7 @@ src/grafeno/
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
 ├── gh.py                   # Integración con GitHub CLI: detección de disponibilidad (repo + gh + acceso) y listado de issues abiertos (best-effort, nunca lanza)
 ├── references.py           # Modelo `Reference` y niveles global/proyecto/tarea con `resolve()`
-├── consoles.py             # Consolas del proyecto: ConsoleSpec (nombre/comando/color), paleta CONSOLE_COLORS y persistencia por proyecto ([[consoles]] en .grafeno.toml preservando el resto de secciones)
+├── consoles.py             # Consolas del proyecto: ConsoleSpec (nombre/comando/color), paleta CONSOLE_COLORS y persistencia por proyecto bajo ~/.grafeno/consoles/<slug>-<hash8>.toml (migra el [[consoles]] legacy del .grafeno.toml)
 ├── remote.py               # Proyectos remotos por SSH: parseo del spec, montaje sshfs bajo ~/.grafeno/mounts/ y espejo de datos de la tarea con rsync (best-effort), sondeo del SO destino (detect_os)
 ├── remotesession.py        # Modo sesión remota (`grafeno [user@]host[:port]`): bootstrap (sondeo de $HOME remoto, mkdir ~/.grafeno, montaje sshfs), activate() exporta GRAFENO_HOME al montaje; spec_for_task/describe_target para el fallback de sesión
 ├── triggers.py             # Tareas trigger: modelo, niveles global/proyecto, fire() y spawn() best-effort
@@ -48,7 +48,7 @@ src/grafeno/
 │   └── gitops.py           # Rama opcional grafeno/<tarea>
 └── tui/
     ├── runtime.py          # TaskRuntime: ejecución en segundo plano por tarea (workers Textual); notifica a la App cuando una ejecución termina en DONE (gancho de encadenamiento/repetición)
-    ├── console_pty.py      #   Proceso shell sobre PTY (POSIX): start/read/write/interrupt/close, sin shell=True; lectura no bloqueante
+    ├── console_pty.py      #   Proceso shell sobre PTY (POSIX): start/read/write/interrupt/close, sin shell=True; lectura no bloqueante; eco del kernel desactivado (la pantalla ecoa localmente)
     ├── dirpicker.py        # Autocompletado de rutas en el formulario
     ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol; incluye filtro de texto sobre el selector de modelos
     ├── refform.py          # Editor reutilizable de referencias (tabla + añadir/borrar)
@@ -179,8 +179,9 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   detalle de cada tarea (`k`) abren la pantalla de consolas del proyecto
   (en remotas, sobre el montaje sshfs vía `remote.effective_workdir`).
   Cada consola es un `ConsoleSpec` (nombre, comando —vacío = shell del
-  usuario— y color) persistido en `[[consoles]]` del `.grafeno.toml` del
-  proyecto; el color tiñe el fondo del tab y el marco del área. Los
+  usuario— y color) persistido bajo `~/.grafeno/consoles/<slug>-<hash8>.toml`
+  (con migración automática del antiguo `[[consoles]]` del proyecto);
+  el color tiñe el fondo del tab y el marco del área. Los
   procesos son shells sobre PTY (`tui/console_pty.py`, solo POSIX: en
   Windows se muestra un aviso), orientados a líneas: los programas a
   pantalla completa (alternate screen) se detectan por sus secuencias de
@@ -191,7 +192,9 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   y lectura con `loop.add_reader` sobre el fd maestro. Solo se persisten
   las definiciones: los procesos nacen y mueren con la pantalla. Los
   botones de la pantalla (tabs y acciones) usan el modo compacto de
-  Textual (una línea, sin borde).
+  Textual (una línea, sin borde). El PTY se crea con el eco del kernel
+  desactivado y la pantalla ecoa localmente cada línea enviada (junto al
+  prompt pendiente), evitando el eco duplicado del shell.
 - **Tests**: un archivo `test_<modulo>.py` por módulo; fixtures autouse en
   `conftest.py` ya aíslan `GRAFENO_HOME` y fijan idioma inglés; drivers falsos
   para el orquestador; smoke tests TUI con el modo headless de Textual
