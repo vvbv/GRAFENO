@@ -129,7 +129,7 @@ grafeno --noeditor                 # skip the configured editor on this run
 | `r` | List | Reload the task list |
 | `p` / `i` / `r` / `f` | Detail | Plan / Implement / Review / Fix (with confirmation) |
 | `s` | Detail | Final steps (with confirmation) |
-| `t` | Detail | Run tests |
+| `t` | Detail | Run tests |bash 
 | `a` | Detail | Automode |
 | `m` | Detail | Ask for more (new extension cycle) |
 | `e` | Detail | Change CLI and model of each task agent |
