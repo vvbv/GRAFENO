@@ -10,6 +10,7 @@ from pathlib import Path
 
 from grafeno import models, paths
 from grafeno.config import Config, TelegramConfig
+from grafeno.models import TaskState
 from grafeno.drivers.base import CLIDriver, RunResult
 from grafeno.telegram import service as service_module
 from grafeno.telegram.api import TelegramError, TgMessage, Update
@@ -175,6 +176,9 @@ def test_voice_note_creates_task_after_confirmation(tmp_path, monkeypatch):
 
     pid = _proposal_id(client)
     _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    assert models.list_all() == []  # chaining not answered yet
+    assert "chained" in client.sent[-1][1]  # tg.chain.ask
+    _run(service._handle_update(_callback_update(f"tg:n:{pid}")))
 
     tasks = models.list_all()
     assert len(tasks) == 1
@@ -188,8 +192,8 @@ def test_voice_note_creates_task_after_confirmation(tmp_path, monkeypatch):
     assert task.workdir == str(tmp_path)
     # The chat mapping is persisted for the finish notification.
     assert _load_state().chats[task.id] == 555
-    # The callback was acknowledged.
-    assert client.answered == ["cb-1"]
+    # The callbacks were acknowledged.
+    assert client.answered[-1] == "cb-1"
     # The user got the confirmation message.
     assert "Saludar" in client.sent[-1][1]
 
@@ -207,8 +211,12 @@ def test_create_without_confirmation_when_disabled(tmp_path, monkeypatch):
 
     _run(service._parse_and_reply(555, "crea una tarea directa"))
 
+    assert models.list_all() == []  # waiting for the chaining answer
+    markup = client.sent[-1][2]
+    assert markup is not None  # the two chaining buttons
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:n:{pid}")))
     assert [task.name for task in models.list_all()] == ["Directa"]
-    assert client.sent[-1][2] is None  # no inline buttons
 
 
 def test_multiple_tasks_created(tmp_path, monkeypatch):
@@ -220,9 +228,11 @@ def test_multiple_tasks_created(tmp_path, monkeypatch):
         enabled=True, bot_token="T", allowed_chat_ids="555",
         confirm_create=False, default_workdir=str(tmp_path),
     )
-    service, _ = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
+    service, client = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
 
     _run(service._parse_and_reply(555, "dos tareas"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:n:{pid}")))
 
     assert sorted(task.name for task in models.list_all()) == ["A", "B"]
 
@@ -239,6 +249,8 @@ def test_create_with_bad_workdir_reports_error(tmp_path, monkeypatch):
     service, client = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
 
     _run(service._parse_and_reply(555, "crea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:n:{pid}")))
 
     assert models.list_all() == []
     assert "/no/existe/esto" in client.sent[-1][1]
@@ -255,7 +267,7 @@ def test_create_task_routes_to_existing_project_workdir(tmp_path, monkeypatch):
     )
     service, _ = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
 
-    created, errors = service._create_tasks(555, [
+    created, errors, _unchained = service._create_tasks(555, [
         TaskSpec(name="Nueva", description="d", workdir=str(tmp_path).upper()),
     ])
 
@@ -459,6 +471,8 @@ def test_reply_language_persists_for_notifications(tmp_path, monkeypatch):
     )
     service, client = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
     _run(service._parse_and_reply(555, "crea algo"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:n:{pid}")))
     task = models.list_all()[0]
 
     _run(service.notify_task_finished(task))
@@ -556,12 +570,163 @@ def test_callback_from_other_chat_is_rejected(tmp_path, monkeypatch):
     pid = _make_proposal(service, client, tmp_path, monkeypatch)
 
     _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:n:{pid}")))
     # Now replay the same id from another allowed chat: already consumed.
-    update = _callback_update(f"tg:c:{pid}")
+    update = _callback_update(f"tg:n:{pid}")
     update.callback.chat_id = 777
     _run(service._handle_update(update))
 
     assert len(models.list_all()) == 1  # only the first confirmation created it
+
+
+# ---------------------------------------------------------------------- #
+# Chaining question (tg:n / tg:l)
+# ---------------------------------------------------------------------- #
+def _in_progress_task(name: str, workdir: str, state=TaskState.IMPLEMENTING):
+    """Saved task in an active pipeline state (chaining candidate)."""
+    task = models.Task.create(name, "d", workdir, Config())
+    task.state = state
+    models.save(task)
+    return task
+
+
+def test_chain_last_links_to_latest_in_progress_task(tmp_path, monkeypatch):
+    en_curso = _in_progress_task("En curso", str(tmp_path))
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Nueva"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    _run(service._parse_and_reply(555, "crea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+
+    markup = client.sent[-1][2]
+    assert markup is not None
+    callbacks = [btn["callback_data"] for row in markup["inline_keyboard"] for btn in row]
+    assert f"tg:n:{pid}" in callbacks
+    assert f"tg:l:{pid}" in callbacks
+
+    _run(service._handle_update(_callback_update(f"tg:l:{pid}")))
+
+    task = models.list_all()[0]
+    assert task.parent_id == en_curso.id
+    assert "chained after En curso" in client.sent[-1][1]
+
+
+def test_chain_last_picks_the_newest_candidate(tmp_path, monkeypatch):
+    una = _in_progress_task("Una", str(tmp_path))
+    dos = _in_progress_task("Dos", str(tmp_path))
+    other_dir = tmp_path / "otro"
+    other_dir.mkdir()
+    otra = _in_progress_task("Otra", str(other_dir))
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Nueva"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    _run(service._parse_and_reply(555, "crea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:l:{pid}")))
+
+    nueva = next(t for t in models.list_all() if t.name == "Nueva")
+    assert nueva.parent_id == max(una.id, dos.id)
+    assert nueva.parent_id != otra.id  # never the other-project task
+
+
+def test_chain_last_ignores_non_active_states(tmp_path, monkeypatch):
+    done = _in_progress_task("Hecha", str(tmp_path), state=TaskState.DONE)
+    draft = models.Task.create("Borrador", "d", str(tmp_path), Config())
+    models.save(draft)
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Nueva"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    _run(service._parse_and_reply(555, "crea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:l:{pid}")))
+
+    task = models.list_all()[0]
+    assert task.parent_id == ""
+    assert "parallel task" in client.sent[-1][1]
+
+
+def test_chain_last_invalid_position_falls_back(tmp_path, monkeypatch):
+    padre = _in_progress_task("Padre", str(tmp_path))
+    hija = models.Task.create("Hija", "d", str(tmp_path), Config())
+    hija.parent_id = padre.id
+    hija.state = TaskState.DONE
+    models.save(hija)
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Nueva"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    _run(service._parse_and_reply(555, "crea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:l:{pid}")))
+
+    task = models.list_all()[0]
+    assert task.parent_id == ""
+    assert "parallel task" in client.sent[-1][1]
+
+
+def test_chain_none_creates_parallel_even_with_in_progress(tmp_path, monkeypatch):
+    _in_progress_task("En curso", str(tmp_path))
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Nueva"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    _run(service._parse_and_reply(555, "crea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:n:{pid}")))
+
+    task = models.list_all()[0]
+    assert task.parent_id == ""
+    assert "parallel task" not in client.sent[-1][1]
+
+
+def test_cancel_at_chaining_step_creates_nothing(tmp_path, monkeypatch):
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks", "tasks": [{"name": "Nope"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    _run(service._parse_and_reply(555, "crea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+
+    _run(service._handle_update(_callback_update(f"tg:x:{pid}")))
+
+    assert models.list_all() == []
+    assert pid not in service._proposals
+
+
+def test_chaining_question_without_confirmation_config(tmp_path, monkeypatch):
+    """With confirm_create=False the chaining buttons show up directly."""
+    cfg = TelegramConfig(
+        enabled=True, bot_token="T", allowed_chat_ids="555",
+        confirm_create=False, default_workdir=str(tmp_path),
+    )
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks", "tasks": [{"name": "Directa"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
+
+    _run(service._parse_and_reply(555, "crea una tarea directa"))
+
+    assert models.list_all() == []
+    assert client.sent[-1][2] is not None  # chaining buttons present
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:l:{pid}")))
+    task = models.list_all()[0]
+    assert task.parent_id == ""
+    assert "parallel task" in client.sent[-1][1]
 
 
 # ---------------------------------------------------------------------- #
@@ -721,6 +886,8 @@ def test_photo_and_video_attached_to_created_task(tmp_path, monkeypatch):
     assert "eceived" in client.sent[-1][1]  # attachment pending notice
 
     _run(service._parse_and_reply(555, "crea la tarea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:n:{pid}")))
 
     task = models.list_all()[0]
     media_dir = paths.task_dir(task.id) / "media"

@@ -21,12 +21,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from .. import _toml, media, models, paths
+from .. import _toml, media, models, paths, scheduler
 from ..config import TelegramConfig
 from ..drivers import get_driver
 from ..drivers.base import CLIDriver, RunRequest
 from ..i18n import t, t_lang
-from ..models import Task, state_label
+from ..models import Task, TaskState, state_label
 from ..timefmt import format_duration
 from . import intents, stt, tts
 from .api import TelegramBotClient, TelegramError, TgMessage, Update
@@ -37,10 +37,23 @@ PROPOSAL_TTL = 1800.0          # seconds a Create/Cancel proposal stays valid
 ATTACHMENT_TTL = 600.0         # seconds a buffered photo/video stays pending
 MAX_ATTACHMENTS = 5            # per chat
 ASK_CONTEXT_CHARS = 20000      # artifact context budget for the "ask" action
-CALLBACK_PREFIX = "tg:"        # callback_data prefix: tg:c:<id> / tg:x:<id>
+CALLBACK_PREFIX = "tg:"        # callback_data prefix: tg:c:<id> / tg:x:<id> / tg:n:<id> / tg:l:<id>
 TYPING_REFRESH = 4.0           # chat actions last ~5s on the clients
 UNAUTHORIZED_COOLDOWN = 300.0  # seconds between "not authorized" notices
 LOG_MAX_BYTES = 1_000_000      # telegram.log is truncated past this size
+
+# States considered "in progress" for the "chain to the latest of the
+# project" option: started but not finished (DRAFT/PAUSED/FAILED/DONE/
+# DISCARDED do not count).
+IN_PROGRESS_STATES = (
+    TaskState.PLANNING,
+    TaskState.PLANNED,
+    TaskState.IMPLEMENTING,
+    TaskState.IMPLEMENTED,
+    TaskState.REVIEWING,
+    TaskState.FIXING,
+    TaskState.FINALIZING,
+)
 
 # Ask prompt: Spanish, like the rest of the pipeline prompts (prompts.py).
 _ASK_PROMPT = """Eres un asistente que responde preguntas sobre una tarea de GRAFENO
@@ -92,6 +105,21 @@ def _save_state(state: _State) -> None:
         )
     except OSError:
         pass
+
+
+def _last_in_progress(workdir: str, tasks: list[Task]) -> Task | None:
+    """Most recent in-progress task of a project (``tasks`` is newest first).
+
+    Only local tasks of the exact project directory count; remote tasks and
+    tasks in non-active states (draft, paused, failed, done, discarded) are
+    ignored.
+    """
+    for task in tasks:
+        if task.is_remote or task.workdir != workdir:
+            continue
+        if task.state in IN_PROGRESS_STATES:
+            return task
+    return None
 
 
 @dataclass
@@ -584,12 +612,12 @@ class TelegramService:
     # Task creation
     # ------------------------------------------------------------------ #
     async def _propose_or_create(self, chat_id: int, specs: list[TaskSpec]) -> None:
-        if not self.cfg.confirm_create:
-            created, errors = self._create_tasks(chat_id, specs)
-            await self._send(chat_id, self._format_created(chat_id, created, errors))
-            return
         proposal = PendingProposal(id=secrets.token_hex(4), chat_id=chat_id, specs=specs)
         self._proposals[proposal.id] = proposal
+        if not self.cfg.confirm_create:
+            # No Create/Cancel step, but the chaining question is mandatory.
+            await self._ask_chaining(chat_id, proposal, include_proposal=True)
+            return
         markup = {
             "inline_keyboard": [
                 [
@@ -599,6 +627,25 @@ class TelegramService:
             ]
         }
         await self._send(chat_id, self._format_proposal(chat_id, specs), reply_markup=markup)
+
+    async def _ask_chaining(
+        self, chat_id: int, proposal: PendingProposal, *, include_proposal: bool = False
+    ) -> None:
+        """Ask explicitly how the new task(s) chain: the only two valid options
+        are "ninguna" (parallel, not chained) and "a la última del proyecto"
+        (chained after the last in-progress task of the project)."""
+        markup = {
+            "inline_keyboard": [
+                [
+                    {"text": self._tt(chat_id, "tg.btn.chain_none"), "callback_data": f"{CALLBACK_PREFIX}n:{proposal.id}"},
+                    {"text": self._tt(chat_id, "tg.btn.chain_last"), "callback_data": f"{CALLBACK_PREFIX}l:{proposal.id}"},
+                ]
+            ]
+        }
+        text = self._tt(chat_id, "tg.chain.ask")
+        if include_proposal:
+            text = self._format_proposal(chat_id, proposal.specs) + "\n" + text
+        await self._send(chat_id, text, reply_markup=markup)
 
     def _format_proposal(self, chat_id: int, specs: list[TaskSpec]) -> str:
         items = []
@@ -623,24 +670,41 @@ class TelegramService:
         if len(parts) != 2:
             return
         action, proposal_id = parts
-        proposal = self._proposals.pop(proposal_id, None)
-        if proposal is None or proposal.expired or proposal.chat_id != chat_id:
+        proposal = self._proposals.get(proposal_id)
+        if proposal is None or proposal.chat_id != chat_id:
+            await self._send(chat_id, self._tt(chat_id, "tg.proposal.expired"))
+            return
+        if proposal.expired:
+            self._proposals.pop(proposal_id, None)
             await self._send(chat_id, self._tt(chat_id, "tg.proposal.expired"))
             return
         if action == "x":
+            self._proposals.pop(proposal_id, None)
             self._take_attachments(chat_id)  # discard buffered attachments too
             await self._send(chat_id, self._tt(chat_id, "tg.proposal.cancelled"))
             return
-        if action != "c":
+        if action == "c":
+            # Confirmed creation: now ask the mandatory chaining question.
+            await self._ask_chaining(chat_id, proposal)
             return
-        created, errors = self._create_tasks(chat_id, proposal.specs)
-        await self._send(chat_id, self._format_created(chat_id, created, errors))
+        if action not in ("n", "l"):
+            return
+        self._proposals.pop(proposal_id, None)
+        chain_mode = "last" if action == "l" else "none"
+        created, errors, unchained = self._create_tasks(chat_id, proposal.specs, chain_mode=chain_mode)
+        await self._send(chat_id, self._format_created(chat_id, created, errors, unchained))
 
-    def _create_tasks(self, chat_id: int, specs: list[TaskSpec]) -> tuple[list[Task], list[str]]:
+    def _create_tasks(
+        self, chat_id: int, specs: list[TaskSpec], *, chain_mode: str = "none"
+    ) -> tuple[list[Task], list[str], list[str]]:
         """Create the confirmed tasks; the scheduler tick starts them.
 
         The first created task receives the chat's buffered attachments
         (images as ``media/`` tokens, videos as absolute-path references).
+        With ``chain_mode == "last"`` each task is chained after the last
+        in-progress task of its project; when there is none (or the
+        position is invalid) it is created parallel and its name is
+        returned in the third list.
         """
         from .. import config as config_module
 
@@ -649,11 +713,19 @@ class TelegramService:
         attachments = self._take_attachments(chat_id)
         created: list[Task] = []
         errors: list[str] = []
+        unchained: list[str] = []
         for spec in specs:
             workdir = intents.resolve_workdir(spec.workdir, known_tasks, self.default_workdir)
             if not Path(workdir).is_dir():
                 errors.append(self._tt(chat_id, "tg.bad_workdir", workdir=workdir))
                 continue
+            parent_id = ""
+            if chain_mode == "last":
+                parent = _last_in_progress(workdir, known_tasks)
+                if parent is None:
+                    unchained.append(spec.name.strip())
+                else:
+                    parent_id = parent.id
             try:
                 task = models.Task.create(
                     spec.name.strip(),
@@ -664,7 +736,13 @@ class TelegramService:
                     confirm_plan=False,
                     test_command=spec.test_command.strip() or None,
                     scheduled_at=datetime.now().isoformat(timespec="minutes"),
+                    parent_id=parent_id or None,
                 )
+                if task.parent_id:
+                    by_id = {item.id: item for item in known_tasks}
+                    if scheduler.rechain_error(task, task.parent_id, by_id):
+                        task.parent_id = ""  # invalid position: fall back to parallel
+                        unchained.append(task.name)
                 task.origin = ORIGIN_TELEGRAM
                 models.save(task)
             except Exception:  # noqa: BLE001 - one bad spec does not stop the rest
@@ -677,7 +755,7 @@ class TelegramService:
                 self._attach_to_task(task, attachments)
         if created:
             _save_state(self._state)
-        return created, errors
+        return created, errors, unchained
 
     @staticmethod
     def _attach_to_task(task: Task, attachments: list[tuple[str, bytes]]) -> None:
@@ -699,14 +777,27 @@ class TelegramService:
             )
             models.save(task)
 
-    def _format_created(self, chat_id: int, created: list[Task], errors: list[str]) -> str:
+    def _format_created(
+        self, chat_id: int, created: list[Task], errors: list[str], unchained: list[str]
+    ) -> str:
         parts: list[str] = []
         if created:
-            items = "\n".join(
-                self._tt(chat_id, "tg.created.item", name=task.name, workdir=task.workdir)
-                for task in created
-            )
-            parts.append(self._tt(chat_id, "tg.created", count=len(created), items=items))
+            by_id = {task.id: task for task in models.list_all()}
+            items = []
+            for task in created:
+                parent = by_id.get(task.parent_id) if task.parent_id else None
+                if parent is not None:
+                    items.append(
+                        self._tt(
+                            chat_id, "tg.created.item_chained",
+                            name=task.name, workdir=task.workdir, parent=parent.name,
+                        )
+                    )
+                else:
+                    items.append(self._tt(chat_id, "tg.created.item", name=task.name, workdir=task.workdir))
+            parts.append(self._tt(chat_id, "tg.created", count=len(created), items="\n".join(items)))
+        for name in unchained:
+            parts.append(self._tt(chat_id, "tg.chain.no_parent", name=name))
         if errors:
             parts.append(self._tt(chat_id, "tg.create.failed", names="; ".join(errors)))
         return "\n".join(parts) if parts else self._tt(chat_id, "tg.create.failed", names="?")

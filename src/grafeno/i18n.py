@@ -518,10 +518,20 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tg.proposal.item": "\n• {name}\n  Directory: {workdir}\n  Tests: {test_command}\n  {description}",
         "tg.btn.create": "Create",
         "tg.btn.cancel": "Cancel",
+        "tg.btn.chain_none": "None (parallel)",
+        "tg.btn.chain_last": "To the latest of the project",
+        "tg.chain.ask": (
+            "Should the new task(s) be chained?\n"
+            "• None: parallel task, not chained to any other\n"
+            "• To the latest of the project: it will start when the last "
+            "in-progress task of the project finishes"
+        ),
+        "tg.chain.no_parent": "No in-progress task in the project: '{name}' was created as a parallel task.",
         "tg.proposal.expired": "That proposal expired or was already handled.",
         "tg.proposal.cancelled": "Cancelled: no task was created.",
         "tg.created": "Created {count} task(s); the scheduler will start them shortly:\n{items}",
         "tg.created.item": "• {name} ({workdir})",
+        "tg.created.item_chained": "• {name} ({workdir}) — chained after {parent}",
         "tg.create.failed": "Could not create: {names}",
         "tg.bad_workdir": "Directory does not exist: {workdir}",
         "tg.list.empty": "No tasks yet.",
@@ -1009,10 +1019,20 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tg.proposal.item": "\n• {name}\n  Directorio: {workdir}\n  Tests: {test_command}\n  {description}",
         "tg.btn.create": "Crear",
         "tg.btn.cancel": "Cancelar",
+        "tg.btn.chain_none": "Ninguna (paralela)",
+        "tg.btn.chain_last": "A la última del proyecto",
+        "tg.chain.ask": (
+            "¿La nueva tarea debe encadenarse?\n"
+            "• Ninguna: tarea paralela, no encadenada a ninguna otra\n"
+            "• A la última del proyecto: arrancará cuando termine la última "
+            "tarea en progreso del proyecto"
+        ),
+        "tg.chain.no_parent": "No hay ninguna tarea en progreso en el proyecto: '{name}' se creó como tarea paralela.",
         "tg.proposal.expired": "Esa propuesta expiró o ya fue gestionada.",
         "tg.proposal.cancelled": "Cancelado: no se creó ninguna tarea.",
         "tg.created": "Creada(s) {count} tarea(s); el planificador las arrancará en breve:\n{items}",
         "tg.created.item": "• {name} ({workdir})",
+        "tg.created.item_chained": "• {name} ({workdir}) — encadenada a {parent}",
         "tg.create.failed": "No se pudo crear: {names}",
         "tg.bad_workdir": "El directorio no existe: {workdir}",
         "tg.list.empty": "Aún no hay tareas.",
