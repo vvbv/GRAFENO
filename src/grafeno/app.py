@@ -15,8 +15,14 @@ from .models import Task, TaskState
 from .tui.runtime import TaskRuntime
 
 
+def _window_title() -> str:
+    """Terminal window title: ``Grafeno - <project dir name>``."""
+    name = Path(os.getcwd()).name
+    return f"Grafeno - {name}" if name else "Grafeno"
+
+
 class GrafenoApp(App):
-    TITLE = "GRAFENO"
+    TITLE = "Grafeno"
     CSS_PATH = "grafeno.tcss"
     BINDINGS = [
         Binding("ctrl+q", "quit", t("common.quit"), show=False),
@@ -26,6 +32,7 @@ class GrafenoApp(App):
 
     def __init__(self):
         super().__init__()
+        self.title = _window_title()
         # Background task runtimes: they survive navigation.
         self.runtimes: dict[str, TaskRuntime] = {}
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+from pathlib import Path
 
 from grafeno.app import GrafenoApp
 from grafeno.tui.screens.tasks import NewTaskScreen, TaskListScreen
@@ -1595,3 +1597,20 @@ def test_detail_screen_has_media_tab_and_files_list():
             assert app.screen.query("#media-files") is not None
 
     asyncio.run(scenario())
+
+
+def test_app_title_includes_launch_dir_name():
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.title == f"Grafeno - {Path(os.getcwd()).name}"
+
+    asyncio.run(scenario())
+
+
+def test_window_title_falls_back_at_fs_root(monkeypatch):
+    from grafeno import app as app_module
+
+    monkeypatch.setattr(os, "getcwd", lambda: "/")
+    assert app_module._window_title() == "Grafeno"
