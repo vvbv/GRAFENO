@@ -377,3 +377,35 @@ def test_remote_os_defaults_empty_for_legacy_meta(tmp_path):
     data = task.to_dict()
     del data["task"]["remote_os"]  # task.toml written by an older version
     assert Task.from_dict(data).remote_os == ""
+
+
+def test_task_base_commit_roundtrip(tmp_path):
+    """``base_commit`` persists in task.toml and defaults to empty."""
+    task = Task.create("Demo", "desc", str(tmp_path), Config())
+    assert task.base_commit == ""
+    task.base_commit = "abc123"
+    models.save(task)
+
+    loaded = models.load(task.id)
+    assert loaded.base_commit == "abc123"
+
+    # Legacy task.toml without base_commit loads as empty.
+    meta = paths.task_meta_path(task.id)
+    with meta.open("rb") as handle:
+        data = tomllib.load(handle)
+    data["task"].pop("base_commit", None)
+    meta.write_text(_toml.dumps(data), encoding="utf-8")
+    assert models.load(task.id).base_commit == ""
+
+
+def test_reset_to_draft_clears_base_commit(tmp_path):
+    """reset_to_draft clears the recorded diff base alongside the rest."""
+    task = Task.create("Demo", "desc", str(tmp_path), Config())
+    models.save(task)
+    task.base_commit = "abc"
+    models.save(task)
+
+    reset_to_draft(task)
+
+    persisted = models.load(task.id)
+    assert persisted.base_commit == ""

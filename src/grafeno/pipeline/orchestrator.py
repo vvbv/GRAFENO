@@ -255,6 +255,19 @@ class Orchestrator:
         except Exception as exc:  # noqa: BLE001 - sync never breaks the pipeline
             self._info(t("remote.sync.push.fail", error=exc))
 
+    def _write_changes_md(self) -> None:
+        """Write final/changes.md with the task diff (best effort, never fails)."""
+        try:
+            workdir = remote.effective_workdir(self.task.remote, self.task.workdir)
+            content = gitops.changes_markdown(workdir, self.task.base_commit)
+            if not content:
+                return
+            changes_path = paths.final_dir(self.task.id, self.task.cycle) / "changes.md"
+            changes_path.write_text(content, encoding="utf-8")
+            self._info(t("orch.changes_md"))
+        except Exception as exc:  # noqa: BLE001 - reporting never breaks the pipeline
+            self._info(t("orch.changes_md.fail", error=exc))
+
     # ------------------------------------------------------------------ #
     # Phases
     # ------------------------------------------------------------------ #
@@ -361,6 +374,12 @@ class Orchestrator:
     async def run_implement(self) -> None:
         await self._prepare_remote()
         self._ensure_branch()
+        if not self.task.base_commit:
+            workdir = remote.effective_workdir(self.task.remote, self.task.workdir)
+            head = gitops.current_head(workdir)
+            if head:
+                self.task.base_commit = head
+                models.save(self.task)
         await self._execute(
             "implementer",
             "implement",
@@ -432,6 +451,7 @@ class Orchestrator:
         if not final_path.exists() and result.text.strip():
             # Fallback: the agent did not write the report; we save its output.
             final_path.write_text(normalize_markdown(result.text), encoding="utf-8")
+        self._write_changes_md()
 
     async def run_tests(self) -> bool:
         await self._prepare_remote()

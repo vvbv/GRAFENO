@@ -51,7 +51,7 @@ src/grafeno/
 │   ├── hooks.py            # Hooks de completado por etapa (comando shell o webhook URL; global + por tarea, mejor esfuerzo)
 │   ├── prompts.py          # Prompts por fase, cabecera GRAFENO-EXECUTOR e instrucciones finales personalizables
 │   ├── verdict.py          # Parseo del veredicto del revisor (VERDICT: APPROVED / CHANGES_REQUESTED)
-│   └── gitops.py           # Rama opcional grafeno/<tarea>
+│   └── gitops.py           # Rama opcional grafeno/<tarea>; diff base (base_commit) y generacion de changes.md del reporte final
 └── tui/
     ├── runtime.py          # TaskRuntime: ejecución en segundo plano por tarea (workers Textual); notifica a la App cuando una ejecución termina en DONE (gancho de encadenamiento/repetición)
     ├── console_pty.py      #   Proceso shell sobre PTY (POSIX): start/read/write/interrupt/close, sin shell=True; lectura no bloqueante; eco del kernel desactivado (la pantalla ecoa localmente)
@@ -242,6 +242,12 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   acepta png/jpg/jpeg (las fotos de Telegram llegan como JPEG) y
   `save_attachment` guarda adjuntos arbitrarios (imagen o video) con el
   patrón `media-NN<ext>`.
+- **changes.md**: al terminar la fase final, el orquestador escribe
+  `final/<ciclo>/changes.md` con todos los cambios aportados por la tarea
+  (comiteados y sin comitear): commits, `git status`, diff completo contra
+  `Task.base_commit` (HEAD registrado al arrancar la implementacion) y el
+  contenido de los archivos nuevos sin seguimiento. Es best effort: sin
+  repo git no se genera y nunca rompe el pipeline; gitops es solo lectura.
 - **Consolas por proyecto**: la lista de tareas (botón/tecla `k`) y el
   detalle de cada tarea (`k`) abren la pantalla de consolas del proyecto
   (en remotas, sobre el montaje sshfs vía `remote.effective_workdir`).

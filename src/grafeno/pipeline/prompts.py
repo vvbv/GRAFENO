@@ -383,6 +383,8 @@ La tarea ya fue implementada y APROBADA por el revisor. Tu trabajo es el cierre.
 4. Escribe tu informe en el archivo:
    {final_dir / "01-final.md"}
    con secciones: Resumen, Acciones realizadas, Documentación actualizada, Observaciones.
+5. NO generes ningún archivo `changes.md`: el sistema lo añade automáticamente
+   al directorio del informe con el diff completo de la tarea.
 
 {_CODE_RULES}
 

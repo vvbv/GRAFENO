@@ -124,6 +124,7 @@ class Task:
     hook_stages: str = ""   # comma-separated stages; empty = none
     hook_mode: str = "override"  # "override" (replaces the global) | "both"
     branch: str = ""
+    base_commit: str = ""  # project HEAD when the implementation started (diff base for changes.md)
     iteration: int = 0
     cycle: int = 1  # current cycle (>=2 = "ask for more" extensions)
     extensions: dict[str, str] = field(default_factory=dict)  # cycle -> request
@@ -296,6 +297,7 @@ class Task:
                 "hook_stages": self.hook_stages,
                 "hook_mode": self.hook_mode,
                 "branch": self.branch,
+                "base_commit": self.base_commit,
                 "iteration": self.iteration,
                 "cycle": self.cycle,
                 "scheduled_at": self.scheduled_at,
@@ -347,6 +349,7 @@ class Task:
             hook_stages=str(raw.get("hook_stages", "")),
             hook_mode=str(raw.get("hook_mode", "override")),
             branch=str(raw.get("branch", "")),
+            base_commit=str(raw.get("base_commit", "")),
             iteration=int(raw.get("iteration", 0)),
             cycle=int(raw.get("cycle", 1)),
             scheduled_at=str(raw.get("scheduled_at", "")),
@@ -389,10 +392,11 @@ def reset_to_draft(task: Task) -> None:
     """Reset the task to DRAFT so it can be launched from scratch.
 
     Clears the state machine (state, iteration, cycle, sessions and
-    extensions), unschedules unattended startup and deletes the pipeline
-    artifacts (``plan/``, ``review/``, ``final/``) so that the next run
-    re-plans with the current name and description. Keeps tokens, durations,
-    hooks and the already-created git branch.
+    extensions), unschedules unattended startup, clears the recorded base
+    commit and deletes the pipeline artifacts (``plan/``, ``review/``,
+    ``final/``) so that the next run re-plans with the current name and
+    description. Keeps tokens, durations, hooks and the already-created git
+    branch.
     """
     task.state = TaskState.DRAFT
     task.iteration = 0
@@ -400,6 +404,7 @@ def reset_to_draft(task: Task) -> None:
     task.sessions = {}
     task.extensions = {}
     task.scheduled_at = ""
+    task.base_commit = ""
     for directory in (
         paths.plan_dir(task.id),
         paths.review_dir(task.id),

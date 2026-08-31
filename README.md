@@ -31,8 +31,12 @@ Every task follows a pipeline with four configurable roles (CLI + model for each
 3. **Reviewer** — verifies the acceptance criteria, writes the review under `review/NN-review.md` and issues a structured verdict (`VERDICT: APPROVED` / `VERDICT: CHANGES_REQUESTED`). If changes are requested, the implementer fixes them and the review runs again.
 4. **Final steps** — once approved, a last agent closes the task: updates the affected
    documentation, performs a final cleanup and writes a report under `final/01-final.md`.
-   It also has a configurable CLI and model (role `final`). You can add an extra block
-   of instructions in `config.toml` (`final_prompt`) or override it per task when
+   Alongside it, GRAFENO automatically appends `final/<cycle>/changes.md` with every change
+   contributed by the task (committed and uncommitted: commits, `git status`, the full diff
+   against the HEAD captured when the implementation started, and the contents of new
+   untracked files). It is best effort: without a git repo no file is generated and the phase
+   never breaks. It also has a configurable CLI and model (role `final`). You can add an extra
+   block of instructions in `config.toml` (`final_prompt`) or override it per task when
    creating it; if empty, the closeout runs as usual.
 
 **Markdown normalization**: every `.md` written by the pipeline (plan, review and final) is normalized on disk after its phase ends, and the same compaction is applied in memory when you open one in the detail view, so legacy artifacts render compactly too. The normalization collapses runs of blank lines into a single one and removes the blank lines between consecutive items of the same list (bullet, ordered or checkbox) — fenced code blocks are preserved verbatim. The on-disk rewrite only touches files the pipeline just produced; older artifacts keep their original bytes.
@@ -153,7 +157,7 @@ grafeno --noeditor                 # skip the configured editor on this run
     ├── task.toml            # state, iterations, sessions, workdir, branch, scheduling (scheduled_at, parent_id, repeat_mode, plan_reuse, repeat_count, last_completed_at), per-role effort level, references + use_global_references/use_project_references flags
     ├── plan/*.md            # plans with GRAFENO-EXECUTOR header
     ├── review/*.md          # reviews numbered by iteration
-    ├── final/*.md           # final-step reports per cycle
+    ├── final/*.md           # final-step reports per cycle + auto-generated changes.md
     ├── media/*.png          # PNGs pasted into the description / ask-for-more
     └── logs/*.jsonl         # raw output from each CLI invocation
 ```

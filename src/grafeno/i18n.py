@@ -429,6 +429,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "orch.agents_md.failed": "[AGENTS.md] Could not generate it ({error}); continuing without it.",
         "orch.usage_wait.retry": "Usage limit reached; waiting {wait} before retrying (attempt {attempt}/{max})",
         "orch.usage_wait.giving_up": "Usage limit persists after {max} attempts; failing the phase",
+        "orch.changes_md": "Changes report written: changes.md",
+        "orch.changes_md.fail": "Could not write changes.md: {error}",
         # hook de completado
         "hook.run": "Hook [{stage}]: {command}",
         "hook.done": "Hook finished.",
@@ -921,6 +923,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "orch.agents_md.failed": "[AGENTS.md] No se pudo generar ({error}); se continúa sin él.",
         "orch.usage_wait.retry": "Límite de uso alcanzado; esperando {wait} antes de reintentar (intento {attempt}/{max})",
         "orch.usage_wait.giving_up": "El límite de uso persiste tras {max} intentos; la fase falla",
+        "orch.changes_md": "Informe de cambios generado: changes.md",
+        "orch.changes_md.fail": "No se pudo generar changes.md: {error}",
         # hook de completado
         "hook.run": "Hook [{stage}]: {command}",
         "hook.done": "Hook finalizado.",

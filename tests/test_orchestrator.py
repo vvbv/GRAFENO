@@ -387,6 +387,96 @@ def test_final_steps_failure_marks_failed(tmp_path):
     assert task.state is TaskState.FAILED
 
 
+def test_final_writes_changes_md(tmp_path):
+    """When the workdir is a git repo, run_final writes final/changes.md."""
+    import subprocess
+
+    workdir = tmp_path / "repo"
+    workdir.mkdir()
+    subprocess.run(["git", "-C", str(workdir), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(workdir), "config", "user.email", "a@b.c"], check=True)
+    subprocess.run(["git", "-C", str(workdir), "config", "user.name", "t"], check=True)
+    (workdir / "seed.txt").write_text("seed\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(workdir), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(workdir), "commit", "-q", "-m", "init"], check=True)
+    base_commit = subprocess.run(
+        ["git", "-C", str(workdir), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    task = _make_task(workdir)
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", [_ok("v1")]),
+        "fake-rev": FakeDriver("fake-rev", [_ok("bien\nVERDICT: APPROVED")]),
+        "fake-final": FakeDriver("fake-final", [_ok("informe de cierre")]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_implement())
+    assert task.base_commit == base_commit
+
+    # Dirty the tree so the report has content beyond "(sin cambios)".
+    (workdir / "seed.txt").write_text("seed\nedit\n", encoding="utf-8")
+    _run(orch.run_final())
+
+    changes = paths.final_dir(task.id) / "changes.md"
+    assert changes.exists()
+    text = changes.read_text(encoding="utf-8")
+    assert text.startswith("# Cambios de la tarea")
+    assert "## Diff" in text
+
+
+def test_final_without_git_repo_writes_nothing(tmp_path):
+    """Without a git repo, run_final finishes and skips the report silently."""
+    task = _make_task(tmp_path)
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", [_ok("v1")]),
+        "fake-rev": FakeDriver("fake-rev", [_ok("bien\nVERDICT: APPROVED")]),
+        "fake-final": FakeDriver("fake-final", [_ok("informe de cierre")]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_automode())
+    assert task.state is TaskState.DONE
+    assert task.base_commit == ""
+    changes = paths.final_dir(task.id) / "changes.md"
+    assert not changes.exists()
+
+
+def test_run_implement_records_base_commit_only_when_empty(tmp_path):
+    """Re-running ``run_implement`` keeps the original base_commit untouched."""
+    import subprocess
+
+    workdir = tmp_path / "repo"
+    workdir.mkdir()
+    subprocess.run(["git", "-C", str(workdir), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(workdir), "config", "user.email", "a@b.c"], check=True)
+    subprocess.run(["git", "-C", str(workdir), "config", "user.name", "t"], check=True)
+    (workdir / "seed.txt").write_text("seed\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(workdir), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(workdir), "commit", "-q", "-m", "init"], check=True)
+    initial_head = subprocess.run(
+        ["git", "-C", str(workdir), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    task = _make_task(workdir)
+    drivers = {"fake-impl": FakeDriver("fake-impl", [_ok("v1")])}
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_implement())
+    assert task.base_commit == initial_head
+
+    # New commit moves HEAD; a second implement must NOT update base_commit.
+    (workdir / "seed.txt").write_text("seed\nsegunda\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(workdir), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(workdir), "commit", "-q", "-m", "second"], check=True)
+
+    task2 = _make_task(workdir, base_commit=task.base_commit)
+    orch2 = Orchestrator(task2, drivers=drivers)
+    _run(orch2.run_implement())
+    assert task2.base_commit == initial_head  # still the original
+
+
 def test_tokens_recorded_per_phase_and_cli_model(tmp_path):
     task = _make_task(tmp_path)
     task.implementer.model = "prov/Impl-Model"
