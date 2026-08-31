@@ -13,7 +13,12 @@ from grafeno.tui.screens.consoles import ConsoleFormScreen, ConsolesScreen
 
 
 class FakeConsole:
-    """In-memory ConsoleProcess stand-in built on a real pipe."""
+    """In-memory ConsoleProcess stand-in built on a real pipe.
+
+    ``push`` writes to the pipe; ``kill`` simulates the child process exiting
+    (closes the write end so the read side sees EOF without removing the
+    reader fd), and ``close`` is the full teardown (closes both ends).
+    """
 
     instances: list["FakeConsole"] = []
 
@@ -483,5 +488,41 @@ def test_terminal_button_opens_external_terminal(monkeypatch, tmp_path):
             await pilot.click("#con-terminal")
             await pilot.pause()
             assert opened == [str(tmp_path)]
+
+    asyncio.run(scenario())
+
+
+def test_fullscreen_notice_when_marker_split_across_reads(monkeypatch, tmp_path):
+    """Regression: an alt-screen enter marker arriving in two reads still
+    shows the notice (the marker lives entirely in the rolling scan_tail
+    after the second read, so ``split`` is 0 but the state flipped).
+    """
+    _install_fake(monkeypatch)
+    consoles.save_project(tmp_path, [ConsoleSpec(name="shell")])
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.push_screen(ConsolesScreen(tmp_path))
+            await pilot.pause()
+            fake = FakeConsole.instances[0]
+            # Split \\x1b[?1049h into two reads. The first read has no
+            # complete marker, so the scan_tail carries the partial bytes
+            # into the second read where the marker finally matches.
+            fake.push(b"hola\n\x1b[?10")
+            for _ in range(10):
+                await pilot.pause(0.05)
+                if "hola" in _log_text(app.screen):
+                    break
+            assert "hola" in _log_text(app.screen)
+            assert "full-screen" not in _log_text(app.screen)  # not yet
+            fake.push(b"49h")
+            for _ in range(10):
+                await pilot.pause(0.05)
+                if "full-screen" in _log_text(app.screen):
+                    break
+            text = _log_text(app.screen)
+            assert "full-screen" in text  # notice fires despite split==0
 
     asyncio.run(scenario())

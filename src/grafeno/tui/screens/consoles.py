@@ -276,11 +276,20 @@ class ConsolesScreen(Screen[None]):
             # BEFORE the marker are rendered under the old state and any bytes
             # AFTER it (typically escape soup) are routed under the new state.
             was_fullscreen = session.fullscreen
-            split, entered, exited = self._scan_fullscreen(session, data)
+            split, _entered, _exited = self._scan_fullscreen(session, data)
+            # The notice is state-based: emit whenever we are NOW fullscreen
+            # and have not already done so this session. Doing it here (not
+            # inside the marker-split branch) covers markers split across
+            # reads, where the marker lives entirely in the rolling
+            # ``scan_tail`` and ``split`` is 0 even though the state flipped.
+            if session.fullscreen and not session.fullscreen_notified:
+                session.fullscreen_notified = True
+                session.view.output.write(
+                    Text(t("consoles.fullscreen.notice"), style="bold yellow")
+                )
             if split == 0:
                 # No transition in this chunk: render or discard under the
-                # current state (the scan already updated ``session.fullscreen``
-                # in case the marker lived in the cross-read tail).
+                # current state.
                 if not session.fullscreen:
                     for line in self._feed(session, data):
                         session.view.output.write(line)
@@ -292,13 +301,6 @@ class ConsolesScreen(Screen[None]):
                 if before and not was_fullscreen:
                     for line in self._feed(session, before):
                         session.view.output.write(line)
-                # Apply the transition. Show the notice the first time the
-                # alternate screen is entered in this session.
-                if entered and not session.fullscreen_notified:
-                    session.fullscreen_notified = True
-                    session.view.output.write(
-                        Text(t("consoles.fullscreen.notice"), style="bold yellow")
-                    )
                 # Trailing bytes after the marker belong to the NEW state:
                 # discard while fullscreen, render otherwise.
                 if after and not session.fullscreen:
