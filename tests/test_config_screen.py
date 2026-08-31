@@ -451,3 +451,57 @@ def test_config_screen_triggers_form_roundtrip(monkeypatch):
         assert persisted[0].timing == "after"
 
     asyncio.run(scenario())
+
+
+def test_config_screen_telegram_section_roundtrip(monkeypatch):
+    """The Telegram section persists its fields in config.toml via Save."""
+    from textual.widgets import Checkbox, Input
+
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 160)) as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfigScreen)
+
+            # Wait for the models worker before touching save.
+            for _ in range(20):
+                await pilot.pause(0.1)
+                if app.screen.query_one(RolesForm).models:
+                    break
+            await pilot.pause()
+
+            # Sane defaults on first load.
+            assert app.screen.query_one("#tg-enabled", Checkbox).value is False
+            assert app.screen.query_one("#tg-stt-model", Input).value == "whisper-large-v3-turbo"
+            assert app.screen.query_one("#tg-tts-voice", Input).value == "troy"
+
+            app.screen.query_one("#tg-enabled", Checkbox).value = True
+            app.screen.query_one("#tg-token", Input).value = "123:abc"
+            app.screen.query_one("#tg-chats", Input).value = "555, 777"
+            app.screen.query_one("#tg-parser-cli", Select).value = "kimi"
+            app.screen.query_one("#tg-workdir", Input).value = "/tmp/proyecto"
+            app.screen.query_one("#tg-tts-enabled", Checkbox).value = True
+            app.screen.query_one("#tg-tts-voice", Input).value = "onyx"
+
+            app.screen.query_one("#cfg-save").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#cfg-save")
+            await pilot.pause()
+
+        saved = config_module.load().telegram
+        assert saved.enabled is True
+        assert saved.bot_token == "123:abc"
+        assert saved.allowed_chat_ids == "555, 777"
+        assert saved.parser_cli == "kimi"
+        assert saved.default_workdir == "/tmp/proyecto"
+        assert saved.tts_enabled is True
+        assert saved.tts_voice == "onyx"
+        assert saved.stt_model == "whisper-large-v3-turbo"
+
+    asyncio.run(scenario())

@@ -8,6 +8,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from textual.app import App
 from textual.binding import Binding
@@ -16,6 +17,9 @@ from . import __version__, models, paths, remotesession, scheduler
 from .i18n import t
 from .models import Task, TaskState
 from .tui.runtime import TaskRuntime
+
+if TYPE_CHECKING:
+    from .telegram.service import TelegramService
 
 
 def _window_title() -> str:
@@ -54,6 +58,8 @@ class GrafenoApp(App):
         self.title = _window_title()
         # Background task runtimes: they survive navigation.
         self.runtimes: dict[str, TaskRuntime] = {}
+        # Telegram bot service (None when disabled or misconfigured).
+        self.telegram: TelegramService | None = None
 
     def on_mount(self) -> None:
         self.sub_title = t("app.subtitle", version=__version__)
@@ -77,6 +83,8 @@ class GrafenoApp(App):
         # Scheduler tick: starts scheduled, chained and unattended
         # repetitions when it is their turn.
         self.set_interval(10.0, self._scheduler_tick)
+        if cfg.telegram.enabled:
+            self._start_telegram(cfg)
 
     def watch_theme(self, theme_name: str) -> None:
         """Persist the chosen palette in the config (e.g. via Ctrl+T)."""
@@ -122,6 +130,25 @@ class GrafenoApp(App):
         if outcomes and all(outcome.ok for outcome in outcomes):
             self.notify(t("upd.done"))
 
+    def _start_telegram(self, cfg) -> None:
+        """Start the Telegram bot worker when enabled and a token is available."""
+        from .telegram.service import TelegramService
+
+        if not cfg.telegram.resolve_token():
+            self.notify(t("tg.no_token"), severity="warning", timeout=10)
+            return
+        self.telegram = TelegramService(
+            cfg.telegram,
+            default_workdir=cfg.telegram.default_workdir or os.getcwd(),
+            parser_cli=cfg.telegram.parser_cli or cfg.planner.cli,
+            parser_model=cfg.telegram.parser_model or cfg.planner.model,
+            on_info=lambda message: self.notify(message, timeout=8),
+        )
+        self.run_worker(
+            self.telegram.run(), exclusive=True,
+            group="telegram", exit_on_error=False,
+        )
+
     def _scheduler_tick(self) -> None:
         """Check scheduled/repetitive tasks and start those that are due."""
         tasks = models.list_all()
@@ -143,6 +170,11 @@ class GrafenoApp(App):
             finished = models.load(task.id)
         except Exception:
             return
+        if self.telegram is not None:
+            self.run_worker(
+                self.telegram.notify_task_finished(finished),
+                exclusive=False, group="telegram-notify", exit_on_error=False,
+            )
         if self._maybe_restart(finished, by_id):
             return  # the repetition already relaunched the task: skip the rest
         if finished.repeat_mode:

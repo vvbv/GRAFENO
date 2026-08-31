@@ -133,3 +133,36 @@ def test_paths_media_dir_creates_directory(tmp_path):
     assert target.exists()
     assert target.is_dir()
     assert target.name == "media"
+
+
+def test_list_media_includes_jpg_and_jpeg(tmp_path):
+    """list_media accepts jpg/jpeg besides png (Telegram photos are JPEG)."""
+    task_id = "t-media-jpg"
+    media.save_image(task_id, b"\x89PNG\r\n\x1a\nDATA")  # media-01.png
+    media.save_attachment(task_id, "photo.jpg", b"JPEG")      # media-01.jpg
+    media.save_attachment(task_id, "photo2.jpeg", b"JPEG2")   # media-01.jpeg
+    media.save_attachment(task_id, "clip.mp4", b"MP4")        # not an image
+    names = [p.name for p in media.list_media(task_id)]
+    assert "media-01.png" in names
+    assert "media-01.jpg" in names
+    assert "media-01.jpeg" in names
+    assert all(not n.endswith(".mp4") for n in names)
+
+
+def test_save_attachment_keeps_extension_and_avoids_collisions(tmp_path):
+    """save_attachment keeps a safe extension and picks free media-NN names."""
+    task_id = "t-media-attach"
+    first = media.save_attachment(task_id, "photo.jpg", b"J1")
+    second = media.save_attachment(task_id, "photo.jpg", b"J2")
+    weird = media.save_attachment(task_id, "evil.sh", b"X")
+    assert first is not None and first.name == "media-01.jpg"
+    assert second is not None and second.name == "media-02.jpg"
+    assert weird is not None and weird.suffix == ".bin"
+    assert first.read_bytes() == b"J1"
+
+
+def test_save_attachment_unknown_task_still_works(tmp_path):
+    """save_attachment creates the media dir on demand (task may be fresh)."""
+    saved = media.save_attachment("t-media-fresh", "v.mp4", b"MP4")
+    assert saved is not None
+    assert saved.suffix == ".mp4"

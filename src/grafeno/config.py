@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,6 +12,16 @@ from . import _toml, paths
 
 KNOWN_CLIS = ("opencode", "kimi", "codex", "claude")
 PROJECT_CONFIG_FILE = ".grafeno.toml"
+
+# Telegram integration defaults (OpenAI-compatible endpoints; Groq by default).
+TELEGRAM_TOKEN_ENV = "GRAFENO_TELEGRAM_TOKEN"
+TELEGRAM_STT_KEY_ENV = "GRAFENO_TELEGRAM_STT_KEY"
+TELEGRAM_TTS_KEY_ENV = "GRAFENO_TELEGRAM_TTS_KEY"
+DEFAULT_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+DEFAULT_STT_MODEL = "whisper-large-v3-turbo"
+DEFAULT_TTS_URL = "https://api.groq.com/openai/v1/audio/speech"
+DEFAULT_TTS_MODEL = "canopylabs/orpheus-v1-english"
+DEFAULT_TTS_VOICE = "troy"  # male voice
 
 
 @dataclass
@@ -109,6 +120,103 @@ class EditorConfig:
 
 
 @dataclass
+class TelegramConfig:
+    """Telegram bot integration: voice/text notes become GRAFENO tasks.
+
+    The bot runs as a background worker inside the TUI. Speech-to-text and
+    text-to-speech use OpenAI-compatible endpoints (Groq by default); the
+    intent parser reuses an already-configured agent CLI. Secrets can also
+    come from the environment (env var wins over the file), so the token
+    never has to be written to disk.
+    """
+
+    enabled: bool = False
+    bot_token: str = ""        # GRAFENO_TELEGRAM_TOKEN overrides
+    allowed_chat_ids: str = "" # comma-separated chat ids; empty = deny all
+    parser_cli: str = ""       # empty = planner role CLI
+    parser_model: str = ""     # empty = default model of the parser CLI
+    confirm_create: bool = True  # inline Create/Cancel buttons before creating
+    default_workdir: str = ""  # empty = app cwd
+    stt_url: str = DEFAULT_STT_URL
+    stt_key: str = ""          # GRAFENO_TELEGRAM_STT_KEY overrides
+    stt_model: str = DEFAULT_STT_MODEL
+    tts_enabled: bool = False  # voice replies are opt-in (they cost money)
+    tts_url: str = DEFAULT_TTS_URL
+    tts_key: str = ""          # GRAFENO_TELEGRAM_TTS_KEY overrides; empty = stt_key
+    tts_model: str = DEFAULT_TTS_MODEL
+    tts_voice: str = DEFAULT_TTS_VOICE
+
+    def resolve_token(self) -> str:
+        """Bot token: the environment variable wins over the stored one."""
+        return os.environ.get(TELEGRAM_TOKEN_ENV, "").strip() or self.bot_token.strip()
+
+    def resolve_stt_key(self) -> str:
+        return os.environ.get(TELEGRAM_STT_KEY_ENV, "").strip() or self.stt_key.strip()
+
+    def resolve_tts_key(self) -> str:
+        """TTS key: own env/field first, then the STT key (usually same provider)."""
+        from_env = os.environ.get(TELEGRAM_TTS_KEY_ENV, "").strip()
+        return from_env or self.tts_key.strip() or self.resolve_stt_key()
+
+    def chat_ids(self) -> set[int]:
+        """Whitelisted chat ids (unparseable entries are ignored)."""
+        ids: set[int] = set()
+        for part in self.allowed_chat_ids.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                ids.add(int(part))
+            except ValueError:
+                continue
+        return ids
+
+    def masked_token(self) -> str:
+        """Token for display: only the last 4 chars are shown."""
+        token = self.resolve_token()
+        return f"…{token[-4:]}" if len(token) > 4 else ("…" if token else "")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "bot_token": self.bot_token,
+            "allowed_chat_ids": self.allowed_chat_ids,
+            "parser_cli": self.parser_cli,
+            "parser_model": self.parser_model,
+            "confirm_create": self.confirm_create,
+            "default_workdir": self.default_workdir,
+            "stt_url": self.stt_url,
+            "stt_key": self.stt_key,
+            "stt_model": self.stt_model,
+            "tts_enabled": self.tts_enabled,
+            "tts_url": self.tts_url,
+            "tts_key": self.tts_key,
+            "tts_model": self.tts_model,
+            "tts_voice": self.tts_voice,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TelegramConfig":
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            bot_token=str(data.get("bot_token", "")),
+            allowed_chat_ids=str(data.get("allowed_chat_ids", "")),
+            parser_cli=str(data.get("parser_cli", "")),
+            parser_model=str(data.get("parser_model", "")),
+            confirm_create=bool(data.get("confirm_create", True)),
+            default_workdir=str(data.get("default_workdir", "")),
+            stt_url=str(data.get("stt_url", DEFAULT_STT_URL)),
+            stt_key=str(data.get("stt_key", "")),
+            stt_model=str(data.get("stt_model", DEFAULT_STT_MODEL)),
+            tts_enabled=bool(data.get("tts_enabled", False)),
+            tts_url=str(data.get("tts_url", DEFAULT_TTS_URL)),
+            tts_key=str(data.get("tts_key", "")),
+            tts_model=str(data.get("tts_model", DEFAULT_TTS_MODEL)),
+            tts_voice=str(data.get("tts_voice", DEFAULT_TTS_VOICE)),
+        )
+
+
+@dataclass
 class Config:
     language: str = "en"
     planner: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
@@ -121,6 +229,7 @@ class Config:
     final_prompt: str = ""  # extra instructions for the final-steps phase
     theme: str = ""  # Textual palette; empty = default theme
     auto_update: bool = False  # update agent CLIs on TUI startup (native commands)
+    telegram: TelegramConfig = field(default_factory=TelegramConfig)
 
     def role(self, name: str) -> RoleConfig:
         return getattr(self, name)
@@ -138,6 +247,7 @@ class Config:
             "final_prompt": self.final_prompt,
             "theme": self.theme,
             "auto_update": self.auto_update,
+            "telegram": self.telegram.to_dict(),
         }
 
     @classmethod
@@ -154,6 +264,7 @@ class Config:
             final_prompt=str(data.get("final_prompt", "")),
             theme=str(data.get("theme", "")),
             auto_update=bool(data.get("auto_update", False)),
+            telegram=TelegramConfig.from_dict(data.get("telegram", {})),
         )
 
 

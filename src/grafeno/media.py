@@ -18,6 +18,7 @@ from pathlib import Path
 from . import paths
 
 MEDIA_TOKEN_PREFIX = "media/"  # token inserted into texts: media/media-01.png
+IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")  # listed/injected as task images
 
 _PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 _MAC_FALLBACK_PATH = "/tmp/grafeno-clipboard.png"
@@ -143,11 +144,44 @@ def save_pending(task_id: str, pending: list[tuple[str, bytes]]) -> list[Path]:
 
 
 def list_media(task_id: str) -> list[Path]:
-    """Sorted PNG list in the task's media dir (empty if the dir does not yet exist)."""
+    """Sorted image list in the task's media dir (empty if it does not exist).
+
+    Accepts png/jpg/jpeg: Telegram photos arrive as JPEG while pasted
+    clipboard images are PNG.
+    """
     directory = paths.task_dir(task_id) / "media"
     if not directory.is_dir():
         return []
-    return sorted(directory.glob("*.png"))
+    return sorted(
+        entry
+        for entry in directory.iterdir()
+        if entry.is_file() and entry.suffix.lower() in IMAGE_SUFFIXES
+    )
+
+
+def save_attachment(task_id: str, filename: str, data: bytes) -> Path | None:
+    """Persist arbitrary attachment bytes under the task's media dir.
+
+    The original extension is kept (sanitized to a known-safe set); the name
+    follows the ``media-NN<ext>`` pattern to avoid collisions.
+    """
+    directory = paths.media_dir(task_id)
+    suffix = Path(filename).suffix.lower()
+    if suffix not in IMAGE_SUFFIXES and suffix not in (".mp4", ".webm"):
+        suffix = ".bin"
+    target: Path | None = None
+    for n in range(1, 100):
+        candidate = directory / f"media-{n:02d}{suffix}"
+        if not candidate.exists():
+            target = candidate
+            break
+    if target is None:
+        target = directory / f"media-{int(time.time())}{suffix}"
+    try:
+        target.write_bytes(data)
+    except OSError:
+        return None
+    return target
 
 
 def open_media(path: Path) -> bool:

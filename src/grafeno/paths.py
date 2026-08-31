@@ -34,6 +34,16 @@ def triggers_path() -> Path:
     return home() / "triggers.toml"
 
 
+def telegram_state_path() -> Path:
+    """Bot state file: last update offset + task_id -> chat_id mapping."""
+    return home() / "telegram-state.toml"
+
+
+def telegram_log_path() -> Path:
+    """Bot activity log (received updates, decisions, errors)."""
+    return home() / "telegram.log"
+
+
 def tasks_dir() -> Path:
     path = home() / "tasks"
     path.mkdir(parents=True, exist_ok=True)

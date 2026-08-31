@@ -102,6 +102,50 @@ class ConfigScreen(Screen[None]):
             yield Static(t("cfg.triggers"), classes="section-title")
             yield Static(t("trig.help"))
             yield TriggersForm(id="cfg-triggers")
+            yield Static(t("cfg.telegram"), classes="section-title")
+            with Horizontal(classes="automode-row"):
+                yield Checkbox(t("cfg.tg.enabled"), id="tg-enabled")
+                yield Checkbox(t("cfg.tg.confirm"), id="tg-confirm")
+            with Horizontal(classes="automode-row"):
+                yield Label(t("cfg.tg.token"))
+                yield Input(id="tg-token", password=True, placeholder=t("cfg.tg.token.placeholder"))
+            with Horizontal(classes="automode-row"):
+                yield Label(t("cfg.tg.chats"))
+                yield Input(id="tg-chats", placeholder="123456789, 987654321")
+            with Horizontal(classes="automode-row"):
+                yield Label(t("cfg.tg.parser"))
+                yield Select(
+                    [(t("cfg.tg.parser.default"), "")] + [(cli, cli) for cli in KNOWN_CLIS],
+                    id="tg-parser-cli",
+                    allow_blank=False,
+                )
+                yield Label(t("cfg.tg.parser_model"))
+                yield Input(id="tg-parser-model")
+            with Horizontal(classes="automode-row"):
+                yield Label(t("cfg.tg.workdir"))
+                yield Input(id="tg-workdir")
+            yield Static(t("cfg.tg.stt"))
+            with Horizontal(classes="automode-row"):
+                yield Label(t("cfg.tg.stt.url"))
+                yield Input(id="tg-stt-url")
+            with Horizontal(classes="automode-row"):
+                yield Label(t("cfg.tg.stt.key"))
+                yield Input(id="tg-stt-key", password=True, placeholder=t("cfg.tg.stt.key.placeholder"))
+                yield Label(t("cfg.tg.stt.model"))
+                yield Input(id="tg-stt-model")
+            yield Static(t("cfg.tg.tts"))
+            with Horizontal(classes="automode-row"):
+                yield Checkbox(t("cfg.tg.tts.enabled"), id="tg-tts-enabled")
+            with Horizontal(classes="automode-row"):
+                yield Label(t("cfg.tg.tts.url"))
+                yield Input(id="tg-tts-url")
+            with Horizontal(classes="automode-row"):
+                yield Label(t("cfg.tg.tts.key"))
+                yield Input(id="tg-tts-key", password=True)
+                yield Label(t("cfg.tg.tts.model"))
+                yield Input(id="tg-tts-model")
+                yield Label(t("cfg.tg.tts.voice"))
+                yield Input(id="tg-tts-voice")
             with Horizontal(id="config-buttons"):
                 yield Button(t("common.save"), variant="primary", id="cfg-save")
                 yield Button(t("common.back"), id="cfg-back")
@@ -146,6 +190,23 @@ class ConfigScreen(Screen[None]):
         self.query_one("#cfg-triggers", TriggersForm).set_triggers(
             triggers_module.load_global()
         )
+        tg = self._config.telegram
+        self.query_one("#tg-enabled", Checkbox).value = tg.enabled
+        self.query_one("#tg-confirm", Checkbox).value = tg.confirm_create
+        self.query_one("#tg-token", Input).value = tg.bot_token
+        self.query_one("#tg-chats", Input).value = tg.allowed_chat_ids
+        parser_select = self.query_one("#tg-parser-cli", Select)
+        parser_select.value = tg.parser_cli if tg.parser_cli in KNOWN_CLIS else ""
+        self.query_one("#tg-parser-model", Input).value = tg.parser_model
+        self.query_one("#tg-workdir", Input).value = tg.default_workdir
+        self.query_one("#tg-stt-url", Input).value = tg.stt_url
+        self.query_one("#tg-stt-key", Input).value = tg.stt_key
+        self.query_one("#tg-stt-model", Input).value = tg.stt_model
+        self.query_one("#tg-tts-enabled", Checkbox).value = tg.tts_enabled
+        self.query_one("#tg-tts-url", Input).value = tg.tts_url
+        self.query_one("#tg-tts-key", Input).value = tg.tts_key
+        self.query_one("#tg-tts-model", Input).value = tg.tts_model
+        self.query_one("#tg-tts-voice", Input).value = tg.tts_voice
         self._load_models()
 
     # ------------------------------------------------------------------ #
@@ -240,6 +301,22 @@ class ConfigScreen(Screen[None]):
         cfg.editor.mode = str(self.query_one("#editor-mode", Select).value)
         cfg.editor.side = str(self.query_one("#editor-side", Select).value)
         cfg.language = str(self.query_one("#cfg-language", Select).value)
+        tg = cfg.telegram
+        tg.enabled = self.query_one("#tg-enabled", Checkbox).value
+        tg.confirm_create = self.query_one("#tg-confirm", Checkbox).value
+        tg.bot_token = self.query_one("#tg-token", Input).value.strip()
+        tg.allowed_chat_ids = self.query_one("#tg-chats", Input).value.strip()
+        tg.parser_cli = str(self.query_one("#tg-parser-cli", Select).value)
+        tg.parser_model = self.query_one("#tg-parser-model", Input).value.strip()
+        tg.default_workdir = self.query_one("#tg-workdir", Input).value.strip()
+        tg.stt_url = self.query_one("#tg-stt-url", Input).value.strip()
+        tg.stt_key = self.query_one("#tg-stt-key", Input).value.strip()
+        tg.stt_model = self.query_one("#tg-stt-model", Input).value.strip()
+        tg.tts_enabled = self.query_one("#tg-tts-enabled", Checkbox).value
+        tg.tts_url = self.query_one("#tg-tts-url", Input).value.strip()
+        tg.tts_key = self.query_one("#tg-tts-key", Input).value.strip()
+        tg.tts_model = self.query_one("#tg-tts-model", Input).value.strip()
+        tg.tts_voice = self.query_one("#tg-tts-voice", Input).value.strip()
         config_module.save(cfg)
         references_module.save_global(
             self.query_one("#cfg-refs", ReferencesForm).references()

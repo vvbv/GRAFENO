@@ -470,6 +470,75 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "rsession.active": "Remote session: {target}",
         "rsession.bad_spec": "Invalid remote spec: {spec} (expected [user@]host[:port] or ssh://[user@]host[:port]).",
         "rsession.password_prompt": "SSH password: ",
+        # telegram bot
+        "tg.no_token": "Telegram bot enabled but no token configured (settings or GRAFENO_TELEGRAM_TOKEN).",
+        "tg.started": "Telegram bot connected and listening.",
+        "tg.auth_failed": "Telegram bot stopped: {error}",
+        "tg.ssl_error": (
+            "SSL certificate verification failed. Fixes: install certifi "
+            "(pip/pipx inject grafeno certifi), run 'Install Certificates.command' "
+            "(python.org on macOS), or set GRAFENO_SSL_CA_BUNDLE to your CA bundle "
+            "(corporate proxy)."
+        ),
+        "tg.update_error": "Telegram bot: error processing an update: {error}",
+        "tg.send_failed": "Telegram bot: could not send a message: {error}",
+        "tg.start": "GRAFENO bot is running. Your chat id is: {chat_id}\nAdd it to 'Allowed chat ids' in the settings to authorize this chat.",
+        "tg.unauthorized": "This chat is not authorized yet. Your chat id is: {chat_id} — add it to 'Allowed chat ids' in the GRAFENO settings and write again.",
+        "tg.help": (
+            "I turn your messages into GRAFENO tasks and answer questions about them.\n"
+            "- Send or dictate what you need: I will propose the task(s) and you confirm.\n"
+            "- 'List my tasks' · 'Status of <name>' · 'Send me the files of <name>'.\n"
+            "- Ask anything about a task: 'why did <name> fail?'\n"
+            "Attach photos/videos and they will be added to the next task you create."
+        ),
+        "tg.heard": 'I heard: "{text}"',
+        "tg.stt.not_configured": "Voice notes need a speech-to-text API key (Settings → Telegram).",
+        "tg.stt.failed": "Could not transcribe the voice note; try again or type your request.",
+        "tg.download_failed": "Could not download the attachment: {error}",
+        "tg.attachment.pending": "Attachment received. Now send or dictate the task to create with it.",
+        "tg.parser_unavailable": "The intent parser CLI '{cli}' is not available; check the Telegram settings.",
+        "tg.parser_error": "The intent parser CLI failed: {error}",
+        "tg.proposal.title": "I will create {count} task(s):",
+        "tg.proposal.item": "\n• {name}\n  Directory: {workdir}\n  Tests: {test_command}\n  {description}",
+        "tg.btn.create": "Create",
+        "tg.btn.cancel": "Cancel",
+        "tg.proposal.expired": "That proposal expired or was already handled.",
+        "tg.proposal.cancelled": "Cancelled: no task was created.",
+        "tg.created": "Created {count} task(s); the scheduler will start them shortly:\n{items}",
+        "tg.created.item": "• {name} ({workdir})",
+        "tg.create.failed": "Could not create: {names}",
+        "tg.bad_workdir": "Directory does not exist: {workdir}",
+        "tg.list.empty": "No tasks yet.",
+        "tg.list.header": "Latest tasks:\n{items}",
+        "tg.list.item": "• {name} — {state} ({id})",
+        "tg.task_not_found": "I could not find a task matching '{ref}'.",
+        "tg.status": "{name}\nState: {state}\nDirectory: {workdir}\nFix iterations: {iteration} · Time: {duration}",
+        "tg.files.none": "Task '{name}' has no .md artifacts yet.",
+        "tg.files.sent": "Sending {count} file(s) of '{name}'.",
+        "tg.ask.failed": "I could not get an answer from the agent CLI.",
+        "tg.finished": "Task finished: {name}\nState: {state} · Time: {duration}",
+        # telegram settings
+        "cfg.telegram": "Telegram bot",
+        "cfg.tg.enabled": "Enable Telegram bot (runs while the TUI is open)",
+        "cfg.tg.token": "Bot token",
+        "cfg.tg.token.placeholder": "GRAFENO_TELEGRAM_TOKEN overrides it",
+        "cfg.tg.chats": "Allowed chat ids (comma-separated; empty = deny all)",
+        "cfg.tg.parser": "Intent parser CLI (empty = planner role)",
+        "cfg.tg.parser.default": "planner role",
+        "cfg.tg.parser_model": "Parser model (empty = CLI default)",
+        "cfg.tg.confirm": "Confirm tasks with inline buttons before creating",
+        "cfg.tg.workdir": "Default directory for bot-created tasks (empty = cwd)",
+        "cfg.tg.stt": "Speech-to-text (OpenAI-compatible endpoint; for voice notes)",
+        "cfg.tg.stt.url": "STT URL",
+        "cfg.tg.stt.key": "STT API key",
+        "cfg.tg.stt.key.placeholder": "GRAFENO_TELEGRAM_STT_KEY overrides it",
+        "cfg.tg.stt.model": "STT model",
+        "cfg.tg.tts": "Voice replies (TTS, OpenAI-compatible endpoint; optional)",
+        "cfg.tg.tts.enabled": "Reply with generated voice audio",
+        "cfg.tg.tts.url": "TTS URL",
+        "cfg.tg.tts.key": "TTS API key (empty = STT key)",
+        "cfg.tg.tts.model": "TTS model",
+        "cfg.tg.tts.voice": "TTS voice",
     },
     "es": {
         "app.subtitle": "v{version} · orquestador multi-CLI",
@@ -885,5 +954,74 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "rsession.active": "Sesión remota: {target}",
         "rsession.bad_spec": "Spec remoto inválido: {spec} (se esperaba [usuario@]host[:puerto] o ssh://[usuario@]host[:puerto]).",
         "rsession.password_prompt": "Contraseña SSH: ",
+        # bot de telegram
+        "tg.no_token": "Bot de Telegram activado pero sin token configurado (ajustes o GRAFENO_TELEGRAM_TOKEN).",
+        "tg.started": "Bot de Telegram conectado y escuchando.",
+        "tg.auth_failed": "Bot de Telegram detenido: {error}",
+        "tg.ssl_error": (
+            "Falló la verificación del certificado SSL. Soluciones: instala certifi "
+            "(pip/pipx inject grafeno certifi), ejecuta 'Install Certificates.command' "
+            "(python.org en macOS) o define GRAFENO_SSL_CA_BUNDLE con tu bundle CA "
+            "(proxy corporativo)."
+        ),
+        "tg.update_error": "Bot de Telegram: error procesando una actualización: {error}",
+        "tg.send_failed": "Bot de Telegram: no se pudo enviar un mensaje: {error}",
+        "tg.start": "El bot de GRAFENO está en marcha. Tu chat id es: {chat_id}\nAñádelo a 'Chat ids permitidos' en la configuración para autorizar este chat.",
+        "tg.unauthorized": "Este chat aún no está autorizado. Tu chat id es: {chat_id} — añádelo a 'Chat ids permitidos' en la configuración de GRAFENO y vuelve a escribir.",
+        "tg.help": (
+            "Convierto tus mensajes en tareas de GRAFENO y respondo preguntas sobre ellas.\n"
+            "- Envía o dicta lo que necesitas: te propondré la(s) tarea(s) y tú confirmas.\n"
+            "- 'Lista mis tareas' · 'Estado de <nombre>' · 'Envíame los archivos de <nombre>'.\n"
+            "- Pregunta lo que quieras sobre una tarea: '¿por qué falló <nombre>?'\n"
+            "Adjunta fotos/vídeos y se añadirán a la próxima tarea que crees."
+        ),
+        "tg.heard": 'He escuchado: "{text}"',
+        "tg.stt.not_configured": "Las notas de voz necesitan una API key de transcripción (Configuración → Telegram).",
+        "tg.stt.failed": "No pude transcribir la nota de voz; inténtalo de nuevo o escribe tu petición.",
+        "tg.download_failed": "No se pudo descargar el adjunto: {error}",
+        "tg.attachment.pending": "Adjunto recibido. Ahora envía o dicta la tarea a crear con él.",
+        "tg.parser_unavailable": "El CLI interpretador '{cli}' no está disponible; revisa la configuración de Telegram.",
+        "tg.parser_error": "El CLI interpretador falló: {error}",
+        "tg.proposal.title": "Voy a crear {count} tarea(s):",
+        "tg.proposal.item": "\n• {name}\n  Directorio: {workdir}\n  Tests: {test_command}\n  {description}",
+        "tg.btn.create": "Crear",
+        "tg.btn.cancel": "Cancelar",
+        "tg.proposal.expired": "Esa propuesta expiró o ya fue gestionada.",
+        "tg.proposal.cancelled": "Cancelado: no se creó ninguna tarea.",
+        "tg.created": "Creada(s) {count} tarea(s); el planificador las arrancará en breve:\n{items}",
+        "tg.created.item": "• {name} ({workdir})",
+        "tg.create.failed": "No se pudo crear: {names}",
+        "tg.bad_workdir": "El directorio no existe: {workdir}",
+        "tg.list.empty": "Aún no hay tareas.",
+        "tg.list.header": "Últimas tareas:\n{items}",
+        "tg.list.item": "• {name} — {state} ({id})",
+        "tg.task_not_found": "No encontré ninguna tarea que coincida con '{ref}'.",
+        "tg.status": "{name}\nEstado: {state}\nDirectorio: {workdir}\nIteraciones de corrección: {iteration} · Tiempo: {duration}",
+        "tg.files.none": "La tarea '{name}' aún no tiene archivos .md.",
+        "tg.files.sent": "Enviando {count} archivo(s) de '{name}'.",
+        "tg.ask.failed": "No pude obtener respuesta del CLI de agente.",
+        "tg.finished": "Tarea terminada: {name}\nEstado: {state} · Tiempo: {duration}",
+        # ajustes de telegram
+        "cfg.telegram": "Bot de Telegram",
+        "cfg.tg.enabled": "Activar el bot de Telegram (funciona mientras la TUI está abierta)",
+        "cfg.tg.token": "Token del bot",
+        "cfg.tg.token.placeholder": "GRAFENO_TELEGRAM_TOKEN tiene prioridad",
+        "cfg.tg.chats": "Chat ids permitidos (separados por comas; vacío = denegar todos)",
+        "cfg.tg.parser": "CLI interpretador (vacío = rol planificador)",
+        "cfg.tg.parser.default": "rol planificador",
+        "cfg.tg.parser_model": "Modelo del interpretador (vacío = por defecto del CLI)",
+        "cfg.tg.confirm": "Confirmar tareas con botones antes de crearlas",
+        "cfg.tg.workdir": "Directorio por defecto de las tareas del bot (vacío = cwd)",
+        "cfg.tg.stt": "Transcripción de voz (endpoint OpenAI-compatible; para notas de voz)",
+        "cfg.tg.stt.url": "URL de STT",
+        "cfg.tg.stt.key": "API key de STT",
+        "cfg.tg.stt.key.placeholder": "GRAFENO_TELEGRAM_STT_KEY tiene prioridad",
+        "cfg.tg.stt.model": "Modelo de STT",
+        "cfg.tg.tts": "Respuestas de voz (TTS, endpoint OpenAI-compatible; opcional)",
+        "cfg.tg.tts.enabled": "Responder con audio de voz generado",
+        "cfg.tg.tts.url": "URL de TTS",
+        "cfg.tg.tts.key": "API key de TTS (vacío = la de STT)",
+        "cfg.tg.tts.model": "Modelo de TTS",
+        "cfg.tg.tts.voice": "Voz de TTS",
     },
 }

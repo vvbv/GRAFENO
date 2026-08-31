@@ -16,7 +16,7 @@ CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex y Claude Code).
 ```
 src/grafeno/
 ├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas)
-├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo, automode, auto_update, paleta (tema), prompt de pasos finales
+├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo, automode, auto_update, paleta (tema), prompt de pasos finales, sección [telegram] (TelegramConfig)
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
@@ -36,6 +36,12 @@ src/grafeno/
 ├── remote.py               # Proyectos remotos por SSH: parseo del spec, montaje sshfs bajo ~/.grafeno/mounts/ y espejo de datos de la tarea con rsync (best-effort), sondeo del SO destino (detect_os)
 ├── remotesession.py        # Modo sesión remota (`grafeno [user@]host[:port]`): bootstrap (sondeo de $HOME remoto, mkdir ~/.grafeno, montaje sshfs), activate() exporta GRAFENO_HOME al montaje; spec_for_task/describe_target para el fallback de sesión
 ├── triggers.py             # Tareas trigger: modelo, niveles global/proyecto, fire() y spawn() best-effort
+├── telegram/               # Bot de Telegram (stdlib, sin dependencias nuevas): voz/texto -> tareas, consultas y respuestas con voz
+│   ├── api.py              #   Cliente Bot API con urllib (long polling, multipart a mano, troceo 4096); transporte inyectable; el token nunca se loguea
+│   ├── stt.py              #   Transcripción vía endpoint OpenAI-compatible (Groq whisper-large-v3-turbo por defecto), best-effort
+│   ├── tts.py              #   Voz generada vía endpoint OpenAI-compatible (Groq orpheus, voz masculina `troy` por defecto), opt-in
+│   ├── intents.py          #   Interpretación del mensaje con un CLI de agente (prompt one-shot -> JSON): crear/listar/estado/archivos/preguntar
+│   └── service.py          #   Bucle de polling (worker de la App), whitelist de chats, propuestas con botones inline, creación origin="telegram", notificación de fin
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL; expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
 │   ├── opencode.py, kimi.py, codex.py, claude.py#   Dialectos concretos
@@ -61,7 +67,9 @@ install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), v
 ```
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
-`task.toml`, `plan/`, `review/`, `final/`, `media/`, `logs/live.jsonl`, `logs/*.jsonl`); no
+`task.toml`, `plan/`, `review/`, `final/`, `media/`, `logs/live.jsonl`, `logs/*.jsonl`;
+además `config.toml`, `references.toml`, `triggers.toml`, `consoles/`,
+`mounts/`, `telegram-state.toml`); no
 en el repo.
 
 ## Compilar / ejecutar / tests
@@ -114,6 +122,43 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `gh` instalado y acceso autenticado (`gh.py`); al elegir un issue se
   rellenan nombre y descripción de la tarea. La carga se hace en segundo
   plano y nunca bloquea ni rompe el formulario.
+- **Telegram**: integración opcional de un bot (sección `[telegram]` del
+  config + sección en la pantalla de ajustes). El bot corre como worker de
+  la App mientras la TUI está abierta (long polling con stdlib urllib:
+  cero dependencias nuevas). Acepta texto y notas de voz (transcritas vía
+  STT OpenAI-compatible, Groq por defecto), interpreta la intención con el
+  CLI del rol planner (o `parser_cli`/`parser_model` propios) mediante un
+  prompt one-shot que exige JSON estricto, propone la(s) tarea(s) y las
+  crea tras la confirmación con botones inline (automode, `scheduled_at`=
+  ahora, `origin="telegram"`: el tick del planificador las arranca
+  desatendidas, igual que los triggers). Fotos/vídeos adjuntos se guardan
+  en `media/` de la primera tarea creada. También responde consultas:
+  resumen/estado de tareas, envío de los .md de plan/revisión/final como
+  documentos y preguntas concretas sobre una tarea (one-shot con los
+  artefactos como contexto). Las respuestas de voz (TTS OpenAI-compatible,
+  Groq por defecto, voz masculina `troy`) son opt-in (`tts_enabled`).
+  Seguridad: whitelist de chat ids (`allowed_chat_ids`; vacío = denegar
+  todos, `/start` responde con el chat id para autorizarse), el token
+  puede venir de `GRAFENO_TELEGRAM_TOKEN` (tiene prioridad sobre el
+  fichero) y nunca se loguea.   Los chats no autorizados reciben un aviso
+  con su chat id (cooldown de 5 min; en callbacks, como toast). En grupos
+  el bot solo recibe comandos o menciones (privacy mode de BotFather):
+  la mención `@bot` se limpia del texto antes de interpretarlo. Mientras
+  procesa (STT, interpretación, consultas, envío de archivos) muestra el
+  indicador "typing…"/"upload_document" (sendChatAction, refresco cada 4s).
+  Con privacy mode desactivado, el gating propio filtra el tráfico de
+  grupo: solo se procesan comandos, menciones y respuestas al bot. El
+  parser CLI tiene timeout (120s) y sus fallos se contestan en el chat en
+  vez de quedar en silencio. Actividad del bot en `~/.grafeno/telegram.log`
+  (recibidos, decisiones, errores; acotado a 1 MB; nunca el token).
+  Estado en `~/.grafeno/telegram-state.toml`
+  (offset de updates + mapeo task_id→chat_id para la notificación de fin,
+  enviada desde `App.task_finished`). El contexto TLS honra
+  `GRAFENO_SSL_CA_BUNDLE`/`REQUESTS_CA_BUNDLE` y usa certifi si está
+  instalado; por política, los errores de certificado se ignoran: un
+  `CERTIFICATE_VERIFY_FAILED` reintenta la petición sin verificación
+  (`default_opener` en `telegram/api.py`), de modo que el bot funciona en
+  intérpretes sin certificados raíz o tras proxies que interceptan TLS.
 - **Referencias**: tres niveles (global `~/.grafeno/references.toml`,
   proyecto `.grafeno.toml` `[[references]]`, tarea). Cada tarea puede
   excluir el nivel global y/o proyecto con sus flags; ``references.resolve``
@@ -174,7 +219,10 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   preview inline solo con `textual-image` instalado y terminal compatible,
   si no se abren con el visor del SO) y sus rutas absolutas se inyectan en
   los prompts de plan, reevaluación e implementación (nunca en revisión,
-  corrección ni pasos finales, igual que las referencias).
+  corrección ni pasos finales, igual que las referencias). `list_media`
+  acepta png/jpg/jpeg (las fotos de Telegram llegan como JPEG) y
+  `save_attachment` guarda adjuntos arbitrarios (imagen o video) con el
+  patrón `media-NN<ext>`.
 - **Consolas por proyecto**: la lista de tareas (botón/tecla `k`) y el
   detalle de cada tarea (`k`) abren la pantalla de consolas del proyecto
   (en remotas, sobre el montaje sshfs vía `remote.effective_workdir`).
