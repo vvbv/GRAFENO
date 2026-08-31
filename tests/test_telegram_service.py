@@ -848,6 +848,51 @@ def test_parser_receives_projects_context(tmp_path, monkeypatch):
     assert f"- {tmp_path} | 1" in driver.prompts[0]
 
 
+def test_list_project_tasks(tmp_path, monkeypatch):
+    """'list_project_tasks' lists only the tasks of that project, with state."""
+    models.save(models.Task.create("A1", "d", str(tmp_path), Config()))
+    other = tmp_path / "otro"
+    other.mkdir()
+    models.save(models.Task.create("B1", "d", str(other), Config()))
+    driver = FakeDriver([_json_result({
+        "action": "list_project_tasks", "project_ref": str(tmp_path),
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "tareas del proyecto de " + str(tmp_path)))
+
+    message = client.sent[-1][1]
+    assert "A1" in message
+    assert "B1" not in message  # the other project's task is not listed
+    assert str(tmp_path) in message
+    assert "Draft" in message  # state label (conftest fixes English)
+
+
+def test_list_project_tasks_by_name_fragment(tmp_path, monkeypatch):
+    proj = tmp_path / "grafeno"
+    proj.mkdir()
+    models.save(models.Task.create("A1", "d", str(proj), Config()))
+    driver = FakeDriver([_json_result({
+        "action": "list_project_tasks", "project_ref": "grafeno",
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "que tareas tiene grafeno"))
+
+    assert "A1" in client.sent[-1][1]
+
+
+def test_list_project_tasks_not_found(tmp_path, monkeypatch):
+    driver = FakeDriver([_json_result({
+        "action": "list_project_tasks", "project_ref": "zzz",
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "tareas del proyecto zzz"))
+
+    assert "zzz" in client.sent[-1][1]  # not-found message echoes the ref
+
+
 def test_task_status(tmp_path, monkeypatch):
     task = _existing_task()
     driver = FakeDriver([_json_result({"action": "task_status", "task_ref": "login"})])

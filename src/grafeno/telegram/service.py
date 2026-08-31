@@ -483,6 +483,8 @@ class TelegramService:
             await self._send(chat_id, self._format_task_list(chat_id, tasks))
         elif intent.action == "list_projects":
             await self._send(chat_id, self._format_project_list(chat_id, tasks))
+        elif intent.action == "list_project_tasks":
+            await self._send_project_tasks(chat_id, intent, tasks)
         elif intent.action == "task_status":
             await self._send_status(chat_id, intent, tasks)
         elif intent.action == "send_files":
@@ -514,6 +516,33 @@ class TelegramService:
             for directory, count in directories[:10]
         )
         return self._tt(chat_id, "tg.projects.header", items=items)
+
+    async def _send_project_tasks(self, chat_id: int, intent: Intent, tasks: list[Task]) -> None:
+        """List the tasks of ONE project, resolved from ``intent.project_ref``."""
+        directory = intents.resolve_project_dir(intent.project_ref, tasks)
+        if directory is None:
+            await self._send(
+                chat_id,
+                self._tt(chat_id, "tg.project_not_found", ref=intent.project_ref),
+            )
+            return
+        await self._send(
+            chat_id,
+            self._format_project_tasks(chat_id, directory, intents.project_tasks(directory, tasks)),
+        )
+
+    def _format_project_tasks(self, chat_id: int, directory: str, tasks: list[Task]) -> str:
+        """``tg.list.item`` lines (name, state, id) under a project header."""
+        if not tasks:
+            return self._tt(chat_id, "tg.list.empty")
+        items = "\n".join(
+            self._tt(
+                chat_id, "tg.list.item",
+                name=task.name, state=self._state_label(chat_id, task), id=task.id,
+            )
+            for task in tasks[:10]
+        )
+        return self._tt(chat_id, "tg.project_tasks.header", workdir=directory, items=items)
 
     async def _send_status(self, chat_id: int, intent: Intent, tasks: list[Task]) -> None:
         task = intents.fuzzy_find_task(intent.task_ref, tasks)

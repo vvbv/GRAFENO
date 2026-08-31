@@ -277,3 +277,58 @@ def test_parser_prompt_includes_projects_section_and_action(tmp_path):
     prompt = intents.build_parser_prompt("hola", "", "/tmp", projects="- /x | 2")
     assert "- /x | 2" in prompt
     assert "list_projects" in prompt
+
+
+# ---------------------------------------------------------------------- #
+# tasks of one project (list_project_tasks)
+# ---------------------------------------------------------------------- #
+def test_parse_payload_list_project_tasks():
+    intent = intents.parse_intent_payload(
+        '{"action": "list_project_tasks", "project_ref": "/x/proj"}'
+    )
+    assert intent.action == "list_project_tasks"
+    assert intent.project_ref == "/x/proj"
+
+
+def test_parse_payload_list_project_tasks_without_ref_is_help():
+    assert intents.parse_intent_payload('{"action": "list_project_tasks"}').action == "help"
+
+
+def test_parser_prompt_mentions_list_project_tasks(tmp_path):
+    prompt = intents.build_parser_prompt("hola", "", "/tmp")
+    assert "list_project_tasks" in prompt
+    assert "project_ref" in prompt
+
+
+def test_resolve_project_dir_exact_and_case_insensitive(tmp_path):
+    task = models.Task.create("A", "d", str(tmp_path), Config())
+    assert intents.resolve_project_dir(str(tmp_path), [task]) == str(tmp_path)
+    assert intents.resolve_project_dir(str(tmp_path).upper(), [task]) == str(tmp_path)
+
+
+def test_resolve_project_dir_basename_fragment(tmp_path):
+    proj = tmp_path / "grafeno"
+    proj.mkdir()
+    task = models.Task.create("A", "d", str(proj), Config())
+    assert intents.resolve_project_dir("grafeno", [task]) == str(proj)
+
+
+def test_resolve_project_dir_remote_spec(tmp_path):
+    task = _task("Remota")
+    task.remote = "user@host:/home/u/proj"
+    assert intents.resolve_project_dir("user@host:/home/u/proj", [task]) == "user@host:/home/u/proj"
+    assert intents.resolve_project_dir("proj", [task]) == "user@host:/home/u/proj"
+
+
+def test_resolve_project_dir_unknown_or_ambiguous(tmp_path):
+    a = models.Task.create("A", "d", str(tmp_path / "alpha"), Config())
+    b = models.Task.create("B", "d", str(tmp_path / "beta"), Config())
+    assert intents.resolve_project_dir("zzz", [a, b]) is None
+    assert intents.resolve_project_dir(tmp_path.name.lower(), [a, b]) is None  # matches both
+    assert intents.resolve_project_dir("", [a, b]) is None
+
+
+def test_project_tasks_filters_by_directory(tmp_path):
+    mine = models.Task.create("Mia", "d", str(tmp_path), Config())
+    other = _task("Ajena")  # workdir "."
+    assert intents.project_tasks(str(tmp_path), [mine, other]) == [mine]

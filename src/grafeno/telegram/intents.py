@@ -23,6 +23,7 @@ ACTIONS = (
     "create_tasks",  # create one or more tasks (params in ``tasks``)
     "list_tasks",    # summary of the existing tasks
     "list_projects",  # distinct work directories present in the tasks (global scope)
+    "list_project_tasks",  # tasks of ONE project (``project_ref``)
     "task_status",   # status of one task (``task_ref``)
     "send_files",    # send the task .md artifacts (``task_ref``)
     "ask",           # answer a question about a task (``task_ref`` + ``question``)
@@ -66,10 +67,11 @@ class TaskSpec:
 class Intent:
     action: str = "unknown"
     tasks: list[TaskSpec] = field(default_factory=list)
-    task_ref: str = ""   # id or name fragment the user refers to
-    question: str = ""   # question for the "ask" action
-    error: str = ""      # parser CLI infrastructure failure (not "unknown")
-    lang: str = ""       # ISO code of the user's language ("" = unknown)
+    task_ref: str = ""      # id or name fragment the user refers to
+    question: str = ""      # question for the "ask" action
+    project_ref: str = ""   # directory or name fragment of a project (list_project_tasks)
+    error: str = ""         # parser CLI infrastructure failure (not "unknown")
+    lang: str = ""          # ISO code of the user's language ("" = unknown)
 
 
 def tasks_summary(tasks: list[Task], *, limit: int = _SUMMARY_LIMIT) -> str:
@@ -136,9 +138,10 @@ Mensaje del usuario:
 
 Responde SOLO con un objeto JSON (sin texto alrededor, sin Markdown) con esta forma:
 {{
-  "action": "create_tasks" | "list_tasks" | "list_projects" | "task_status" | "send_files" | "ask" | "help" | "unknown",
+  "action": "create_tasks" | "list_tasks" | "list_projects" | "list_project_tasks" | "task_status" | "send_files" | "ask" | "help" | "unknown",
   "tasks": [{{"name": "...", "description": "...", "workdir": "...", "test_command": "..."}}],
   "task_ref": "id o fragmento del nombre de la tarea (para task_status, send_files, ask)",
+  "project_ref": "directorio del proyecto (solo para list_project_tasks)",
   "question": "la pregunta concreta del usuario (solo para ask)",
   "lang": "código ISO 639-1 del idioma del mensaje del usuario (es, en, ...)"
 }}
@@ -159,6 +162,12 @@ Reglas:
 - "list_projects": el usuario pide el listado de PROYECTOS o directorios en
   los que hay tareas (no el listado de tareas): "qué proyectos tengo",
   "lista los directorios", "en qué proyectos estoy trabajando".
+- "list_project_tasks": el usuario pide las tareas de UN solo proyecto:
+  "que tareas tiene el proyecto X", "lista las tareas de grafeno",
+  "tareas de /ruta/al/proyecto". Devuelve en "project_ref" EXACTAMENTE el
+  directorio de ese proyecto tal como aparece en el listado de proyectos
+  (tambien vale el spec "user@host:..." de un proyecto remoto); si no se
+  puede determinar el proyecto, deja "project_ref" vacio.
 - "task_status": pregunta por el estado de una tarea concreta.
 - "send_files": el usuario quiere que le envíes los archivos .md resultantes de
   una tarea (plan, revisiones, informe final).
@@ -234,12 +243,15 @@ def parse_intent_payload(text: str) -> Intent:
         tasks=specs,
         task_ref=str(payload.get("task_ref", "") or "").strip(),
         question=str(payload.get("question", "") or "").strip(),
+        project_ref=str(payload.get("project_ref", "") or "").strip(),
         lang=_parse_lang(payload.get("lang")),
     )
     if intent.action == "create_tasks" and not intent.tasks:
         intent.action = "unknown"  # nothing valid to create
     if intent.action in ("task_status", "send_files", "ask") and not intent.task_ref:
         intent.action = "help"  # no target task: better to explain usage
+    if intent.action == "list_project_tasks" and not intent.project_ref:
+        intent.action = "help"  # no target project: better to explain usage
     return intent
 
 
@@ -319,3 +331,33 @@ def resolve_workdir(spec_workdir: str, tasks: list[Task], default: str = "") -> 
         if task.is_remote and lowered == task.remote.strip().lower():
             return task.remote
     return candidate
+
+
+def resolve_project_dir(ref: str, tasks: list[Task]) -> str | None:
+    """Best match for a project reference against the known project dirs.
+
+    Order: exact (case-insensitive) directory match, then a unique
+    case-insensitive substring match on the full directory or its basename
+    (the project "name"). ``project_dirs`` keeps first-seen order (most
+    recently used first). An ambiguous fragment returns None so the caller
+    can ask the user to be more specific instead of guessing wrong.
+    """
+    needle = ref.strip().lower()
+    if not needle:
+        return None
+    directories = [directory for directory, _ in project_dirs(tasks)]
+    for directory in directories:
+        if directory.lower() == needle:
+            return directory
+    matches = [
+        directory
+        for directory in directories
+        if needle in directory.lower()
+        or needle in Path(directory.rstrip("/")).name.lower()
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def project_tasks(directory: str, tasks: list[Task]) -> list[Task]:
+    """Tasks whose directory (workdir or remote SSH spec) is exactly ``directory``."""
+    return [task for task in tasks if _task_dir(task) == directory]
