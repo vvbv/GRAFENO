@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from grafeno import _toml
+from grafeno import _toml, paths
 from grafeno.config import PROJECT_CONFIG_FILE
 from grafeno.consoles import (
     CONSOLE_COLORS,
@@ -40,42 +40,58 @@ def test_load_project_missing_returns_empty(tmp_path):
 
 
 def test_load_project_with_corrupt_file_returns_empty(tmp_path):
-    """A corrupt .grafeno.toml yields an empty list (tolerant pattern)."""
-    (tmp_path / PROJECT_CONFIG_FILE).write_text("not valid toml [[[", encoding="utf-8")
+    """A corrupt consoles file yields an empty list (tolerant pattern)."""
+    paths.consoles_path(tmp_path).write_text("not valid toml [[[", encoding="utf-8")
     assert load_project(tmp_path) == []
 
 
 def test_save_load_project_roundtrip(tmp_path):
-    """Saving and reloading returns the same list of consoles."""
+    """Saving and reloading returns the same list of consoles, stored under
+    the GRAFENO data home and NOT in the project directory."""
     specs = [
         ConsoleSpec(name="shell"),
         ConsoleSpec(name="tests", command="pytest -x", color="yellow"),
     ]
     save_project(tmp_path, specs)
     assert load_project(tmp_path) == specs
+    assert paths.consoles_path(tmp_path).exists()
+    assert not (tmp_path / PROJECT_CONFIG_FILE).exists()
 
 
-def test_save_project_preserves_other_sections(tmp_path):
-    """Saving consoles keeps [editor] and [[references]] sections intact."""
+def test_consoles_path_is_stable_and_distinct_per_project(tmp_path):
+    """Same workdir maps to the same file; different workdirs differ."""
+    one = paths.consoles_path(tmp_path / "alpha")
+    assert one == paths.consoles_path(tmp_path / "alpha")
+    assert one != paths.consoles_path(tmp_path / "beta")
+    assert one.parent == paths.consoles_dir()
+    assert one.name.startswith("alpha-")
+
+
+def test_legacy_project_file_is_migrated_and_stripped(tmp_path):
+    """[[consoles]] in the project .grafeno.toml moves to the data home on
+    first load; other sections stay and the consoles section disappears."""
     payload = {
         "editor": {"enabled": True, "editor": "code", "mode": "window", "side": "left"},
-        "references": [{"name": "p1", "description": "", "path": "/p1"}],
+        "consoles": [{"name": "shell", "command": "", "color": "red"}],
     }
     (tmp_path / PROJECT_CONFIG_FILE).write_text(_toml.dumps(payload), encoding="utf-8")
-    save_project(tmp_path, [ConsoleSpec(name="shell", color="red")])
+    assert load_project(tmp_path) == [ConsoleSpec(name="shell", color="red")]
+    assert paths.consoles_path(tmp_path).exists()
     import tomllib
     with (tmp_path / PROJECT_CONFIG_FILE).open("rb") as handle:
         data = tomllib.load(handle)
+    assert "consoles" not in data
     assert data["editor"]["editor"] == "code"
-    assert data["references"] == [{"name": "p1", "description": "", "path": "/p1"}]
-    assert data["consoles"] == [{"name": "shell", "command": "", "color": "red"}]
+    # Second load reads from the new location (no re-migration).
+    assert load_project(tmp_path) == [ConsoleSpec(name="shell", color="red")]
 
 
-def test_save_project_ignores_unsupported_values(tmp_path):
-    """A hand-edited array of scalars is dropped instead of breaking the save."""
-    (tmp_path / PROJECT_CONFIG_FILE).write_text('tags = ["a", "b"]\n', encoding="utf-8")
-    save_project(tmp_path, [ConsoleSpec(name="shell")])
+def test_legacy_file_with_only_consoles_is_removed(tmp_path):
+    """A legacy .grafeno.toml left empty after the migration is deleted."""
+    payload = {"consoles": [{"name": "shell", "command": "", "color": ""}]}
+    (tmp_path / PROJECT_CONFIG_FILE).write_text(_toml.dumps(payload), encoding="utf-8")
     assert load_project(tmp_path) == [ConsoleSpec(name="shell")]
+    assert not (tmp_path / PROJECT_CONFIG_FILE).exists()
 
 
 def test_supported_matches_platform_and_shell_is_non_empty():

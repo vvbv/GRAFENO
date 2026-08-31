@@ -6,7 +6,9 @@ variable (useful for tests).
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 from pathlib import Path
 
 ENV_HOME = "GRAFENO_HOME"
@@ -90,3 +92,22 @@ def mounts_dir() -> Path:
     path = home() / "mounts"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def consoles_dir() -> Path:
+    path = home() / "consoles"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def consoles_path(workdir: Path | str) -> Path:
+    """Per-project consoles file: ``~/.grafeno/consoles/<slug>-<hash8>.toml``.
+
+    The slug comes from the directory name and the hash from the workdir
+    string as given (same precedent as ``remote.mount_dir``): stable for the
+    same project and collision-free across different ones.
+    """
+    text = str(workdir)
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", Path(text).name).strip("-").lower() or "project"
+    digest = hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
+    return consoles_dir() / f"{slug}-{digest}.toml"
