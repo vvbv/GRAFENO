@@ -128,10 +128,10 @@ class ConsolesScreen(Screen[None]):
         yield Static(t("consoles.title", path=str(self._workdir)), id="consoles-title")
         yield Horizontal(id="console-tabs")
         with Horizontal(id="console-actions"):
-            yield Button(t("consoles.new"), id="con-new")
-            yield Button(t("consoles.edit"), id="con-edit")
-            yield Button(t("consoles.delete"), id="con-delete")
-            yield Button(t("consoles.interrupt"), id="con-interrupt")
+            yield Button(t("consoles.new"), id="con-new", compact=True)
+            yield Button(t("consoles.edit"), id="con-edit", compact=True)
+            yield Button(t("consoles.delete"), id="con-delete", compact=True)
+            yield Button(t("consoles.interrupt"), id="con-interrupt", compact=True)
         with Vertical(id="console-frame"):
             yield Vertical(id="console-views")
             yield Input(placeholder=t("consoles.input.placeholder"), id="console-input")
@@ -183,7 +183,7 @@ class ConsolesScreen(Screen[None]):
         await bar.remove_children()
         buttons = []
         for index, spec in enumerate(self._specs):
-            button = Button(spec.name, id=f"con-tab-{index}", classes="console-tab")
+            button = Button(spec.name, id=f"con-tab-{index}", classes="console-tab", compact=True)
             if spec.color:
                 button.styles.background = spec.color
                 button.styles.color = "black"

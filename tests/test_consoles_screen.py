@@ -398,3 +398,28 @@ def test_dead_process_flushes_residual_output_without_newline(monkeypatch, tmp_p
             assert "segundo" in text  # flushed even without a final newline
 
     asyncio.run(scenario())
+
+
+def test_console_buttons_are_compact(monkeypatch, tmp_path):
+    """All console buttons render in compact mode (one line tall)."""
+    _install_fake(monkeypatch)
+    consoles.save_project(tmp_path, [ConsoleSpec(name="shell")])
+
+    async def scenario():
+        from textual.widgets import Button
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            # Entry point in the task list header.
+            assert app.screen.query_one("#consoles-open", Button).compact is True
+            assert app.screen.query_one("#scope-toggle", Button).compact is True
+            # Consoles screen: action buttons and tabs.
+            app.push_screen(ConsolesScreen(tmp_path))
+            await pilot.pause()
+            for button_id in ("#con-new", "#con-edit", "#con-delete", "#con-interrupt"):
+                assert app.screen.query_one(button_id, Button).compact is True
+            tab = app.screen.query_one("#con-tab-0", Button)
+            assert tab.compact is True
+            assert tab.outer_size.height == 1
+
+    asyncio.run(scenario())

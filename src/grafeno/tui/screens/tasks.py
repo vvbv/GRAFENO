@@ -282,8 +282,8 @@ class TaskListScreen(Screen[None]):
         yield LocationBar(id="location-bar")
         with Horizontal(id="tasks-header"):
             yield Static(t("tasks.subtitle"), id="subtitle")
-            yield Button(t("tasks.scope.project"), id="scope-toggle")
-            yield Button(t("tasks.bind.consoles"), id="consoles-open")
+            yield Button(t("tasks.scope.project"), id="scope-toggle", compact=True)
+            yield Button(t("tasks.bind.consoles"), id="consoles-open", compact=True)
         yield DataTable(id="tasks-table", cursor_type="row", zebra_stripes=True)
         yield Static("", id="empty-hint")
         yield Static("", id="token-summary")

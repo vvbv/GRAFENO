@@ -326,7 +326,7 @@ ReferencesForm Input {
 
 .console-tab {
     margin-right: 1;
-    min-width: 8;
+    min-width: 5;
 }
 
 #console-actions {
@@ -336,6 +336,7 @@ ReferencesForm Input {
 
 #console-actions Button {
     margin-right: 2;
+    min-width: 5;
 }
 
 #console-frame {

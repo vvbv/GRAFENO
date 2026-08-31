@@ -170,7 +170,9 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   Windows se muestra un aviso), orientados a líneas (sin programas a
   pantalla completa), con decodificación ANSI vía `rich.ansi.AnsiDecoder`
   y lectura con `loop.add_reader` sobre el fd maestro. Solo se persisten
-  las definiciones: los procesos nacen y mueren con la pantalla.
+  las definiciones: los procesos nacen y mueren con la pantalla. Los
+  botones de la pantalla (tabs y acciones) usan el modo compacto de
+  Textual (una línea, sin borde).
 - **Tests**: un archivo `test_<modulo>.py` por módulo; fixtures autouse en
   `conftest.py` ya aíslan `GRAFENO_HOME` y fijan idioma inglés; drivers falsos
   para el orquestador; smoke tests TUI con el modo headless de Textual
