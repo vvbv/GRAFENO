@@ -45,6 +45,18 @@ class ConsoleProcess:
         argv = shlex.split(self._command) if self._command.strip() else [default_shell()]
         env = dict(os.environ, TERM="xterm-256color", COLORTERM="truecolor")
         master, slave = pty.openpty()
+        # Disable kernel echo: the consoles screen echoes submitted lines
+        # itself (``ConsolesScreen._local_echo``). With kernel echo on, a
+        # line written while the tty is still in canonical mode is echoed
+        # once by the kernel and again by the shell's line editor, showing
+        # a duplicated prefix (e.g. "lls"). Programs reading stdin in
+        # canonical mode (e.g. cat) will not echo their input anymore; the
+        # local echo keeps submitted lines visible regardless.
+        # ``tcgetattr`` returns ``[iflag, oflag, cflag, lflag, ...]``; index
+        # ``3`` is ``lflag``.
+        attrs = termios.tcgetattr(slave)
+        attrs[3] &= ~(termios.ECHO | termios.ECHONL)
+        termios.tcsetattr(slave, termios.TCSANOW, attrs)
         # Advertise a sane window size so tools format their output.
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", _ROWS, _COLS, 0, 0))
         try:

@@ -375,6 +375,22 @@ class ConsolesScreen(Screen[None]):
             lines.extend(session.decoder.decode(raw.rstrip("\r")))
         return lines
 
+    @staticmethod
+    def _local_echo(session: _Session, value: str) -> None:
+        """Render the submitted line ourselves (the pty has echo disabled):
+        it lands on the same visual line as the pending shell prompt."""
+        if session.fullscreen:
+            return  # input goes to a full-screen program: nothing sane to echo
+        line = Text()
+        if session.buf:
+            # The pending prompt (no trailing newline yet) precedes the
+            # command on its line; append_text keeps the prompt's ANSI spans.
+            for segment in session.decoder.decode(session.buf.rstrip("\r")):
+                line.append_text(segment)
+            session.buf = ""
+        line.append(value)
+        session.view.output.write(line)
+
     # ------------------------------------------------------------------ #
     # UI events
     # ------------------------------------------------------------------ #
@@ -408,6 +424,7 @@ class ConsolesScreen(Screen[None]):
         if session is None or not session.proc.running:
             self.notify(t("consoles.warn.not_running"), severity="warning")
             return
+        self._local_echo(session, value)
         session.proc.write(value + "\n")
 
     def _open_form(self, index: int | None) -> None:

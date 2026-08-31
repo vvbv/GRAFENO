@@ -526,3 +526,41 @@ def test_fullscreen_notice_when_marker_split_across_reads(monkeypatch, tmp_path)
             assert "full-screen" in text  # notice fires despite split==0
 
     asyncio.run(scenario())
+
+
+def test_submitted_command_is_locally_echoed(monkeypatch, tmp_path):
+    """The submitted command is rendered next to the pending prompt, and not
+    echoed at all while a full-screen program is active."""
+    _install_fake(monkeypatch)
+    consoles.save_project(tmp_path, [ConsoleSpec(name="shell")])
+
+    async def scenario():
+        from textual.widgets import Input
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.push_screen(ConsolesScreen(tmp_path))
+            await pilot.pause()
+            fake = FakeConsole.instances[0]
+            fake.push(b"daniel@host$ ")  # prompt without trailing newline
+            for _ in range(5):
+                await pilot.pause(0.05)
+            entry = app.screen.query_one("#console-input", Input)
+            entry.value = "ls -la"
+            await entry.action_submit()
+            await pilot.pause()
+            assert "daniel@host$ ls -la" in _log_text(app.screen)  # one line
+            assert "ls -la\n" in fake.written
+
+            # Full-screen program: no local echo (input goes to the TUI).
+            fake.push(b"\x1b[?1049h")
+            for _ in range(5):
+                await pilot.pause(0.05)
+            entry = app.screen.query_one("#console-input", Input)
+            entry.value = "dentro-del-tui"
+            await entry.action_submit()
+            await pilot.pause()
+            assert "dentro-del-tui" not in _log_text(app.screen)
+            assert "dentro-del-tui\n" in fake.written
+
+    asyncio.run(scenario())

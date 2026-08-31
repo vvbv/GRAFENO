@@ -68,3 +68,33 @@ def test_start_with_bad_command_raises(tmp_path):
     proc = ConsoleProcess("comando-que-no-existe-grafeno", str(tmp_path))
     with pytest.raises(OSError):
         proc.start()
+
+
+def test_kernel_echo_is_disabled(tmp_path):
+    """The pty is created with kernel echo off (the screen echoes locally)."""
+    import termios
+
+    proc = ConsoleProcess("cat", str(tmp_path))
+    proc.start()
+    try:
+        lflag = termios.tcgetattr(proc.fd)[3]
+        assert not lflag & termios.ECHO
+        assert not lflag & termios.ECHONL
+    finally:
+        proc.close()
+
+
+def test_fast_submit_is_not_duplicated(tmp_path):
+    """A line submitted right after spawn appears at most once in the output
+    (regression: kernel echo + readline echo duplicated a prefix, e.g. "lls")."""
+    proc = ConsoleProcess("", str(tmp_path))
+    proc.start()
+    try:
+        proc.write("echo MARKER-DUP\n")  # before the shell finishes initializing
+        data = _read_until(proc, b"MARKER-DUP", timeout=5.0)
+        # Marker text = the command output; the command line itself may be
+        # echoed once (shells that self-echo) or zero times (bash here), but
+        # never the pre-fix double echo.
+        assert data.count(b"echo MARKER-DUP") <= 1
+    finally:
+        proc.close()
