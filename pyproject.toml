@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "grafeno"
-version = "1.39.0"
+version = "1.40.0"
 description = "Multi-CLI TUI orchestrator for programming tasks (plan -> implementation -> review -> final steps)"
 readme = "README.md"
 requires-python = ">=3.11"
