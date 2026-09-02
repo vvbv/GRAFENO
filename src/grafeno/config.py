@@ -242,6 +242,7 @@ class Config:
     final_prompt: str = ""  # extra instructions for the final-steps phase
     theme: str = ""  # Textual palette; empty = default theme
     auto_update: bool = False  # update agent CLIs on TUI startup (native commands)
+    workspaces: list[str] = field(default_factory=list)  # root folders whose subfolders are projects
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
 
     def role(self, name: str) -> RoleConfig:
@@ -260,6 +261,7 @@ class Config:
             "final_prompt": self.final_prompt,
             "theme": self.theme,
             "auto_update": self.auto_update,
+            "workspaces": list(self.workspaces),
             "telegram": self.telegram.to_dict(),
         }
 
@@ -277,6 +279,11 @@ class Config:
             final_prompt=str(data.get("final_prompt", "")),
             theme=str(data.get("theme", "")),
             auto_update=bool(data.get("auto_update", False)),
+            workspaces=[
+                str(item)
+                for item in data.get("workspaces", [])
+                if isinstance(item, str)
+            ] if isinstance(data.get("workspaces", []), list) else [],
             telegram=TelegramConfig.from_dict(data.get("telegram", {})),
         )
 

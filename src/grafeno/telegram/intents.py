@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -92,24 +93,70 @@ def _task_dir(task: Task) -> str:
     return task.remote if task.is_remote else task.workdir
 
 
-def project_dirs(tasks: list[Task]) -> list[tuple[str, int]]:
+def _merge_discovered(counts: dict[str, int], extra_dirs: Iterable[str]) -> list[tuple[str, int]]:
+    """``counts`` items plus discovered dirs not already covered, with count 0.
+
+    A discovered dir is covered when it matches an existing entry as an
+    exact string or as the same resolved local path (remote SSH specs
+    never cover local dirs).
+    """
+    items = list(counts.items())
+    for raw in extra_dirs:
+        candidate = str(raw)
+        covered = False
+        for directory, _ in items:
+            if directory == candidate:
+                covered = True
+                break
+            if "@" not in directory and "@" not in candidate:
+                try:
+                    if Path(directory).resolve() == Path(candidate).expanduser().resolve():
+                        covered = True
+                        break
+                except OSError:
+                    pass
+        if not covered:
+            items.append((candidate, 0))
+    return items
+
+
+def _match_dir(needle: str, directories: list[str]) -> str | None:
+    """Exact (case-insensitive) or unique substring/basename match."""
+    for directory in directories:
+        if directory.lower() == needle:
+            return directory
+    matches = [
+        directory
+        for directory in directories
+        if needle in directory.lower()
+        or needle in Path(directory.rstrip("/")).name.lower()
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def project_dirs(tasks: list[Task], extra_dirs: Iterable[str] = ()) -> list[tuple[str, int]]:
     """Distinct task directories with their task count, in first-seen order.
 
     The directory is the remote SSH spec for remote tasks (same rule as
     ``tasks_summary``). ``tasks`` comes from ``models.list_all`` (newest
     first), so the most recently used projects appear first. A plain dict
     keeps insertion order, which gives the grouping in a single pass.
+    ``extra_dirs`` holds discovered workspace projects: those not already
+    covered by a task directory are appended at the end with count 0.
     """
     counts: dict[str, int] = {}
     for task in tasks:
         directory = _task_dir(task)
         counts[directory] = counts.get(directory, 0) + 1
-    return list(counts.items())
+    return _merge_discovered(counts, extra_dirs)
 
 
-def projects_summary(tasks: list[Task]) -> str:
+def projects_summary(tasks: list[Task], extra_dirs: Iterable[str] = ()) -> str:
     """Compact ``- dir | count`` listing of project dirs (parser context)."""
-    return "\n".join(f"- {directory} | {count}" for directory, count in project_dirs(tasks))
+    return "\n".join(
+        f"- {directory} | {count}"
+        for directory, count in project_dirs(tasks, extra_dirs)
+    )
 
 
 def build_parser_prompt(
@@ -312,14 +359,21 @@ def fuzzy_find_task(query: str, tasks: list[Task]) -> Task | None:
     return None
 
 
-def resolve_workdir(spec_workdir: str, tasks: list[Task], default: str = "") -> str:
+def resolve_workdir(
+    spec_workdir: str,
+    tasks: list[Task],
+    default: str = "",
+    extra_dirs: Iterable[str] = (),
+) -> str:
     """Canonical workdir for a parsed TaskSpec.
 
     Empty means "not determined" and falls back to the default directory
     (current behavior). A value matching the directory of an existing task
-    (local workdir or remote spec) is normalized to that exact string. Any
-    other value is passed through stripped: the service validates that the
-    directory exists, as it does today for explicit paths.
+    (local workdir or remote spec) is normalized to that exact string; if no
+    task matches, discovered workspace projects (``extra_dirs``) are tried by
+    exact path or folder name. Any other value is passed through stripped:
+    the service validates that the directory exists, as it does today for
+    explicit paths.
     """
     candidate = spec_workdir.strip()
     if not candidate:
@@ -330,32 +384,31 @@ def resolve_workdir(spec_workdir: str, tasks: list[Task], default: str = "") -> 
             return task.workdir
         if task.is_remote and lowered == task.remote.strip().lower():
             return task.remote
+    discovered = _match_dir(lowered, [str(item) for item in extra_dirs])
+    if discovered is not None:
+        return discovered
     return candidate
 
 
-def resolve_project_dir(ref: str, tasks: list[Task]) -> str | None:
+def resolve_project_dir(
+    ref: str,
+    tasks: list[Task],
+    extra_dirs: Iterable[str] = (),
+) -> str | None:
     """Best match for a project reference against the known project dirs.
 
     Order: exact (case-insensitive) directory match, then a unique
     case-insensitive substring match on the full directory or its basename
     (the project "name"). ``project_dirs`` keeps first-seen order (most
-    recently used first). An ambiguous fragment returns None so the caller
-    can ask the user to be more specific instead of guessing wrong.
+    recently used first) and appends the discovered workspace projects in
+    ``extra_dirs``. An ambiguous fragment returns None so the caller can ask
+    the user to be more specific instead of guessing wrong.
     """
     needle = ref.strip().lower()
     if not needle:
         return None
-    directories = [directory for directory, _ in project_dirs(tasks)]
-    for directory in directories:
-        if directory.lower() == needle:
-            return directory
-    matches = [
-        directory
-        for directory in directories
-        if needle in directory.lower()
-        or needle in Path(directory.rstrip("/")).name.lower()
-    ]
-    return matches[0] if len(matches) == 1 else None
+    directories = [directory for directory, _ in project_dirs(tasks, extra_dirs)]
+    return _match_dir(needle, directories)
 
 
 def project_tasks(directory: str, tasks: list[Task]) -> list[Task]:

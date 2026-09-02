@@ -1,6 +1,7 @@
 """Mini TOML serializer for the simple structures used by GRAFENO.
 
-Supports: str, int, float, bool, nested tables (``[name]``) and arrays of
+Supports: str, int, float, bool, inline arrays of scalars
+(``name = [a, b]``), nested tables (``[name]``) and arrays of
 tables (``[[name]]``) at the root level. Reading always uses ``tomllib`` from
 the stdlib; this module only covers writing, avoiding extra dependencies for a
 flat configuration format.
@@ -33,7 +34,19 @@ def _format_value(value: Any) -> str:
         escaped = value.replace("\\", "\\\\").replace('"', '\\"')
         escaped = escaped.replace("\n", "\\n").replace("\t", "\\t")
         return f'"{escaped}"'
+    if isinstance(value, list):
+        if all(isinstance(item, (str, int, float, bool)) for item in value):
+            return "[" + ", ".join(_format_value(item) for item in value) + "]"
     raise TypeError(f"Tipo no soportado en TOML: {type(value)!r}")
+
+
+def _is_table_array(value: Any) -> bool:
+    """True for a non-empty list whose items are all dicts (``[[name]]``)."""
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(item, dict) for item in value)
+    )
 
 
 def _dump_table(name: str, table: dict[str, Any]) -> list[str]:
@@ -72,14 +85,14 @@ def dumps(data: dict[str, Any]) -> str:
 
     The output preserves a stable order: root scalars first, then ``[name]``
     tables and finally ``[[name]]`` arrays-of-tables. Blocks are separated
-    by a single blank line. Empty arrays emit no header.
+    by a single blank line. Lists of scalars (and empty lists) are written
+    inline among the root scalars, so they emit no header.
     """
     lines: list[str] = [_HEADER]
     scalars = {k: v for k, v in data.items()
-               if not isinstance(v, (dict, list))}
+               if not isinstance(v, dict) and not _is_table_array(v)}
     tables = {k: v for k, v in data.items() if isinstance(v, dict)}
-    arrays = {k: v for k, v in data.items()
-              if isinstance(v, list) and v}
+    arrays = {k: v for k, v in data.items() if _is_table_array(v)}
 
     for key, value in scalars.items():
         lines.append(f"{_format_key(key)} = {_format_value(value)}")

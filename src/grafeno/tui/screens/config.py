@@ -96,6 +96,11 @@ class ConfigScreen(Screen[None]):
                     id="cfg-language",
                     allow_blank=False,
                 )
+            yield Static(t("cfg.workspaces"), classes="section-title")
+            yield Static(t("cfg.workspaces.help"))
+            with Horizontal(classes="automode-row"):
+                yield Label(t("cfg.workspaces.label"))
+                yield Input(id="cfg-workspaces", placeholder="~/Documents/GitHub, ~/code")
             yield Static(t("cfg.references"), classes="section-title")
             yield Static(t("refs.warning"))
             yield ReferencesForm(id="cfg-refs")
@@ -185,6 +190,7 @@ class ConfigScreen(Screen[None]):
         self.query_one("#cfg-language", Select).value = (
             self._config.language if self._config.language in LANGUAGES else "en"
         )
+        self.query_one("#cfg-workspaces", Input).value = ", ".join(self._config.workspaces)
         self.query_one("#cfg-refs", ReferencesForm).set_references(
             references_module.load_global()
         )
@@ -303,6 +309,11 @@ class ConfigScreen(Screen[None]):
         cfg.editor.mode = str(self.query_one("#editor-mode", Select).value)
         cfg.editor.side = str(self.query_one("#editor-side", Select).value)
         cfg.language = str(self.query_one("#cfg-language", Select).value)
+        cfg.workspaces = [                     # comma-separated: paths with commas are unsupported
+            part.strip()
+            for part in self.query_one("#cfg-workspaces", Input).value.split(",")
+            if part.strip()
+        ]
         tg = cfg.telegram
         tg.enabled = self.query_one("#tg-enabled", Checkbox).value
         tg.confirm_create = self.query_one("#tg-confirm", Checkbox).value

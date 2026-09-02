@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import _toml, media, models, paths, scheduler
+from .. import workspaces as workspaces_module
 from ..config import TelegramConfig
 from ..drivers import get_driver
 from ..drivers.base import CLIDriver, RunRequest
@@ -148,12 +149,14 @@ class TelegramService:
         parser_cli: str = "",
         parser_model: str = "",
         on_info: Callable[[str], None] | None = None,
+        workspaces: list[str] | None = None,
     ):
         self.cfg = cfg
         self.client = client or TelegramBotClient(cfg.resolve_token())
         self.default_workdir = default_workdir
         self.parser_cli = parser_cli
         self.parser_model = parser_model
+        self.workspaces = list(workspaces or [])
         self._on_info = on_info or (lambda message: None)
         self._state = _load_state()
         self._proposals: dict[str, PendingProposal] = {}
@@ -461,7 +464,7 @@ class TelegramService:
                 intents.tasks_summary(tasks),
                 self._run_workdir(),
                 default_workdir=self.default_workdir,
-                projects=intents.projects_summary(tasks),
+                projects=intents.projects_summary(tasks, self._discovered_projects()),
             )
         if intent.lang:
             self._chat_lang[chat_id] = intent.lang  # answer in the user's language
@@ -508,18 +511,29 @@ class TelegramService:
 
     def _format_project_list(self, chat_id: int, tasks: list[Task]) -> str:
         """Distinct task directories (global scope) with their task count."""
-        directories = intents.project_dirs(tasks)
+        directories = intents.project_dirs(tasks, self._discovered_projects())
         if not directories:
             return self._tt(chat_id, "tg.projects.empty")
         items = "\n".join(
             self._tt(chat_id, "tg.projects.item", workdir=directory, count=count)
+            if count
+            else self._tt(chat_id, "tg.projects.item_empty", workdir=directory)
             for directory, count in directories[:10]
         )
         return self._tt(chat_id, "tg.projects.header", items=items)
 
+    def _discovered_projects(self) -> list[str]:
+        """Workspace project dirs as strings (best-effort; may include dirs with tasks)."""
+        return [
+            str(path)
+            for path in workspaces_module.discover(workspaces_module.resolve(self.workspaces))
+        ]
+
     async def _send_project_tasks(self, chat_id: int, intent: Intent, tasks: list[Task]) -> None:
         """List the tasks of ONE project, resolved from ``intent.project_ref``."""
-        directory = intents.resolve_project_dir(intent.project_ref, tasks)
+        directory = intents.resolve_project_dir(
+            intent.project_ref, tasks, self._discovered_projects()
+        )
         if directory is None:
             await self._send(
                 chat_id,
@@ -749,7 +763,9 @@ class TelegramService:
         # task created in this batch (chain_mode == "last" only).
         last_in_batch: dict[str, str] = {}
         for spec in specs:
-            workdir = intents.resolve_workdir(spec.workdir, known_tasks, self.default_workdir)
+            workdir = intents.resolve_workdir(
+                spec.workdir, known_tasks, self.default_workdir, self._discovered_projects()
+            )
             if not Path(workdir).is_dir():
                 errors.append(self._tt(chat_id, "tg.bad_workdir", workdir=workdir))
                 continue

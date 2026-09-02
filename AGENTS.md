@@ -16,7 +16,7 @@ CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex y Claude Code).
 ```
 src/grafeno/
 ├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas)
-├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo, automode, auto_update, paleta (tema), prompt de pasos finales, sección [telegram] (TelegramConfig)
+├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo, automode, auto_update, workspaces raíz (lista de carpetas), paleta (tema), prompt de pasos finales, sección [telegram] (TelegramConfig)
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
@@ -28,6 +28,7 @@ src/grafeno/
 ├── ratelimit.py            # Detección de usage agotado en CLIs: patrones de error, pista de espera (retry-after, duración relativa u hora absoluta de reseteo con zona horaria) y constantes de sondeo/reintento
 ├── scheduler.py            # Lógica pura: programación horaria, encadenamiento padre/hija y repetición de tareas
 ├── updater.py              # Auto-actualización best-effort de los CLIs de agentes (comando nativo de cada uno) al arrancar la TUI si auto_update está activado en el config
+├── workspaces.py           # Workspaces raíz: lectura del nivel proyecto (.grafeno.toml), resolve() global+proyecto y discover() de proyectos sin tareas (subcarpetas de primer nivel)
 ├── _toml.py                # Serializador TOML propio (escritura; lectura con tomllib)
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
 ├── gh.py                   # Integración con GitHub CLI: detección de disponibilidad (repo + gh + acceso) y listado de issues abiertos (best-effort, nunca lanza)
@@ -198,6 +199,16 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   combina los tres niveles en orden y los inyecta en los prompts de plan,
   reevaluación e implementación (nunca en revisión, corrección ni pasos
   finales, para acotar el consumo de tokens).
+- **Workspaces**: carpetas raíz configurables (global `Config.workspaces`
+  en `~/.grafeno/config.toml` + `workspaces` en `.grafeno.toml` de
+  proyecto; `workspaces.resolve` las combina). `workspaces.discover`
+  lista las subcarpetas de primer nivel como proyectos aunque no tengan
+  tareas: el listado de proyectos del bot de Telegram (`list_projects`)
+  las combina con los proyectos con tareas (count 0 y marca i18n
+  `tg.projects.item_empty`), y la creación de tareas las resuelve como
+  `workdir` vía `intents.resolve_workdir`/`resolve_project_dir` con
+  `extra_dirs`. Sin duplicados (dedup por ruta resuelta; los specs
+  remotos `user@host:...` nunca se fusionan con rutas locales).
 - **Tareas trigger**: dos niveles (global `~/.grafeno/triggers.toml`,
   proyecto `.grafeno.toml` `[[triggers]]`). Cada trigger define fases
   (`all` o lista de `HOOK_STAGES`) y momento (`before`/`after`); al

@@ -184,3 +184,12 @@ def test_auto_update_roundtrip():
     cfg.auto_update = True
     config.save(cfg)
     assert config.load().auto_update is True
+
+
+def test_workspaces_roundtrip():
+    """Root workspaces persist as an inline TOML array and reload intact."""
+    assert Config().workspaces == []
+    cfg = config.load()
+    cfg.workspaces = ["~/Documents/GitHub", "/tmp/code"]
+    config.save(cfg)
+    assert config.load().workspaces == ["~/Documents/GitHub", "/tmp/code"]

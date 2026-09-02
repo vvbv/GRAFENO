@@ -108,6 +108,7 @@ def _make_service(
     driver: FakeDriver,
     *,
     cfg: TelegramConfig | None = None,
+    workspaces: list[str] | None = None,
 ) -> tuple[TelegramService, FakeClient]:
     """Service wired to doubles: FakeClient, FakeDriver as parser CLI."""
     client = FakeClient()
@@ -125,6 +126,7 @@ def _make_service(
         default_workdir=tg.default_workdir,
         parser_cli="fake",
         parser_model="",
+        workspaces=workspaces,
     )
     return service, client
 
@@ -835,6 +837,41 @@ def test_list_projects_empty(tmp_path, monkeypatch):
     _run(service._parse_and_reply(555, "lista mis proyectos"))
 
     assert "No projects" in client.sent[-1][1]  # conftest fixes English
+
+
+def test_list_projects_includes_discovered(tmp_path, monkeypatch):
+    """Workspace subfolders without tasks are listed and marked as empty."""
+    ws = tmp_path / "ws"
+    (ws / "vacio").mkdir(parents=True)
+    driver = FakeDriver([_json_result({"action": "list_projects"})])
+    service, client = _make_service(
+        tmp_path, monkeypatch, driver, workspaces=[str(ws)]
+    )
+
+    _run(service._parse_and_reply(555, "lista mis proyectos"))
+
+    message = client.sent[-1][1]
+    assert str(ws / "vacio") in message
+    assert "no tasks yet" in message  # conftest fixes English
+
+
+def test_list_projects_dedupes_projects_with_tasks(tmp_path, monkeypatch):
+    """A workspace subfolder that already has tasks is listed once, with its count."""
+    ws = tmp_path / "ws"
+    with_tasks = ws / "con-tareas"
+    with_tasks.mkdir(parents=True)
+    models.save(models.Task.create("A", "d", str(with_tasks), Config()))
+    driver = FakeDriver([_json_result({"action": "list_projects"})])
+    service, client = _make_service(
+        tmp_path, monkeypatch, driver, workspaces=[str(ws)]
+    )
+
+    _run(service._parse_and_reply(555, "lista mis proyectos"))
+
+    message = client.sent[-1][1]
+    assert message.count(str(with_tasks)) == 1
+    assert "1 task(s)" in message
+    assert "no tasks yet" not in message
 
 
 def test_parser_receives_projects_context(tmp_path, monkeypatch):

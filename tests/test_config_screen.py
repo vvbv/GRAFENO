@@ -505,3 +505,38 @@ def test_config_screen_telegram_section_roundtrip(monkeypatch):
         assert saved.stt_model == "whisper-large-v3-turbo"
 
     asyncio.run(scenario())
+
+
+def test_workspaces_input_roundtrip(monkeypatch):
+    """The Workspaces input persists a comma-separated list of root folders."""
+    from textual.widgets import Input
+
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 160)) as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfigScreen)
+
+            for _ in range(20):
+                await pilot.pause(0.1)
+                if app.screen.query_one(RolesForm).models:
+                    break
+            await pilot.pause()
+
+            assert app.screen.query_one("#cfg-workspaces", Input).value == ""
+            app.screen.query_one("#cfg-workspaces", Input).value = "/tmp/a, /tmp/b"
+
+            app.screen.query_one("#cfg-save").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#cfg-save")
+            await pilot.pause()
+
+        assert config_module.load().workspaces == ["/tmp/a", "/tmp/b"]
+
+    asyncio.run(scenario())

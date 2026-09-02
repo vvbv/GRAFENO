@@ -143,6 +143,7 @@ class GrafenoApp(App):
             parser_cli=cfg.telegram.parser_cli or cfg.planner.cli,
             parser_model=cfg.telegram.parser_model or cfg.planner.model,
             on_info=lambda message: self.notify(message, timeout=8),
+            workspaces=cfg.workspaces,
         )
         self.run_worker(
             self.telegram.run(), exclusive=True,

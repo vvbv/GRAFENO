@@ -332,3 +332,47 @@ def test_project_tasks_filters_by_directory(tmp_path):
     mine = models.Task.create("Mia", "d", str(tmp_path), Config())
     other = _task("Ajena")  # workdir "."
     assert intents.project_tasks(str(tmp_path), [mine, other]) == [mine]
+
+
+def test_project_dirs_includes_discovered_without_duplicates(tmp_path):
+    """Discovered dirs are appended with count 0; dirs with tasks are not duplicated."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    task = models.Task.create("Con tareas", "d", str(proj), Config())
+    extra = [str(proj), str(proj) + "/", str(tmp_path / "nuevo")]
+    assert intents.project_dirs([task], extra) == [
+        (str(proj), 1),
+        (str(tmp_path / "nuevo"), 0),
+    ]
+
+
+def test_project_dirs_discovered_never_shadows_remote(tmp_path):
+    """A remote SSH spec is never merged with a local dir of the same basename."""
+    task = _task("Remota")
+    task.remote = "user@host:/home/u/proj"
+    local = tmp_path / "proj"
+    local.mkdir()
+    assert intents.project_dirs([task], [str(local)]) == [
+        ("user@host:/home/u/proj", 1),
+        (str(local), 0),
+    ]
+
+
+def test_resolve_project_dir_matches_discovered(tmp_path):
+    """Discovered projects resolve by basename; ambiguous fragments return None."""
+    nuevo = tmp_path / "nuevo"
+    assert intents.resolve_project_dir("nuevo", [], [str(nuevo)]) == str(nuevo)
+    otro = tmp_path / "nuevo-dos"
+    assert intents.resolve_project_dir("nuevo", [], [str(nuevo), str(otro)]) is None
+
+
+def test_resolve_workdir_matches_discovered_basename(tmp_path):
+    """A discovered project name (case-insensitive) becomes its exact path."""
+    nuevo = tmp_path / "nuevo"
+    assert intents.resolve_workdir("Nuevo", [], "/d", [str(nuevo)]) == str(nuevo)
+
+
+def test_projects_summary_marks_zero_count(tmp_path):
+    """Discovered projects appear in the parser context with count 0."""
+    summary = intents.projects_summary([], [str(tmp_path / "nuevo")])
+    assert summary == f"- {tmp_path / 'nuevo'} | 0"
