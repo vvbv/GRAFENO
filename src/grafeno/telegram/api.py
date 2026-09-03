@@ -412,6 +412,15 @@ class TelegramBotClient:
             {"callback_query_id": callback_id, "text": text[:200]},
         )
 
+    def edit_message_reply_markup(
+        self, chat_id: int, message_id: int, reply_markup: dict[str, Any]
+    ) -> None:
+        """Replace the inline keyboard of a sent message (picker toggles)."""
+        self._call(
+            "editMessageReplyMarkup",
+            {"chat_id": chat_id, "message_id": message_id, "reply_markup": reply_markup},
+        )
+
     def send_chat_action(self, chat_id: int, action: str = "typing") -> None:
         """Send a chat action (e.g. ``typing``); clients show it for ~5s."""
         self._call("sendChatAction", {"chat_id": chat_id, "action": action})

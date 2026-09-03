@@ -38,7 +38,7 @@ PROPOSAL_TTL = 1800.0          # seconds a Create/Cancel proposal stays valid
 ATTACHMENT_TTL = 600.0         # seconds a buffered photo/video stays pending
 MAX_ATTACHMENTS = 5            # per chat
 ASK_CONTEXT_CHARS = 20000      # artifact context budget for the "ask" action
-CALLBACK_PREFIX = "tg:"        # callback_data prefix: tg:c:<id> / tg:x:<id> / tg:n:<id> / tg:l:<id>
+CALLBACK_PREFIX = "tg:"        # callback_data prefix: tg:c|x|n|l:<id> (proposals), tg:fa|fn|fp|fd:<id> and tg:ft:<id>:<state> (list filters)
 TYPING_REFRESH = 4.0           # chat actions last ~5s on the clients
 UNAUTHORIZED_COOLDOWN = 300.0  # seconds between "not authorized" notices
 LOG_MAX_BYTES = 1_000_000      # telegram.log is truncated past this size
@@ -55,6 +55,9 @@ IN_PROGRESS_STATES = (
     TaskState.FIXING,
     TaskState.FINALIZING,
 )
+
+# States offered in the task-list filter picker, in display order.
+FILTERABLE_STATES = tuple(TaskState)
 
 # Ask prompt: Spanish, like the rest of the pipeline prompts (prompts.py).
 _ASK_PROMPT = """Eres un asistente que responde preguntas sobre una tarea de GRAFENO
@@ -137,6 +140,21 @@ class PendingProposal:
         return time.monotonic() - self.created_at > PROPOSAL_TTL
 
 
+@dataclass
+class PendingListQuery:
+    """Task-list query waiting for the user to pick a state filter."""
+
+    id: str
+    chat_id: int
+    project: str = ""          # project dir for list_project_tasks; "" = all tasks
+    selected: set[TaskState] = field(default_factory=set)
+    created_at: float = field(default_factory=time.monotonic)
+
+    @property
+    def expired(self) -> bool:
+        return time.monotonic() - self.created_at > PROPOSAL_TTL
+
+
 class TelegramService:
     """Long-polling bot loop plus intent dispatch; constructed by the App."""
 
@@ -160,6 +178,7 @@ class TelegramService:
         self._on_info = on_info or (lambda message: None)
         self._state = _load_state()
         self._proposals: dict[str, PendingProposal] = {}
+        self._list_queries: dict[str, PendingListQuery] = {}
         self._attachments: dict[int, list[tuple[str, bytes, float]]] = {}
         self._send_locks: dict[int, asyncio.Lock] = {}
         self._bot_username = ""  # filled from getMe at startup
@@ -240,12 +259,16 @@ class TelegramService:
         lang = self._chat_lang.get(chat_id, "")
         return t_lang(lang, key, **kwargs) if lang else t(key, **kwargs)
 
-    def _state_label(self, chat_id: int, task: Task) -> str:
-        """Task state label in the chat's language."""
+    def _state_label_of(self, chat_id: int, state: TaskState) -> str:
+        """State label in the chat's language."""
         lang = self._chat_lang.get(chat_id, "")
         if lang:
-            return t_lang(lang, f"state.{task.state.value}")
-        return state_label(task.state)
+            return t_lang(lang, f"state.{state.value}")
+        return state_label(state)
+
+    def _state_label(self, chat_id: int, task: Task) -> str:
+        """Task state label in the chat's language."""
+        return self._state_label_of(chat_id, task.state)
 
     async def _typing_loop(self, chat_id: int, action: str, stop: asyncio.Event) -> None:
         """Refresh the chat action every TYPING_REFRESH until ``stop`` is set."""
@@ -335,7 +358,7 @@ class TelegramService:
                 await asyncio.to_thread(self.client.answer_callback_query, callback.id)
             except TelegramError:
                 pass  # best effort: the spinner may keep spinning once
-            await self._handle_callback(callback.data, callback.chat_id)
+            await self._handle_callback(callback.data, callback.chat_id, callback.message_id)
         elif update.message is not None:
             await self._handle_message(update.message)
 
@@ -483,11 +506,11 @@ class TelegramService:
         if intent.action == "create_tasks":
             await self._propose_or_create(chat_id, intent.tasks)
         elif intent.action == "list_tasks":
-            await self._send(chat_id, self._format_task_list(chat_id, tasks))
+            await self._ask_state_filter(chat_id)
         elif intent.action == "list_projects":
             await self._send(chat_id, self._format_project_list(chat_id, tasks))
         elif intent.action == "list_project_tasks":
-            await self._send_project_tasks(chat_id, intent, tasks)
+            await self._ask_project_state_filter(chat_id, intent, tasks)
         elif intent.action == "task_status":
             await self._send_status(chat_id, intent, tasks)
         elif intent.action == "send_files":
@@ -496,18 +519,6 @@ class TelegramService:
             await self._answer_question(chat_id, intent, tasks)
         else:  # help | unknown
             await self._send(chat_id, self._tt(chat_id, "tg.help"))
-
-    def _format_task_list(self, chat_id: int, tasks: list[Task]) -> str:
-        if not tasks:
-            return self._tt(chat_id, "tg.list.empty")
-        items = "\n".join(
-            self._tt(
-                chat_id, "tg.list.item",
-                name=task.name, state=self._state_label(chat_id, task), id=task.id,
-            )
-            for task in tasks[:10]
-        )
-        return self._tt(chat_id, "tg.list.header", items=items)
 
     def _format_project_list(self, chat_id: int, tasks: list[Task]) -> str:
         """Distinct task directories (global scope) with their task count."""
@@ -529,8 +540,20 @@ class TelegramService:
             for path in workspaces_module.discover(workspaces_module.resolve(self.workspaces))
         ]
 
-    async def _send_project_tasks(self, chat_id: int, intent: Intent, tasks: list[Task]) -> None:
-        """List the tasks of ONE project, resolved from ``intent.project_ref``."""
+    async def _ask_state_filter(self, chat_id: int, project: str = "") -> None:
+        """Ask which state scope to list before answering a task-list query."""
+        query = PendingListQuery(id=secrets.token_hex(4), chat_id=chat_id, project=project)
+        self._list_queries[query.id] = query
+        await self._send(
+            chat_id,
+            self._tt(chat_id, "tg.filter.ask"),
+            reply_markup=self._filter_ask_markup(chat_id, query.id),
+        )
+
+    async def _ask_project_state_filter(
+        self, chat_id: int, intent: Intent, tasks: list[Task]
+    ) -> None:
+        """Resolve the project of a list_project_tasks intent, then ask the filter."""
         directory = intents.resolve_project_dir(
             intent.project_ref, tasks, self._discovered_projects()
         )
@@ -540,15 +563,75 @@ class TelegramService:
                 self._tt(chat_id, "tg.project_not_found", ref=intent.project_ref),
             )
             return
-        await self._send(
-            chat_id,
-            self._format_project_tasks(chat_id, directory, intents.project_tasks(directory, tasks)),
-        )
+        await self._ask_state_filter(chat_id, project=directory)
 
-    def _format_project_tasks(self, chat_id: int, directory: str, tasks: list[Task]) -> str:
-        """``tg.list.item`` lines (name, state, id) under a project header."""
+    def _filter_ask_markup(self, chat_id: int, query_id: str) -> dict[str, Any]:
+        """Keyboard with the three scope options of a task-list query."""
+        return {
+            "inline_keyboard": [
+                [
+                    {"text": self._tt(chat_id, "tg.btn.filter_all"),
+                     "callback_data": f"{CALLBACK_PREFIX}fa:{query_id}"},
+                    {"text": self._tt(chat_id, "tg.btn.filter_active"),
+                     "callback_data": f"{CALLBACK_PREFIX}fn:{query_id}"},
+                ],
+                [
+                    {"text": self._tt(chat_id, "tg.btn.filter_pick"),
+                     "callback_data": f"{CALLBACK_PREFIX}fp:{query_id}"},
+                ],
+            ]
+        }
+
+    def _picker_markup(self, chat_id: int, query: PendingListQuery) -> dict[str, Any]:
+        """One toggle button per state (two per row) plus the Show button."""
+        rows: list[list[dict[str, str]]] = []
+        row: list[dict[str, str]] = []
+        for state in FILTERABLE_STATES:
+            mark = "x" if state in query.selected else " "
+            label = self._state_label_of(chat_id, state)
+            row.append({
+                "text": f"[{mark}] {label}",
+                "callback_data": f"{CALLBACK_PREFIX}ft:{query.id}:{state.value}",
+            })
+            if len(row) == 2:
+                rows.append(row)
+                row = []
+        if row:
+            rows.append(row)
+        rows.append([{
+            "text": self._tt(chat_id, "tg.btn.filter_show"),
+            "callback_data": f"{CALLBACK_PREFIX}fd:{query.id}",
+        }])
+        return {"inline_keyboard": rows}
+
+    async def _send_filtered_list(
+        self, chat_id: int, query: PendingListQuery, *, mode: str
+    ) -> None:
+        """Send the task list of a query filtered by the chosen scope.
+
+        ``mode`` is "all", "active" (everything except DONE) or "selected"
+        (only the states toggled in the picker). Tasks are re-fetched so the
+        answer reflects the current state, not the one at question time.
+        """
+        tasks = models.list_all()
+        if query.project:
+            tasks = intents.project_tasks(query.project, tasks)
+        if mode == "active":
+            tasks = [task for task in tasks if task.state is not TaskState.DONE]
+            filter_desc = self._tt(chat_id, "tg.filter.active")
+        elif mode == "selected":
+            tasks = [task for task in tasks if task.state in query.selected]
+            labels = ", ".join(
+                self._state_label_of(chat_id, state)
+                for state in FILTERABLE_STATES
+                if state in query.selected
+            )
+            filter_desc = self._tt(chat_id, "tg.filter.selected", states=labels)
+        else:  # "all"
+            filter_desc = self._tt(chat_id, "tg.filter.all")
         if not tasks:
-            return self._tt(chat_id, "tg.list.empty")
+            await self._send(chat_id, self._tt(chat_id, "tg.list.empty"))
+            return
         items = "\n".join(
             self._tt(
                 chat_id, "tg.list.item",
@@ -556,7 +639,14 @@ class TelegramService:
             )
             for task in tasks[:10]
         )
-        return self._tt(chat_id, "tg.project_tasks.header", workdir=directory, items=items)
+        if query.project:
+            text = self._tt(
+                chat_id, "tg.filter.header_project",
+                workdir=query.project, filter=filter_desc, items=items,
+            )
+        else:
+            text = self._tt(chat_id, "tg.filter.header", filter=filter_desc, items=items)
+        await self._send(chat_id, text)
 
     async def _send_status(self, chat_id: int, intent: Intent, tasks: list[Task]) -> None:
         task = intents.fuzzy_find_task(intent.task_ref, tasks)
@@ -706,13 +796,23 @@ class TelegramService:
             )
         return self._tt(chat_id, "tg.proposal.title", count=len(specs)) + "\n" + "\n".join(items)
 
-    async def _handle_callback(self, data: str, chat_id: int) -> None:
+    async def _handle_callback(self, data: str, chat_id: int, message_id: int = 0) -> None:
         if not data.startswith(CALLBACK_PREFIX):
             return
-        parts = data[len(CALLBACK_PREFIX):].split(":", 1)
-        if len(parts) != 2:
+        parts = data[len(CALLBACK_PREFIX):].split(":")
+        if len(parts) < 2:
             return
-        action, proposal_id = parts
+        action = parts[0]
+        if action in ("fa", "fn", "fp", "ft", "fd"):
+            await self._handle_filter_callback(
+                action, parts[1], chat_id, message_id,
+                state_value=parts[2] if len(parts) > 2 else "",
+            )
+            return
+        await self._handle_proposal_callback(action, parts[1], chat_id)
+
+    async def _handle_proposal_callback(self, action: str, proposal_id: str, chat_id: int) -> None:
+        """Create/Cancel/Chaining callbacks of task proposals (existing flow)."""
         proposal = self._proposals.get(proposal_id)
         if proposal is None or proposal.chat_id != chat_id:
             await self._send(chat_id, self._tt(chat_id, "tg.proposal.expired"))
@@ -736,6 +836,63 @@ class TelegramService:
         chain_mode = "last" if action == "l" else "none"
         created, errors, unchained = self._create_tasks(chat_id, proposal.specs, chain_mode=chain_mode)
         await self._send(chat_id, self._format_created(chat_id, created, errors, unchained))
+
+    async def _handle_filter_callback(
+        self,
+        action: str,
+        query_id: str,
+        chat_id: int,
+        message_id: int,
+        *,
+        state_value: str = "",
+    ) -> None:
+        """State-filter callbacks of a pending task-list query."""
+        query = self._list_queries.get(query_id)
+        if query is None or query.chat_id != chat_id or query.expired:
+            self._list_queries.pop(query_id, None)
+            await self._send(chat_id, self._tt(chat_id, "tg.proposal.expired"))
+            return
+        if action == "fa":
+            self._list_queries.pop(query_id, None)
+            await self._send_filtered_list(chat_id, query, mode="all")
+            return
+        if action == "fn":
+            self._list_queries.pop(query_id, None)
+            await self._send_filtered_list(chat_id, query, mode="active")
+            return
+        if action == "fp":
+            await self._send(
+                chat_id,
+                self._tt(chat_id, "tg.filter.pick"),
+                reply_markup=self._picker_markup(chat_id, query),
+            )
+            return
+        if action == "ft":
+            try:
+                state = TaskState(state_value)
+            except ValueError:
+                return  # garbage state in callback_data: ignore
+            if state in query.selected:
+                query.selected.discard(state)
+            else:
+                query.selected.add(state)
+            markup = self._picker_markup(chat_id, query)
+            try:
+                await asyncio.to_thread(
+                    self.client.edit_message_reply_markup, chat_id, message_id, markup
+                )
+            except TelegramError:
+                # Message too old to edit: send a fresh picker instead.
+                await self._send(
+                    chat_id, self._tt(chat_id, "tg.filter.pick"), reply_markup=markup
+                )
+            return
+        if action == "fd":
+            if not query.selected:
+                await self._send(chat_id, self._tt(chat_id, "tg.filter.none_selected"))
+                return  # keep the query alive: the user can still pick
+            self._list_queries.pop(query_id, None)
+            await self._send_filtered_list(chat_id, query, mode="selected")
 
     def _create_tasks(
         self, chat_id: int, specs: list[TaskSpec], *, chain_mode: str = "none"

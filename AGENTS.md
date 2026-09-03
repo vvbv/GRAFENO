@@ -155,7 +155,12 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   listado de tareas de UN proyecto con su estado (acción
   `list_project_tasks` del parser; `project_ref` se resuelve con
   `intents.resolve_project_dir`: directorio exacto o fragmento único del
-  nombre/directorio, ambiguo o desconocido -> aviso `tg.project_not_found`),
+  nombre/directorio, ambiguo o desconocido -> aviso `tg.project_not_found`).
+  Las consultas de listado de tareas (`list_tasks` y `list_project_tasks`)
+  preguntan primero el ámbito de estados con botones inline
+  (`PendingListQuery`: todas / todas menos completadas (excluye DONE) /
+  selector multiselección de estados con toggle que edita el markup vía
+  `api.edit_message_reply_markup`, callbacks `tg:fa/fn/fp/ft/fd`),
   resumen/estado de tareas, envío de los .md de plan/revisión/final como
   documentos y preguntas concretas sobre una tarea (one-shot con los
   artefactos como contexto). Las respuestas de voz (TTS OpenAI-compatible,

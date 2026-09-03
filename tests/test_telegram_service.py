@@ -34,6 +34,7 @@ class FakeClient:
         self.answer_texts: list[str] = []
         self.chat_actions: list[tuple[int, str]] = []
         self.files: dict[str, tuple[str, bytes]] = {}  # file_id -> (path, data)
+        self.edited: list[tuple[int, int, dict]] = []  # (chat_id, message_id, markup)
 
     def get_me(self):
         return {"id": 1, "username": "grafeno_bot"}
@@ -53,6 +54,9 @@ class FakeClient:
     def answer_callback_query(self, callback_id, text=""):
         self.answered.append(callback_id)
         self.answer_texts.append(text)
+
+    def edit_message_reply_markup(self, chat_id, message_id, reply_markup):
+        self.edited.append((chat_id, message_id, reply_markup))
 
     def send_chat_action(self, chat_id, action="typing"):
         self.chat_actions.append((chat_id, action))
@@ -150,6 +154,18 @@ def _proposal_id(client: FakeClient) -> str:
     markup = client.sent[-1][2]
     assert markup is not None
     return markup["inline_keyboard"][0][0]["callback_data"].split(":")[-1]
+
+
+def _filter_query_id(client: FakeClient) -> str:
+    """Query id from the first button of the last message's markup."""
+    markup = client.sent[-1][2]
+    assert markup is not None
+    return markup["inline_keyboard"][0][0]["callback_data"].split(":")[2]
+
+
+def _press(service, data: str) -> None:
+    """Simulate an inline-button tap."""
+    _run(service._handle_update(_callback_update(data)))
 
 
 # ---------------------------------------------------------------------- #
@@ -808,6 +824,9 @@ def test_list_tasks(tmp_path, monkeypatch):
 
     _run(service._parse_and_reply(555, "lista mis tareas"))
 
+    query_id = _filter_query_id(client)
+    _press(service, f"tg:fa:{query_id}")
+
     assert "Arreglar login" in client.sent[-1][1]
     assert task.id in client.sent[-1][1]
 
@@ -898,6 +917,9 @@ def test_list_project_tasks(tmp_path, monkeypatch):
 
     _run(service._parse_and_reply(555, "tareas del proyecto de " + str(tmp_path)))
 
+    query_id = _filter_query_id(client)
+    _press(service, f"tg:fa:{query_id}")
+
     message = client.sent[-1][1]
     assert "A1" in message
     assert "B1" not in message  # the other project's task is not listed
@@ -916,6 +938,9 @@ def test_list_project_tasks_by_name_fragment(tmp_path, monkeypatch):
 
     _run(service._parse_and_reply(555, "que tareas tiene grafeno"))
 
+    query_id = _filter_query_id(client)
+    _press(service, f"tg:fa:{query_id}")
+
     assert "A1" in client.sent[-1][1]
 
 
@@ -928,6 +953,192 @@ def test_list_project_tasks_not_found(tmp_path, monkeypatch):
     _run(service._parse_and_reply(555, "tareas del proyecto zzz"))
 
     assert "zzz" in client.sent[-1][1]  # not-found message echoes the ref
+
+
+# ---------------------------------------------------------------------- #
+# State filter for task-list queries
+# ---------------------------------------------------------------------- #
+def test_list_tasks_asks_state_filter(tmp_path, monkeypatch):
+    task = _existing_task()
+    driver = FakeDriver([_json_result({"action": "list_tasks"})])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "lista mis tareas"))
+
+    message = client.sent[-1][1]
+    assert "Which tasks do you want to see?" in message
+    markup = client.sent[-1][2]
+    callbacks = [
+        button["callback_data"]
+        for row in markup["inline_keyboard"]
+        for button in row
+    ]
+    assert sum(1 for data in callbacks if data.startswith("tg:fa:")) == 1
+    assert sum(1 for data in callbacks if data.startswith("tg:fn:")) == 1
+    assert sum(1 for data in callbacks if data.startswith("tg:fp:")) == 1
+    assert task.name not in message  # list not sent yet
+
+
+def test_filter_all_lists_every_state(tmp_path, monkeypatch):
+    draft = models.Task.create("Draft one", "d", str(tmp_path), Config())
+    models.save(draft)
+    done = models.Task.create("Done one", "d", str(tmp_path), Config())
+    done.state = TaskState.DONE
+    models.save(done)
+    driver = FakeDriver([_json_result({"action": "list_tasks"})])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "lista mis tareas"))
+
+    query_id = _filter_query_id(client)
+    _press(service, f"tg:fa:{query_id}")
+
+    message = client.sent[-1][1]
+    assert "Draft one" in message
+    assert "Done one" in message
+
+
+def test_filter_active_excludes_done(tmp_path, monkeypatch):
+    models.save(models.Task.create("Draft one", "d", str(tmp_path), Config()))
+    done = models.Task.create("Done one", "d", str(tmp_path), Config())
+    done.state = TaskState.DONE
+    models.save(done)
+    driver = FakeDriver([_json_result({"action": "list_tasks"})])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "lista mis tareas"))
+
+    query_id = _filter_query_id(client)
+    _press(service, f"tg:fn:{query_id}")
+
+    message = client.sent[-1][1]
+    assert "Draft one" in message
+    assert "Done one" not in message
+
+
+def test_filter_picker_toggles_and_shows(tmp_path, monkeypatch):
+    draft = models.Task.create("Draft one", "d", str(tmp_path), Config())
+    models.save(draft)
+    done = models.Task.create("Done one", "d", str(tmp_path), Config())
+    done.state = TaskState.DONE
+    models.save(done)
+    driver = FakeDriver([_json_result({"action": "list_tasks"})])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "lista mis tareas"))
+
+    query_id = _filter_query_id(client)
+    _press(service, f"tg:fp:{query_id}")
+
+    picker_message = client.sent[-1][1]
+    assert "Tap states to toggle them" in picker_message
+    picker_markup = client.sent[-1][2]
+    state_buttons = [
+        button
+        for row in picker_markup["inline_keyboard"]
+        for button in row
+        if button["callback_data"].startswith("tg:ft:")
+    ]
+    assert len(state_buttons) == 12
+    assert all(button["text"].startswith("[ ] ") for button in state_buttons)
+    show_buttons = [
+        button
+        for row in picker_markup["inline_keyboard"]
+        for button in row
+        if button["callback_data"].startswith("tg:fd:")
+    ]
+    assert len(show_buttons) == 1
+
+    _press(service, f"tg:ft:{query_id}:done")
+    assert len(client.edited) == 1
+    edited_markup = client.edited[-1][2]
+    edited_texts = [
+        button["text"]
+        for row in edited_markup["inline_keyboard"]
+        for button in row
+    ]
+    assert any(text == "[x] Done" for text in edited_texts)
+    assert all(
+        not text.startswith("[x] ") or text == "[x] Done"
+        for text in edited_texts
+    )
+
+    _press(service, f"tg:fd:{query_id}")
+    final_message = client.sent[-1][1]
+    assert "Done one" in final_message
+    assert "Draft one" not in final_message
+
+
+def test_filter_toggle_second_time_unmarks(tmp_path, monkeypatch):
+    driver = FakeDriver([_json_result({"action": "list_tasks"})])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "lista mis tareas"))
+
+    query_id = _filter_query_id(client)
+    _press(service, f"tg:fp:{query_id}")
+    _press(service, f"tg:ft:{query_id}:done")
+    _press(service, f"tg:ft:{query_id}:done")
+    assert len(client.edited) == 2
+    final_markup = client.edited[-1][2]
+    done_texts = [
+        button["text"]
+        for row in final_markup["inline_keyboard"]
+        for button in row
+        if button["callback_data"].endswith(":done")
+    ]
+    assert done_texts == ["[ ] Done"]
+
+
+def test_filter_show_without_selection_warns(tmp_path, monkeypatch):
+    driver = FakeDriver([_json_result({"action": "list_tasks"})])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "lista mis tareas"))
+
+    query_id = _filter_query_id(client)
+    _press(service, f"tg:fp:{query_id}")
+    _press(service, f"tg:fd:{query_id}")
+    warn = client.sent[-1][1]
+    assert "No state selected" in warn
+
+    # Query is still alive: pressing All now answers the full list.
+    _press(service, f"tg:fa:{query_id}")
+    # The last message is either an empty notice or a listing; either way the
+    # query has been handled (popped), so pressing fa on the same id again
+    # must hit the "expired" branch.
+    _press(service, f"tg:fa:{query_id}")
+    assert "expired" in client.sent[-1][1].lower()
+
+
+def test_filter_unknown_or_expired_query(tmp_path, monkeypatch):
+    driver = FakeDriver([_json_result({"action": "list_tasks"})])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _press(service, "tg:fa:zzzz9999")
+
+    assert "That proposal expired or was already handled." in client.sent[-1][1]
+
+
+def test_list_project_tasks_filter_flow(tmp_path, monkeypatch):
+    other = tmp_path / "otro"
+    other.mkdir()
+    models.save(models.Task.create("A1", "d", str(tmp_path), Config()))
+    models.save(models.Task.create("B1", "d", str(other), Config()))
+    driver = FakeDriver([_json_result({
+        "action": "list_project_tasks", "project_ref": str(tmp_path),
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "tareas del proyecto de " + str(tmp_path)))
+
+    query_id = _filter_query_id(client)
+    _press(service, f"tg:fa:{query_id}")
+
+    message = client.sent[-1][1]
+    assert "A1" in message
+    assert "B1" not in message
+    assert str(tmp_path) in message
 
 
 def test_task_status(tmp_path, monkeypatch):
