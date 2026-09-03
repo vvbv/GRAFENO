@@ -305,6 +305,13 @@ def main() -> None:
         action="store_true",
         help="Do not open the configured editor on startup.",
     )
+    parser.add_argument(
+        "--version",
+        "-v",
+        action="version",
+        version=f"grafeno {__version__}",
+        help="Show the GRAFENO version and exit.",
+    )
     args = parser.parse_args()
 
     # Bootstrap the remote session BEFORE loading the config: that way

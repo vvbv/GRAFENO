@@ -476,6 +476,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "supd.failed": "Could not update GRAFENO: {error}",
         "supd.latest": "GRAFENO is up to date (v{version}).",
         "supd.check_failed": "Could not check for updates (GitHub unreachable).",
+        "supd.verify_failed": "The update ran but GRAFENO is still at v{version}.",
         # remote (SSH/sshfs)
         "remote.no_sshfs": "sshfs is not installed: remote projects cannot be mounted.",
         "remote.no_rsync": "rsync is not installed: task data will not be synced to the remote host.",
@@ -1001,6 +1002,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "supd.failed": "No se pudo actualizar GRAFENO: {error}",
         "supd.latest": "GRAFENO está al día (v{version}).",
         "supd.check_failed": "No se pudo comprobar si hay actualizaciones (GitHub inaccesible).",
+        "supd.verify_failed": "La actualización terminó pero GRAFENO sigue en v{version}.",
         # remoto (SSH/sshfs)
         "remote.no_sshfs": "sshfs no está instalado: no se pueden montar proyectos remotos.",
         "remote.no_rsync": "rsync no está instalado: los datos de la tarea no se sincronizarán con el host remoto.",

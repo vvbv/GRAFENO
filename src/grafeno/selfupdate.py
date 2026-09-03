@@ -8,12 +8,15 @@ Telegram client (product User-Agent, tolerant TLS policy).
 from __future__ import annotations
 
 import asyncio
+import importlib.metadata
 import json
 import shutil
 import sys
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 
+from .i18n import t
 from .telegram.api import USER_AGENT, default_opener
 
 RELEASES_API = "https://api.github.com/repos/vvbv/GRAFENO/releases/latest"
@@ -93,14 +96,39 @@ async def fetch_latest_version(
     return normalize_version(tag) if tag else None
 
 
+def installed_via_pipx() -> bool:
+    """True when the running GRAFENO interpreter lives in a pipx-managed venv."""
+    parts = [part.casefold() for part in Path(sys.prefix).parts]
+    return "pipx" in parts
+
+
+def installed_version() -> str | None:
+    """Installed ``grafeno`` distribution version; ``None`` when unqueryable."""
+    try:
+        return importlib.metadata.version("grafeno")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
 def build_update_command(version: str) -> list[str]:
-    """pipx command when available, else the current interpreter's pip."""
+    """Update command matching how GRAFENO is actually installed.
+
+    pipx only when the running interpreter is a pipx-managed venv (choosing
+    pipx otherwise installed a second, disconnected copy and reported a
+    false success), else the current interpreter's pip. pip gets
+    ``--force-reinstall`` because ``--upgrade`` alone is not deterministic
+    with git-URL requirements: it can leave the same version in place and
+    still exit 0.
+    """
     tag = f"v{normalize_version(version)}"
     url = f"git+{GIT_URL}@{tag}"
-    pipx = shutil.which("pipx")
+    pipx = shutil.which("pipx") if installed_via_pipx() else None
     if pipx:
         return [pipx, "install", "--force", url]
-    return [sys.executable, "-m", "pip", "install", "--upgrade", url]
+    return [
+        sys.executable, "-m", "pip", "install",
+        "--upgrade", "--force-reinstall", url,
+    ]
 
 
 async def _run_command(command: list[str], timeout: float) -> tuple[int, str]:
@@ -127,17 +155,30 @@ async def _run_command(command: list[str], timeout: float) -> tuple[int, str]:
 async def run_self_update(
     version: str, timeout: float = UPDATE_TIMEOUT
 ) -> SelfUpdateOutcome:
-    """Update GRAFENO to ``version`` (best effort, cancelable)."""
+    """Update GRAFENO to ``version`` and verify the installed version afterwards.
+
+    A bare exit code is not trustworthy (pip/pipx can exit 0 while leaving
+    the old version in place): after a successful command the installed
+    ``grafeno`` metadata is compared with the target and a mismatch is
+    reported as a failed update.
+    """
+    target = normalize_version(version)
     command = build_update_command(version)
     try:
         code, detail = await _run_command(command, timeout)
     except OSError as exc:
+        return SelfUpdateOutcome(version=target, ok=False, detail=str(exc))
+    if code != 0:
+        return SelfUpdateOutcome(version=target, ok=False, detail=detail)
+    installed = installed_version()
+    # No distribution metadata: trust the exit code (nothing to compare).
+    if installed is not None and normalize_version(installed) != target:
         return SelfUpdateOutcome(
-            version=normalize_version(version), ok=False, detail=str(exc)
+            version=target,
+            ok=False,
+            detail=t("supd.verify_failed", version=installed),
         )
-    return SelfUpdateOutcome(
-        version=normalize_version(version), ok=code == 0, detail=detail
-    )
+    return SelfUpdateOutcome(version=target, ok=True, detail=detail)
 
 
 def cli_update() -> int:

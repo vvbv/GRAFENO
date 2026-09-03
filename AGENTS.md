@@ -15,7 +15,7 @@ CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex y Claude Code).
 
 ```
 src/grafeno/
-├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas); intercepta el comando CLI `grafeno update` antes del argparse
+├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas); intercepta el comando CLI `grafeno update` antes del argparse; `--version`/`-v` imprime la versión
 ├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo, automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), prompt de pasos finales, sección [telegram] (TelegramConfig)
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME
@@ -101,7 +101,12 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `decode_event`, `extract_usage`) y registrarlo en `drivers/__init__.py`.
   La lectura de streams usa `read_lines` (chunked), nunca el reader de líneas
   de asyncio (bug de 64 KiB). `decode_line` devuelve además del evento el
-  `TokenUsage` acumulado cuando el CLI emite eventos de uso. El nivel de
+  `TokenUsage` acumulado cuando el CLI emite eventos de uso. Todo spawn
+  (modelos, variantes, update, run) pasa por
+  `resolve_command()`/`resolve_executable()` (ruta absoluta resuelta una vez
+  con `shutil.which`): en Windows los CLIs npm son shims `.cmd` y el nombre
+  pelado no se puede spawnear (CreateProcess solo implica `.exe`), lo que
+  vaciaba las listas de modelos con un `OSError` silenciado. El nivel de
   trabajo del modelo viaja en `RunRequest.effort`; los CLIs sin soporte
   exponen `variants_command() -> []` y `parse_variants -> {}` (defecto de
   la base) e ignoran el campo en `build_command`. Cada driver puede
@@ -117,10 +122,15 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
 - **Auto-actualización de GRAFENO**: `selfupdate.py` consulta la última
   release de GitHub al arrancar la TUI (siempre, worker en segundo
   plano, fallos silenciosos). Con `Config.self_update` activado se
-  auto-actualiza (`pipx install --force git+...@vX.Y.Z`, fallback a pip
-  del intérprete) y notifica; desactivado, solo muestra `(v X.Y.Z
+  auto-actualiza y notifica; desactivado, solo muestra `(v X.Y.Z
   available)` en naranja junto a la versión de la cabecera
   (`GrafenoHeader.format_title` + reactive `App.available_update`). El
+  instalador se elige según cómo está instalado GRAFENO: pipx solo si el
+  intérprete vive en un venv de pipx (`installed_via_pipx`, nuance Windows);
+  si no, `sys.executable -m pip install --upgrade --force-reinstall`. Tras
+  el comando verifica la versión instalada con
+  `importlib.metadata.version("grafeno")` (si no coincide, `ok=False` con
+  `supd.verify_failed`; sin metadata se confía en el código de salida). El
   comando `grafeno update` (interceptado en `main()` antes del argparse)
   actualiza manualmente y devuelve código de salida 0/1.
 - **Editor**: la apertura automática usa `editor.py` (mejor esfuerzo,

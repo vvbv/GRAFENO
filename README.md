@@ -84,7 +84,7 @@ If the hook is an `http(s)` URL, GRAFENO does not execute any command: it sends 
 
 **Interface language**: the GUI can be displayed in English (default) or Spanish; it is chosen in the configuration screen (`c`) and persisted in `config.toml`. When changing it, new screens apply it immediately and the shortcuts footer updates on app restart.
 
-**Self-update**: GRAFENO can keep itself up to date from its GitHub releases. A background check runs on every TUI startup; when the `self_update` flag in `config.toml` is enabled, GRAFENO installs the newer release automatically (`pipx install --force git+...@vX.Y.Z`, with a fallback to the current interpreter's `pip`), and the header of every screen announces success or warns on failure. With the flag disabled, the header just appends a discreet orange `(v X.Y.Z available)` next to the current version, so you can choose when to update. The same check is exposed as a manual command: `grafeno update` (no TUI, exits 0 on success / 1 on error, prints a localized message).
+**Self-update**: GRAFENO can keep itself up to date from its GitHub releases. A background check runs on every TUI startup; when the `self_update` flag in `config.toml` is enabled, GRAFENO installs the newer release automatically (pipx only when GRAFENO itself lives in a pipx-managed venv, otherwise the current interpreter's `pip install --upgrade --force-reinstall`), and the header of every screen announces success or warns on failure. After the installer runs, the installed version is verified and a mismatch is reported as a failed update instead of a false success. With the flag disabled, the header just appends a discreet orange `(v X.Y.Z available)` next to the current version, so you can choose when to update. The same check is exposed as a manual command: `grafeno update` (no TUI, exits 0 on success / 1 on error, prints a localized message).
 
 ## Installation
 
@@ -129,6 +129,7 @@ grafeno user@host --remote-password
 grafeno user@host --remote-port 2222
 grafeno --noeditor                 # skip the configured editor on this run
 grafeno update                     # self-update GRAFENO from the latest GitHub release (no TUI, exit 0/1)
+grafeno --version (or -v)          # print the installed GRAFENO version and exit
 ```
 
 | Key | Screen | Action |

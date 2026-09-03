@@ -34,7 +34,7 @@ def test_opencode_command_full():
     assert cmd[cmd.index("-m") + 1] == "opencode-go/kimi-k3"
     assert "--auto" in cmd
     assert cmd[cmd.index("--format") + 1] == "json"
-    assert cmd[cmd.index("--dir") + 1] == "/tmp/x"
+    assert cmd[cmd.index("--dir") + 1] == str(Path("/tmp/x"))
     assert cmd[cmd.index("--session") + 1] == "ses_1"
     assert cmd[cmd.index("--title") + 1] == "t"
 
@@ -231,7 +231,7 @@ def test_codex_command_full():
     assert cmd[cmd.index("-s") + 1] == "workspace-write"
     assert cmd[cmd.index("-m") + 1] == "gpt-5.1-codex"
     assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="high"'
-    assert cmd[cmd.index("-C") + 1] == "/tmp/x"
+    assert cmd[cmd.index("-C") + 1] == str(Path("/tmp/x"))
     assert cmd[cmd.index("resume") + 1] == "abc-123"
     # exec options go before the resume subcommand.
     assert cmd.index("--json") < cmd.index("resume")
@@ -434,6 +434,52 @@ def test_claude_user_events_are_noise():
     )
     assert event is None
     assert session == "s-1"
+
+
+# ---------------------------------------------------------------------- #
+# Executable resolution (Windows .cmd shims)
+# ---------------------------------------------------------------------- #
+def test_resolve_command_uses_absolute_path(monkeypatch):
+    """``resolve_command`` replaces ``command[0]`` with the resolved path.
+
+    Windows npm CLIs install as ``.cmd`` shims: ``shutil.which`` finds them
+    but spawning a bare name fails, which silently emptied the model lists.
+    """
+    driver = OpenCodeDriver()
+    monkeypatch.setattr(
+        "grafeno.drivers.base.shutil.which",
+        lambda name: "C:/shims/opencode.cmd",
+    )
+    cmd = driver.resolve_command(["opencode", "models"])
+    assert cmd == ["C:/shims/opencode.cmd", "models"]
+
+
+def test_resolve_command_falls_back_to_bare_name(monkeypatch):
+    """When ``shutil.which`` finds nothing, the bare name is kept."""
+    monkeypatch.setattr("grafeno.drivers.base.shutil.which", lambda name: None)
+    driver = OpenCodeDriver()
+    assert driver.resolve_executable() == "opencode"
+    assert driver.resolve_command(["opencode", "models"]) == ["opencode", "models"]
+
+
+def test_resolve_command_empty_is_empty():
+    assert OpenCodeDriver().resolve_command([]) == []
+
+
+def test_resolve_executable_is_cached(monkeypatch):
+    """The resolution result is cached per driver instance."""
+    driver = CLIDriver()
+    driver.executable = "algo"
+    calls = []
+
+    def _which(name):
+        calls.append(name)
+        return "/x/algo"
+
+    monkeypatch.setattr("grafeno.drivers.base.shutil.which", _which)
+    assert driver.resolve_executable() == "/x/algo"
+    assert driver.resolve_executable() == "/x/algo"
+    assert len(calls) == 1
 
 
 # ---------------------------------------------------------------------- #

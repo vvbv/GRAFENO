@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 
 from grafeno import updater
 from grafeno.drivers.base import CLIDriver
@@ -11,7 +12,8 @@ from grafeno.drivers.base import CLIDriver
 class _FakeDriver(CLIDriver):
     name = "fake"
     display_name = "Fake CLI"
-    executable = "python3"  # guaranteed present in the test env
+    # sys.executable: on Windows ``python3`` is a broken Microsoft Store alias.
+    executable = sys.executable
 
     def __init__(self, update_cmd: list[str], available: bool = True):
         self._update_cmd = update_cmd
@@ -49,8 +51,8 @@ def test_update_cli_not_installed():
 def test_update_cli_success_and_failure():
     import grafeno.drivers as registry
 
-    ok_cmd = ["python3", "-c", "import sys; sys.exit(0)"]
-    ko_cmd = ["python3", "-c", "import sys; sys.exit(3)"]
+    ok_cmd = [sys.executable, "-c", "import sys; sys.exit(0)"]
+    ko_cmd = [sys.executable, "-c", "import sys; sys.exit(3)"]
     registry._DRIVERS["fake"] = _FakeDriver(ok_cmd)
     try:
         assert asyncio.run(updater.update_cli("fake")).ok
@@ -64,10 +66,40 @@ def test_update_cli_success_and_failure():
 def test_update_all_filters_and_collects():
     import grafeno.drivers as registry
 
-    registry._DRIVERS["fake"] = _FakeDriver(["python3", "-c", "pass"])
+    registry._DRIVERS["fake"] = _FakeDriver([sys.executable, "-c", "pass"])
     try:
         outcomes = asyncio.run(updater.update_all(["fake"]))
     finally:
         registry._DRIVERS.pop("fake", None)
     assert [o.cli for o in outcomes] == ["fake"]
     assert outcomes[0].ok
+
+
+def test_update_command_resolves_executable(monkeypatch):
+    """The update command spawns the resolved executable path (Windows .cmd)."""
+    import grafeno.drivers as registry
+
+    monkeypatch.setattr(
+        "grafeno.drivers.base.shutil.which",
+        lambda name: f"C:/shims/{name}.cmd",
+    )
+    registry._DRIVERS["fake"] = _FakeDriver(["fake", "update"])
+    seen = []
+
+    class _Proc:
+        returncode = 0
+
+        async def communicate(self):
+            return (b"", b"")
+
+    async def _fake_exec(*cmd, **kwargs):
+        seen.extend(cmd)
+        return _Proc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+    try:
+        outcome = asyncio.run(updater.update_cli("fake"))
+    finally:
+        registry._DRIVERS.pop("fake", None)
+    assert outcome.ok
+    assert seen[0] == "C:/shims/fake.cmd"

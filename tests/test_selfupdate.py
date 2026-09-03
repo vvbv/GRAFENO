@@ -53,7 +53,18 @@ def test_fetch_latest_version_bad_json():
     ) is None
 
 
+def test_installed_via_pipx_detection(monkeypatch):
+    """Interpreter heuristic: a ``pipx`` path component anywhere in sys.prefix."""
+    monkeypatch.setattr(selfupdate.sys, "prefix", "/home/u/.local/share/pipx/venvs/grafeno")
+    assert selfupdate.installed_via_pipx()
+    monkeypatch.setattr(selfupdate.sys, "prefix", "C:\\Users\\u\\pipx\\venvs\\grafeno")
+    assert selfupdate.installed_via_pipx()
+    monkeypatch.setattr(selfupdate.sys, "prefix", "/usr")
+    assert not selfupdate.installed_via_pipx()
+
+
 def test_build_update_command_prefers_pipx(monkeypatch):
+    monkeypatch.setattr(selfupdate, "installed_via_pipx", lambda: True)
     monkeypatch.setattr(
         selfupdate.shutil, "which", lambda name: "/usr/local/bin/pipx"
     )
@@ -63,11 +74,21 @@ def test_build_update_command_prefers_pipx(monkeypatch):
 
 
 def test_build_update_command_pip_fallback(monkeypatch):
-    monkeypatch.setattr(selfupdate.shutil, "which", lambda name: None)
+    monkeypatch.setattr(selfupdate, "installed_via_pipx", lambda: False)
     cmd = selfupdate.build_update_command("v1.42.0")
     assert cmd[1:4] == ["-m", "pip", "install"]
     assert "--upgrade" in cmd
+    assert "--force-reinstall" in cmd
     assert cmd[-1].endswith("@v1.42.0")
+
+
+def test_build_update_command_ignores_pipx_when_installed_with_pip(monkeypatch):
+    """A pipx binary on PATH is ignored when GRAFENO was installed with pip."""
+    monkeypatch.setattr(selfupdate, "installed_via_pipx", lambda: False)
+    monkeypatch.setattr(selfupdate.shutil, "which", lambda name: "/usr/bin/pipx")
+    cmd = selfupdate.build_update_command("1.42.0")
+    assert cmd[0] != "/usr/bin/pipx"
+    assert "--force-reinstall" in cmd
 
 
 def test_run_self_update_success_and_failure(monkeypatch):
@@ -78,11 +99,34 @@ def test_run_self_update_success_and_failure(monkeypatch):
         return 1, "pip exploded"
 
     monkeypatch.setattr(selfupdate, "_run_command", fake_ok)
+    monkeypatch.setattr(selfupdate, "installed_version", lambda: "1.42.0")
     outcome = asyncio.run(selfupdate.run_self_update("v1.42.0"))
     assert outcome.ok and outcome.version == "1.42.0"
     monkeypatch.setattr(selfupdate, "_run_command", fake_ko)
     outcome = asyncio.run(selfupdate.run_self_update("1.42.0"))
     assert not outcome.ok and outcome.detail == "pip exploded"
+
+
+def test_run_self_update_fails_on_version_mismatch(monkeypatch):
+    """Exit code 0 without the target version installed is a failed update."""
+    async def fake_ok(command, timeout):
+        return 0, "done"
+
+    monkeypatch.setattr(selfupdate, "_run_command", fake_ok)
+    monkeypatch.setattr(selfupdate, "installed_version", lambda: "1.41.0")
+    outcome = asyncio.run(selfupdate.run_self_update("1.42.0"))
+    assert not outcome.ok
+    assert "1.41.0" in outcome.detail
+
+
+def test_run_self_update_ok_when_install_unqueryable(monkeypatch):
+    """When the installed version cannot be checked, the exit code is trusted."""
+    async def fake_ok(command, timeout):
+        return 0, "done"
+
+    monkeypatch.setattr(selfupdate, "_run_command", fake_ok)
+    monkeypatch.setattr(selfupdate, "installed_version", lambda: None)
+    assert asyncio.run(selfupdate.run_self_update("1.42.0")).ok
 
 
 def test_run_self_update_oserror(monkeypatch):

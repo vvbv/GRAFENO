@@ -21,3 +21,27 @@ def test_main_intercepts_update_failure_code(monkeypatch):
     with pytest.raises(SystemExit) as excinfo:
         app_module.main()
     assert excinfo.value.code == 1
+
+
+def test_main_version_flag_prints_version(monkeypatch, capsys):
+    """``grafeno --version`` prints the version and exits 0 (before the TUI)."""
+    from grafeno import __version__
+
+    monkeypatch.setattr("sys.argv", ["grafeno", "--version"])
+    with pytest.raises(SystemExit) as excinfo:
+        app_module.main()
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert __version__ in out
+    assert "grafeno" in out
+
+
+def test_main_version_short_flag(monkeypatch, capsys):
+    """``grafeno -v`` is an alias of ``--version``."""
+    from grafeno import __version__
+
+    monkeypatch.setattr("sys.argv", ["grafeno", "-v"])
+    with pytest.raises(SystemExit) as excinfo:
+        app_module.main()
+    assert excinfo.value.code == 0
+    assert __version__ in capsys.readouterr().out

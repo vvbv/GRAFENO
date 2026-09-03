@@ -117,10 +117,37 @@ class CLIDriver:
     # Native CLI command for generating AGENTS.md (e.g. "/init").
     # Empty if the CLI has none: the generic prompt is used instead.
     init_command: str = ""
+    # Cached absolute path of the executable (None = not resolved yet).
+    _exe_path: str | None = None
 
     # ------------------------------------------------------------ #
     def is_available(self) -> bool:
         return shutil.which(self.executable) is not None
+
+    def resolve_executable(self) -> str:
+        """Absolute path of the CLI executable, resolved once and cached.
+
+        On Windows the agent CLIs are usually npm shims (``.cmd``/``.ps1``):
+        ``shutil.which`` finds them (so ``is_available`` is True) but a bare
+        name cannot be spawned (CreateProcess only implies ``.exe``), which
+        raised ``OSError`` and silently emptied the model/variant lists.
+        Spawning the resolved path fixes listing and task runs on Windows.
+        """
+        if self._exe_path is None:
+            self._exe_path = shutil.which(self.executable) or self.executable
+        return self._exe_path
+
+    def resolve_command(self, command: list[str]) -> list[str]:
+        """Replace ``command[0]`` with its resolved absolute path."""
+        if not command:
+            return command
+        head = command[0]
+        resolved = (
+            self.resolve_executable()
+            if head == self.executable
+            else (shutil.which(head) or head)
+        )
+        return [resolved, *command[1:]]
 
     def build_command(self, request: RunRequest) -> list[str]:
         raise NotImplementedError
@@ -140,9 +167,10 @@ class CLIDriver:
 
     async def list_models_async(self, timeout: float = 30.0) -> list[str]:
         """Async and cancelable version: cancelling kills the subprocess."""
+        command = self.resolve_command(self.models_command())
         try:
             process = await asyncio.create_subprocess_exec(
-                *self.models_command(),
+                *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -185,7 +213,7 @@ class CLIDriver:
 
     async def list_variants_async(self, timeout: float = 30.0) -> dict[str, list[str]]:
         """Async and cancelable version, mirror of ``list_models_async``."""
-        command = self.variants_command()
+        command = self.resolve_command(self.variants_command())
         if not command:
             return {}
         try:
@@ -281,6 +309,7 @@ Reglas:
     # ------------------------------------------------------------ #
     def _run_sync(self, command: list[str]) -> str | None:
         """Run a short auxiliary command (e.g. listing models)."""
+        command = self.resolve_command(command)
         try:
             completed = subprocess.run(
                 command, capture_output=True, text=True, timeout=30, check=False
@@ -295,7 +324,7 @@ Reglas:
         on_event: EventCallback | None = None,
         on_activity: Callable[[], None] | None = None,
     ) -> RunResult:
-        command = self.build_command(request)
+        command = self.resolve_command(self.build_command(request))
         log_handle = request.log_path.open("a", encoding="utf-8") if request.log_path else None
         text_parts: list[str] = []
         session_id: str | None = None

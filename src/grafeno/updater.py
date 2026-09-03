@@ -32,7 +32,7 @@ async def update_cli(name: str, timeout: float = UPDATE_TIMEOUT) -> UpdateOutcom
         driver = get_driver(name)
     except KeyError:
         return UpdateOutcome(cli=name, ok=False, detail="unknown CLI")
-    command = driver.update_command()
+    command = driver.resolve_command(driver.update_command())
     if not command:
         return UpdateOutcome(cli=name, ok=True, skipped=True)
     if not driver.is_available():
