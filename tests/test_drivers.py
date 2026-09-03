@@ -30,7 +30,7 @@ def test_opencode_command_full():
         _request(model="opencode-go/kimi-k3", session_id="ses_1")
     )
     assert cmd[:2] == ["opencode", "run"]
-    assert "hola" in cmd
+    assert "hola" not in cmd  # the prompt travels via stdin, not argv
     assert cmd[cmd.index("-m") + 1] == "opencode-go/kimi-k3"
     assert "--auto" in cmd
     assert cmd[cmd.index("--format") + 1] == "json"
@@ -239,7 +239,7 @@ def test_codex_command_full():
 
 def test_codex_command_minimal():
     cmd = CodexDriver().build_command(_request())
-    assert cmd[-1] == "hola"          # prompt at the end
+    assert "hola" not in cmd          # the prompt travels via stdin, not argv
     assert "-m" not in cmd
     assert "resume" not in cmd
 
@@ -302,7 +302,7 @@ def test_claude_command_full():
         _request(model="sonnet", session_id="s-1", effort="max")
     )
     assert cmd[0] == "claude"
-    assert cmd[cmd.index("-p") + 1] == "hola"
+    assert "hola" not in cmd                      # prompt via stdin, not argv
     assert cmd[cmd.index("--output-format") + 1] == "stream-json"
     assert "--verbose" in cmd
     assert "--dangerously-skip-permissions" in cmd
@@ -480,6 +480,59 @@ def test_resolve_executable_is_cached(monkeypatch):
     assert driver.resolve_executable() == "/x/algo"
     assert driver.resolve_executable() == "/x/algo"
     assert len(calls) == 1
+
+
+# ---------------------------------------------------------------------- #
+# Prompt via stdin
+# ---------------------------------------------------------------------- #
+def test_stdin_prompt_flags():
+    """Drivers whose CLI documents stdin prompts opt in; the rest use argv."""
+    assert OpenCodeDriver().stdin_prompt() is True
+    assert ClaudeDriver().stdin_prompt() is True
+    assert CodexDriver().stdin_prompt() is True
+
+    class BareDriver(CLIDriver):
+        name = "bare"
+
+    assert BareDriver().stdin_prompt() is False
+    assert KimiDriver().stdin_prompt() is False
+
+
+def test_run_feeds_prompt_via_stdin(tmp_path):
+    """End-to-end: a stdin-prompt driver receives the full multi-line prompt.
+
+    Reproduces the Windows bug: the npm shims (``.cmd``) cut quoted argv at
+    the first newline, so the CLI only got the first line of the prompt.
+    """
+    import sys
+
+    prompt = "línea uno\nlínea dos\núltima línea"
+
+    class StdinEchoDriver(CLIDriver):
+        name = "echo"
+        display_name = "Echo"
+        executable = sys.executable
+
+        def stdin_prompt(self):
+            return True
+
+        def build_command(self, request: RunRequest) -> list[str]:
+            return [
+                sys.executable, "-c",
+                "import sys; sys.stdout.write(sys.stdin.read())",
+            ]
+
+        def decode_event(self, payload):  # unused: the output is not JSON
+            raise NotImplementedError
+
+        def list_models(self) -> list[str]:
+            return []
+
+    driver = StdinEchoDriver()
+    request = _request(prompt=prompt, workdir=tmp_path)
+    result = asyncio.run(driver.run(request))
+    assert result.ok, result.error
+    assert result.text == prompt
 
 
 # ---------------------------------------------------------------------- #

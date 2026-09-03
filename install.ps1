@@ -51,6 +51,7 @@ if (-not $PyExe) {
     Write-Info "o desde https://www.python.org/downloads/ (marca 'Add python.exe to PATH')."
     exit 1
 }
+$PyArgsStr = ($PyArgs -join ' ')
 Write-Ok "Python: $(& $PyExe @PyArgs --version 2>&1)"
 
 # --- 2. pipx ----------------------------------------------------------------
@@ -98,10 +99,18 @@ if (Test-Path $exe) {
     exit 1
 }
 
-if (-not (Get-Command grafeno -ErrorAction SilentlyContinue)) {
+$resolved = $null
+try { $resolved = (Get-Command grafeno -ErrorAction SilentlyContinue).Source } catch { }
+if (-not $resolved) {
     Write-Warn "'grafeno' aun no esta en el PATH de esta sesion."
     Write-Info "Abre una terminal nueva o ejecuta:"
     Write-Info "  `$env:Path = `"$binDir;`$env:Path`""
+} elseif ($resolved -ne $exe) {
+    Write-Warn "'grafeno' resuelve a otra ruta con mas prioridad en el PATH:"
+    Write-Warn "  $resolved"
+    Write-Warn "Es una copia antigua que tapa la instalacion nueva ($exe)."
+    Write-Info "Quitala con:  $PyExe $PyArgsStr -m pip uninstall grafeno -y"
+    Write-Info "o borra ese ejecutable; despues 'grafeno' resolvera $exe."
 }
 
 # --- 4. CLIs de agentes (dependencias en tiempo de ejecucion) ---------------

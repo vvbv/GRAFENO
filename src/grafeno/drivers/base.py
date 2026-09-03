@@ -152,6 +152,18 @@ class CLIDriver:
     def build_command(self, request: RunRequest) -> list[str]:
         raise NotImplementedError
 
+    def stdin_prompt(self) -> bool:
+        """True if ``RunRequest.prompt`` travels via stdin instead of argv.
+
+        On Windows the agent CLIs are npm shims (``.cmd``): ``cmd.exe`` cuts
+        a quoted argument at the first newline, so multi-line prompts arrived
+        truncated at the CLI. Drivers whose CLI documents reading the prompt
+        from stdin (``claude -p``, ``opencode run``, ``codex exec``) override
+        this and omit the prompt from ``build_command``; the rest keep the
+        prompt in argv (e.g. ``kimi -p``).
+        """
+        return False
+
     def models_command(self) -> list[str]:
         """CLI command that lists the available models."""
         raise NotImplementedError
@@ -336,6 +348,7 @@ Reglas:
             process = await asyncio.create_subprocess_exec(
                 *command,
                 cwd=str(request.workdir),
+                stdin=(asyncio.subprocess.PIPE if self.stdin_prompt() else None),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -343,6 +356,21 @@ Reglas:
             if log_handle:
                 log_handle.close()
             return RunResult(ok=False, error=t("drv.exec_error", command=command[0], error=exc))
+
+        async def feed_stdin() -> None:
+            """Write the prompt to stdin and close it (a broken pipe is fine)."""
+            if process.stdin is None:
+                return
+            try:
+                process.stdin.write(request.prompt.encode("utf-8"))
+                await process.stdin.drain()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass  # CLI died before reading: the stderr tail reports it
+            finally:
+                try:
+                    process.stdin.close()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass
 
         async def pump_stdout() -> None:
             nonlocal session_id
@@ -374,7 +402,7 @@ Reglas:
                 stderr_parts.append(line.rstrip("\r"))
 
         try:
-            await asyncio.gather(pump_stdout(), pump_stderr())
+            await asyncio.gather(pump_stdout(), pump_stderr(), feed_stdin())
             returncode = await process.wait()
         except asyncio.CancelledError:
             process.kill()

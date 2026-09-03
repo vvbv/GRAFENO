@@ -1,16 +1,18 @@
 """Driver for Codex CLI (https://github.com/openai/codex).
 
-Non-interactive mode (verified against codex-cli 0.133.0):
+Non-interactive mode (verified against codex-cli 0.133.0; the prompt
+travels via stdin, not argv):
     codex exec --json -s workspace-write --skip-git-repo-check \
-        -C <workdir> [-m <model>] [-c model_reasoning_effort="<level>"] "<prompt>"
+        -C <workdir> [-m <model>] [-c model_reasoning_effort="<level>"]
 
+- With no prompt argument, ``codex exec`` reads it from stdin.
 - ``--json`` emits JSONL events on stdout.
 - ``-s workspace-write`` lets the agent write to the project without prompts
   (``codex exec`` does not ask; the sandbox is the only barrier).
 - Model with ``-m``; effort level with
   ``-c model_reasoning_effort="<level>"``.
 - Working directory with ``-C``.
-- Session continuation: ``codex exec [options] resume <session_id> "<prompt>``
+- Session continuation: ``codex exec [options] resume <session_id>``
   (the ``exec`` options go BEFORE the ``resume`` subcommand).
 - It does not expose a model listing command: static list (best effort).
 
@@ -44,7 +46,11 @@ class CodexDriver(CLIDriver):
     STATIC_MODELS = ("gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini")
     EFFORT_LEVELS = ("low", "medium", "high", "xhigh")
 
+    def stdin_prompt(self) -> bool:
+        return True  # codex exec reads the prompt from stdin when omitted
+
     def build_command(self, request: RunRequest) -> list[str]:
+        # No prompt in argv: Windows .cmd shims cut quoted args at newlines.
         command = [
             "codex", "exec", "--json", "-s", "workspace-write",
             "--skip-git-repo-check",
@@ -57,9 +63,7 @@ class CodexDriver(CLIDriver):
         command += ["-C", str(request.workdir)]
         if request.session_id:
             # exec options go before the resume subcommand.
-            command += ["resume", request.session_id, request.prompt]
-        else:
-            command.append(request.prompt)
+            command += ["resume", request.session_id]
         return command
 
     def list_models(self) -> list[str]:

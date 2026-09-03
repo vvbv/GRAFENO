@@ -106,8 +106,13 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `resolve_command()`/`resolve_executable()` (ruta absoluta resuelta una vez
   con `shutil.which`): en Windows los CLIs npm son shims `.cmd` y el nombre
   pelado no se puede spawnear (CreateProcess solo implica `.exe`), lo que
-  vaciaba las listas de modelos con un `OSError` silenciado. El nivel de
-  trabajo del modelo viaja en `RunRequest.effort`; los CLIs sin soporte
+  vaciaba las listas de modelos con un `OSError` silenciado. Los drivers cuyo
+  CLI lee el prompt por stdin (opencode `run`, claude `-p`, codex `exec`:
+  `stdin_prompt() -> True`) lo omiten de argv y la base lo escribe en stdin:
+  en Windows cmd.exe corta los argumentos citados en el primer salto de
+  línea, y los prompts multi-línea llegaban truncados al CLI (kimi no
+  documenta stdin y sigue usando `-p` por argv). El nivel de
+  trabajo del modelo viaja en `RunRequest.effort`;; los CLIs sin soporte
   exponen `variants_command() -> []` y `parse_variants -> {}` (defecto de
   la base) e ignoran el campo en `build_command`. Cada driver puede
   exponer además `update_command()` (defecto `[]` en la base = CLI sin

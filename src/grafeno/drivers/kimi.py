@@ -15,6 +15,8 @@ Notes verified against kimi 0.37:
 - Session continuation with ``-S <id>`` (best effort).
 - Models are obtained from ``kimi provider list --json``.
 - It has no model effort flag: ``effort`` is ignored.
+- The prompt travels in argv (``-p``): kimi does not document reading it
+  from stdin, so it cannot use the stdin fallback of the base driver.
 """
 
 from __future__ import annotations

@@ -78,9 +78,16 @@ else
   exit 1
 fi
 
-if ! command -v grafeno >/dev/null 2>&1; then
+RESOLVED="$(command -v grafeno 2>/dev/null || true)"
+if [ -z "$RESOLVED" ]; then
   warn "'grafeno' aún no está en el PATH de esta sesión."
   info "Abre una terminal nueva o ejecuta:  export PATH=\"$BIN_DIR:\$PATH\""
+elif [ "$RESOLVED" != "$BIN_DIR/grafeno" ]; then
+  warn "'grafeno' resuelve a otra ruta con más prioridad en el PATH:"
+  warn "  $RESOLVED"
+  warn "Es una copia antigua que tapa la instalación nueva ($BIN_DIR/grafeno)."
+  info "Quítala con:  $PY -m pip uninstall grafeno -y"
+  info "o borra ese ejecutable; después 'grafeno' resolverá $BIN_DIR/grafeno"
 fi
 
 # --- 4. CLIs de agentes (dependencias en tiempo de ejecución) ---------------

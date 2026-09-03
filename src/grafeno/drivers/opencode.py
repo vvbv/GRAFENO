@@ -1,12 +1,13 @@
 """Driver for OpenCode CLI (https://opencode.ai).
 
-Non-interactive mode:
-    opencode run "<prompt>" -m <provider/model> --format json --auto \
+Non-interactive mode (the prompt travels via stdin, not argv):
+    opencode run -m <provider/model> --format json --auto \
         --dir <workdir> [--variant <level>] [--session <id>] [--title <title>]
 
 With ``--format json`` it emits JSONL events with fields like ``sessionID``,
 ``type`` ("text", "tool_use", "step_start", "error", ...) and ``part``.
-The parsing is defensive: unknown events are shown as INFO.
+The parsing is defensive: unknown events are shown as INFO. With no message
+argument and a non-TTY stdin, ``opencode run`` reads the prompt from stdin.
 
 Effort variants per model are listed with ``opencode models --verbose``
 (header ``provider/model`` followed by a multi-line JSON block).
@@ -26,8 +27,12 @@ class OpenCodeDriver(CLIDriver):
     executable = "opencode"
     init_command = "/init"
 
+    def stdin_prompt(self) -> bool:
+        return True  # opencode run reads the prompt from stdin when omitted
+
     def build_command(self, request: RunRequest) -> list[str]:
-        command = ["opencode", "run", request.prompt, "--format", "json", "--auto"]
+        # No prompt in argv: Windows .cmd shims cut quoted args at newlines.
+        command = ["opencode", "run", "--format", "json", "--auto"]
         if request.model:
             command += ["-m", request.model]
         if request.effort:

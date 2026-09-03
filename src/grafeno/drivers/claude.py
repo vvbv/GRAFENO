@@ -1,10 +1,12 @@
 """Driver for Claude Code CLI (https://docs.anthropic.com/en/docs/claude-code).
 
-Non-interactive mode (verified against Claude Code 2.1.237):
-    claude -p "<prompt>" --output-format stream-json --verbose \
+Non-interactive mode (verified against Claude Code 2.1.237; the prompt
+travels via stdin, not argv):
+    claude -p --output-format stream-json --verbose \
         --dangerously-skip-permissions [--model <alias>] [--effort <level>] \
         [--resume <session_id>]
 
+- ``-p`` with no prompt argument reads it from stdin ("useful for pipes").
 - ``stream-json`` requires ``--verbose`` in ``-p`` mode.
 - ``--dangerously-skip-permissions`` auto-approves tools.
 - ``--model`` accepts aliases (``opus``, ``sonnet``, ``haiku``, ``fable``) or
@@ -57,9 +59,13 @@ class ClaudeDriver(CLIDriver):
     # Payload keys that may carry a relative retry delay in seconds.
     _RESET_REL_KEYS = ("retry_after", "retryAfter", "retry_after_seconds", "retryAfterSeconds")
 
+    def stdin_prompt(self) -> bool:
+        return True  # claude -p reads the prompt from stdin when omitted
+
     def build_command(self, request: RunRequest) -> list[str]:
+        # No prompt in argv: Windows .cmd shims cut quoted args at newlines.
         command = [
-            "claude", "-p", request.prompt,
+            "claude", "-p",
             "--output-format", "stream-json", "--verbose",
             "--dangerously-skip-permissions",
         ]
