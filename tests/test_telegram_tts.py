@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import io
 import json
+import subprocess
 import urllib.error
+from pathlib import Path
 
 from grafeno.telegram import tts
 
@@ -66,3 +69,50 @@ def test_network_error_returns_none():
     assert tts.synthesize(
         url="https://u", api_key="K", model="m", voice="v", text="x", opener=http
     ) is None
+
+
+def test_http_error_reports_reason():
+    body = json.dumps({"error": {"message": "model not found"}}).encode()
+    exc = urllib.error.HTTPError("https://u", 404, "Not Found", None, io.BytesIO(body))
+    http = FakeHTTP(error=exc)
+    reasons: list[str] = []
+    audio = tts.synthesize(
+        url="https://u", api_key="K", model="m", voice="v", text="x",
+        opener=http, on_error=reasons.append,
+    )
+    assert audio is None
+    assert reasons and "404" in reasons[0] and "model not found" in reasons[0]
+
+
+def test_empty_response_reports_reason():
+    reasons: list[str] = []
+    assert tts.synthesize(
+        url="https://u", api_key="K", model="m", voice="v", text="x",
+        opener=FakeHTTP(response=b""), on_error=reasons.append,
+    ) is None
+    assert reasons == ["provider returned no audio"]
+
+
+def test_to_ogg_without_ffmpeg(monkeypatch):
+    monkeypatch.setattr(tts.shutil, "which", lambda name: None)
+    assert tts.to_ogg(b"RIFF") is None
+
+
+def test_to_ogg_conversion_failure(monkeypatch):
+    monkeypatch.setattr(tts.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+
+    def boom(*args, **kwargs):
+        raise subprocess.CalledProcessError(1, "ffmpeg")
+
+    monkeypatch.setattr(tts.subprocess, "run", boom)
+    assert tts.to_ogg(b"RIFF") is None
+
+
+def test_to_ogg_ok(monkeypatch):
+    monkeypatch.setattr(tts.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+
+    def fake_run(cmd, **kwargs):
+        Path(cmd[-1]).write_bytes(b"OggS")
+
+    monkeypatch.setattr(tts.subprocess, "run", fake_run)
+    assert tts.to_ogg(b"RIFF") == b"OggS"

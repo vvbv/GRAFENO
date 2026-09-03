@@ -396,12 +396,31 @@ class TelegramBotClient:
             timeout=60.0,
         )
 
-    def send_voice(self, chat_id: int, data: bytes, *, filename: str = "voice.wav") -> None:
-        """Send a generated voice note (TTS audio bytes)."""
+    def send_voice(
+        self, chat_id: int, data: bytes, *, filename: str = "voice.ogg", mime: str = "audio/ogg"
+    ) -> None:
+        """Send a generated voice note (TTS audio, OGG/OPUS)."""
         self._call(
             "sendVoice",
             {"chat_id": chat_id},
-            {"voice": (filename, data, "audio/wav")},
+            {"voice": (filename, data, mime)},
+            timeout=60.0,
+        )
+
+    def send_audio(
+        self,
+        chat_id: int,
+        data: bytes,
+        *,
+        filename: str,
+        mime: str,
+        title: str = "",
+    ) -> None:
+        """Send an audio file (fallback when OGG/OPUS conversion is unavailable)."""
+        self._call(
+            "sendAudio",
+            {"chat_id": chat_id, "title": title or Path(filename).stem},
+            {"audio": (filename, data, mime)},
             timeout=60.0,
         )
 

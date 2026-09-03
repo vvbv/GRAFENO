@@ -30,6 +30,7 @@ class FakeClient:
         self.sent: list[tuple[int, str, dict | None]] = []
         self.documents: list[tuple[int, str]] = []
         self.voices: list[tuple[int, bytes]] = []
+        self.audios: list[tuple[int, bytes]] = []
         self.answered: list[str] = []
         self.answer_texts: list[str] = []
         self.chat_actions: list[tuple[int, str]] = []
@@ -48,8 +49,11 @@ class FakeClient:
     def send_document(self, chat_id, path, *, caption=""):
         self.documents.append((chat_id, Path(path).name))
 
-    def send_voice(self, chat_id, data, *, filename="voice.wav"):
+    def send_voice(self, chat_id, data, *, filename="voice.ogg", mime="audio/ogg"):
         self.voices.append((chat_id, data))
+
+    def send_audio(self, chat_id, data, *, filename, mime, title=""):
+        self.audios.append((chat_id, data))
 
     def answer_callback_query(self, callback_id, text=""):
         self.answered.append(callback_id)
@@ -1338,10 +1342,27 @@ def test_tts_voice_reply_when_enabled(tmp_path, monkeypatch):
     )
     service, client = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
     monkeypatch.setattr(service_module.tts, "synthesize", lambda **kwargs: b"WAV")
+    monkeypatch.setattr(service_module.tts, "to_ogg", lambda wav: b"OGG")
 
     _run(service._parse_and_reply(555, "lista"))
 
-    assert client.voices == [(555, b"WAV")]
+    assert client.voices == [(555, b"OGG")]
+
+
+def test_tts_audio_fallback_without_ffmpeg(tmp_path, monkeypatch):
+    driver = FakeDriver([_json_result({"action": "list_tasks"})])
+    cfg = TelegramConfig(
+        enabled=True, bot_token="T", allowed_chat_ids="555",
+        tts_enabled=True, tts_key="KEY", default_workdir=str(tmp_path),
+    )
+    service, client = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
+    monkeypatch.setattr(service_module.tts, "synthesize", lambda **kwargs: b"WAV")
+    monkeypatch.setattr(service_module.tts, "to_ogg", lambda wav: None)
+
+    _run(service._parse_and_reply(555, "lista"))
+
+    assert client.voices == []
+    assert client.audios == [(555, b"WAV")]
 
 
 def test_tts_disabled_by_default(tmp_path, monkeypatch):

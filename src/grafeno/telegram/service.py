@@ -1039,10 +1039,12 @@ class TelegramService:
             await self._send_voice(chat_id, text)
 
     async def _send_voice(self, chat_id: int, text: str) -> None:
-        """Best-effort TTS voice reply (never reports errors to the chat)."""
+        """Best-effort TTS voice reply; failures are logged to telegram.log."""
         key = self.cfg.resolve_tts_key()
         if not key:
+            self._log(f"tts skipped for chat {chat_id}: no TTS/STT key configured")
             return
+        reasons: list[str] = []
         audio = await asyncio.to_thread(
             tts.synthesize,
             url=self.cfg.tts_url,
@@ -1050,12 +1052,23 @@ class TelegramService:
             model=self.cfg.tts_model,
             voice=self.cfg.tts_voice,
             text=text,
+            on_error=reasons.append,
         )
         if not audio:
+            self._log(f"tts failed for chat {chat_id}: {reasons[0] if reasons else 'unknown'}")
             return
+        voice = await asyncio.to_thread(tts.to_ogg, audio)
         try:
-            await asyncio.to_thread(self.client.send_voice, chat_id, audio)
+            if voice is not None:
+                await asyncio.to_thread(self.client.send_voice, chat_id, voice)
+            else:
+                self._log(f"chat {chat_id}: ffmpeg unavailable/failed, sending TTS as audio")
+                await asyncio.to_thread(
+                    self.client.send_audio,
+                    chat_id, audio, filename="voice.wav", mime="audio/wav",
+                )
         except TelegramError as exc:
+            self._log(f"voice/audio send failed for chat {chat_id}: {exc}")
             self._on_info(t("tg.send_failed", error=exc))
 
     # ------------------------------------------------------------------ #
