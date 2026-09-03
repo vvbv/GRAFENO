@@ -7,15 +7,20 @@ not supported; the pty line discipline provides echo and Ctrl+C handling.
 
 from __future__ import annotations
 
-import fcntl
 import os
-import pty
 import shlex
 import struct
 import subprocess
-import termios
 
 from ..consoles import default_shell
+
+# fcntl/pty/termios are POSIX-only. Keep them conditional so the module stays
+# importable on Windows (the consoles screen gates spawning behind
+# ``consoles.supported()``, which is False there).
+if os.name == "posix":
+    import fcntl
+    import pty
+    import termios
 
 # Default terminal size advertised to the spawned process (rows, cols).
 _ROWS, _COLS = 40, 120
@@ -42,6 +47,8 @@ class ConsoleProcess:
 
     def start(self) -> None:
         """Spawn the process on a fresh pty. Raises OSError on failure."""
+        if os.name != "posix":
+            raise OSError("PTY consoles require a POSIX platform")
         argv = shlex.split(self._command) if self._command.strip() else [default_shell()]
         env = dict(os.environ, TERM="xterm-256color", COLORTERM="truecolor")
         master, slave = pty.openpty()
