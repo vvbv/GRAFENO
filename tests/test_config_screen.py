@@ -540,3 +540,29 @@ def test_workspaces_input_roundtrip(monkeypatch):
         assert config_module.load().workspaces == ["/tmp/a", "/tmp/b"]
 
     asyncio.run(scenario())
+
+
+def test_config_screen_self_update_checkbox(monkeypatch):
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
+    from grafeno import config as config_module
+    from textual.widgets import Checkbox
+
+    cfg = config_module.load()
+    cfg.self_update = True
+    config_module.save(cfg)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 80)) as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfigScreen)
+            checkbox = app.screen.query_one("#upd-self", Checkbox)
+            assert checkbox.value is True
+            checkbox.value = False
+            app.screen._save()
+            assert config_module.load().self_update is False
+
+    asyncio.run(scenario())

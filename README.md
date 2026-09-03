@@ -84,6 +84,8 @@ If the hook is an `http(s)` URL, GRAFENO does not execute any command: it sends 
 
 **Interface language**: the GUI can be displayed in English (default) or Spanish; it is chosen in the configuration screen (`c`) and persisted in `config.toml`. When changing it, new screens apply it immediately and the shortcuts footer updates on app restart.
 
+**Self-update**: GRAFENO can keep itself up to date from its GitHub releases. A background check runs on every TUI startup; when the `self_update` flag in `config.toml` is enabled, GRAFENO installs the newer release automatically (`pipx install --force git+...@vX.Y.Z`, with a fallback to the current interpreter's `pip`), and the header of every screen announces success or warns on failure. With the flag disabled, the header just appends a discreet orange `(v X.Y.Z available)` next to the current version, so you can choose when to update. The same check is exposed as a manual command: `grafeno update` (no TUI, exits 0 on success / 1 on error, prints a localized message).
+
 ## Installation
 
 ```bash
@@ -112,7 +114,10 @@ Each release is generated automatically on push to `main` by bumping the
 version (`src/grafeno/__init__.py` and `pyproject.toml`, always kept in
 sync): the workflow `.github/workflows/release.yml` detects the bump,
 validates that both files match, builds the package and publishes the
-GitHub Release with the `vX.Y.Z` tag and attached artifacts.
+GitHub Release with the `vX.Y.Z` tag and attached artifacts. Once a new
+release is out, existing installs pick it up via the in-app self-update
+check (or on demand with `grafeno update`) — see the *Self-update* note
+in [How it works](#how-it-works).
 
 ## Usage
 
@@ -123,6 +128,7 @@ grafeno user@host --remote-key ~/.ssh/id_ed25519
 grafeno user@host --remote-password
 grafeno user@host --remote-port 2222
 grafeno --noeditor                 # skip the configured editor on this run
+grafeno update                     # self-update GRAFENO from the latest GitHub release (no TUI, exit 0/1)
 ```
 
 | Key | Screen | Action |
@@ -152,7 +158,7 @@ grafeno --noeditor                 # skip the configured editor on this run
 
 ```
 ~/.grafeno/
-├── config.toml              # language (en/es), roles (cli+model+effort), automode, tests, git, theme (palette), final-steps prompt, global hook, editor, auto_update, workspaces (root folders for project discovery)
+├── config.toml              # language (en/es), roles (cli+model+effort), automode, tests, git, theme (palette), final-steps prompt, global hook, editor, auto_update (agent CLIs), self_update (GRAFENO itself), workspaces (root folders for project discovery)
 ├── references.toml          # global references (name + description + path/URL); edited from the configuration screen
 ├── triggers.toml            # global trigger tasks (name + description + phases + timing + workdir); edited from the configuration screen
 └── tasks/<date>-<slug>/

@@ -15,8 +15,8 @@ CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex y Claude Code).
 
 ```
 src/grafeno/
-├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas)
-├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo, automode, auto_update, workspaces raíz (lista de carpetas), paleta (tema), prompt de pasos finales, sección [telegram] (TelegramConfig)
+├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas); intercepta el comando CLI `grafeno update` antes del argparse
+├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo, automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), prompt de pasos finales, sección [telegram] (TelegramConfig)
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
@@ -28,6 +28,7 @@ src/grafeno/
 ├── ratelimit.py            # Detección de usage agotado en CLIs: patrones de error, pista de espera (retry-after, duración relativa u hora absoluta de reseteo con zona horaria) y constantes de sondeo/reintento
 ├── scheduler.py            # Lógica pura: programación horaria, encadenamiento padre/hija y repetición de tareas
 ├── updater.py              # Auto-actualización best-effort de los CLIs de agentes (comando nativo de cada uno) al arrancar la TUI si auto_update está activado en el config
+├── selfupdate.py           # Auto-actualización de GRAFENO desde las releases de GitHub: chequeo de versión (API releases/latest), comparación semver y comando pipx/pip; comando CLI `grafeno update`
 ├── workspaces.py           # Workspaces raíz: lectura del nivel proyecto (.grafeno.toml), resolve() global+proyecto y discover() de proyectos sin tareas (subcarpetas de primer nivel)
 ├── _toml.py                # Serializador TOML propio (escritura; lectura con tomllib)
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
@@ -113,6 +114,15 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   la espera indicada o sondea cada `PROBE_SECONDS` hasta `MAX_ATTEMPTS`;
   durante la espera la TUI muestra el sufijo i18n `state.waiting` en la
   lista de tareas y en `PhaseBar`).
+- **Auto-actualización de GRAFENO**: `selfupdate.py` consulta la última
+  release de GitHub al arrancar la TUI (siempre, worker en segundo
+  plano, fallos silenciosos). Con `Config.self_update` activado se
+  auto-actualiza (`pipx install --force git+...@vX.Y.Z`, fallback a pip
+  del intérprete) y notifica; desactivado, solo muestra `(v X.Y.Z
+  available)` en naranja junto a la versión de la cabecera
+  (`GrafenoHeader.format_title` + reactive `App.available_update`). El
+  comando `grafeno update` (interceptado en `main()` antes del argparse)
+  actualiza manualmente y devuelve código de salida 0/1.
 - **Editor**: la apertura automática usa `editor.py` (mejor esfuerzo,
   nunca bloquea la TUI). Config global en `[editor]`, sobreescritura
   por proyecto en `<proyecto>/.grafeno.toml`; el flag `--noeditor`

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from textual.app import App
 from textual.binding import Binding
+from textual.reactive import Reactive
 
 from . import __version__, models, paths, remotesession, scheduler
 from .i18n import t
@@ -52,6 +53,8 @@ class GrafenoApp(App):
         Binding("super+q", "quit", t("common.quit"), show=False),  # Cmd+Q on macOS
         Binding("ctrl+t", "change_theme", t("app.bind.theme")),
     ]
+    # Latest GitHub release when newer than the running one; "" = none/unknown.
+    available_update = Reactive("")
 
     def __init__(self):
         super().__init__()
@@ -76,6 +79,12 @@ class GrafenoApp(App):
                 self._auto_update(), exclusive=True,
                 group="auto-update", exit_on_error=False,
             )
+        # Release check runs ALWAYS: with self_update off it only shows the
+        # orange hint in the header; with it on it self-updates in background.
+        self.run_worker(
+            self._self_update_check(cfg), exclusive=True,
+            group="self-update", exit_on_error=False,
+        )
         if not self._clis_available():
             self.notify(t("app.no_clis"), severity="warning", timeout=10)
         if remotesession.active():
@@ -129,6 +138,25 @@ class GrafenoApp(App):
                 )
         if outcomes and all(outcome.ok for outcome in outcomes):
             self.notify(t("upd.done"))
+
+    async def _self_update_check(self, cfg) -> None:
+        """Check GitHub for a newer GRAFENO release; update or show a hint."""
+        from . import selfupdate
+
+        latest = await selfupdate.fetch_latest_version()
+        if latest is None or not selfupdate.is_newer(latest, __version__):
+            return
+        if not cfg.self_update:
+            self.available_update = latest
+            return
+        outcome = await selfupdate.run_self_update(latest)
+        if outcome.ok:
+            self.notify(t("supd.done", version=outcome.version), timeout=10)
+        else:
+            self.notify(
+                t("supd.failed", error=outcome.detail or "?"),
+                severity="warning",
+            )
 
     def _start_telegram(self, cfg) -> None:
         """Start the Telegram bot worker when enabled and a token is available."""
@@ -244,6 +272,14 @@ class GrafenoApp(App):
 
 
 def main() -> None:
+    # ``grafeno update`` is a plain command: it never reaches the TUI nor the
+    # remote-session bootstrap. Checked before argparse because the parser has
+    # a positional ``remote`` argument that would swallow the word "update".
+    if len(sys.argv) > 1 and sys.argv[1] == "update":
+        from . import selfupdate
+
+        raise SystemExit(selfupdate.cli_update())
+
     from . import config as config_module
     from . import editor
     from .i18n import set_language

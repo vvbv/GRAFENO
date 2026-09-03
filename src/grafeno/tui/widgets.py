@@ -10,6 +10,7 @@ from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.content import Content
 from textual.widgets import Header, Markdown, Static, TextArea
 from textual.widgets._header import HeaderIcon, HeaderTitle
 
@@ -126,7 +127,24 @@ class DateTimeClock(Static):
 
 
 class GrafenoHeader(Header):
-    """App header that always shows the current date and time on the right."""
+    """App header: clock on the right and orange hint when an update exists."""
+
+    def on_mount(self) -> None:
+        self.watch(self.app, "available_update", self._refresh_title)
+
+    def _refresh_title(self, *_args) -> None:
+        self.query_one(HeaderTitle).update(self.format_title())
+
+    def format_title(self) -> Content:
+        """Title + subtitle plus ``(v X.Y.Z available)`` in orange."""
+        content = super().format_title()
+        latest = getattr(self.app, "available_update", "")
+        if latest:
+            content = Content.assemble(
+                content,
+                (" " + t("app.update_available", version=latest), "dark_orange"),
+            )
+        return content
 
     def compose(self) -> ComposeResult:
         yield HeaderIcon().data_bind(Header.icon)

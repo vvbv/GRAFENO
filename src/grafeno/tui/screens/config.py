@@ -57,6 +57,8 @@ class ConfigScreen(Screen[None]):
             yield Static(t("cfg.updates"), classes="section-title")
             with Horizontal(classes="automode-row"):
                 yield Checkbox(t("cfg.upd.enabled"), id="upd-enabled")
+            with Horizontal(classes="automode-row"):
+                yield Checkbox(t("cfg.self_update.enabled"), id="upd-self")
             yield Label(t("cfg.final_prompt"))
             yield TextArea(id="cfg-final-prompt")
             yield Static(t("cfg.hook"), classes="section-title")
@@ -169,6 +171,7 @@ class ConfigScreen(Screen[None]):
         self.query_one("#am-branch", Checkbox).value = auto.create_branch
         self.query_one("#am-confirm-plan", Checkbox).value = auto.confirm_plan
         self.query_one("#upd-enabled", Checkbox).value = self._config.auto_update
+        self.query_one("#upd-self", Checkbox).value = self._config.self_update
         self.query_one("#am-max-iter", Input).value = str(auto.max_iterations)
         self.query_one("#am-tests", Input).value = auto.test_command
         self.query_one("#cfg-final-prompt", TextArea).text = self._config.final_prompt
@@ -295,6 +298,7 @@ class ConfigScreen(Screen[None]):
         cfg.automode.create_branch = self.query_one("#am-branch", Checkbox).value
         cfg.automode.confirm_plan = self.query_one("#am-confirm-plan", Checkbox).value
         cfg.auto_update = self.query_one("#upd-enabled", Checkbox).value
+        cfg.self_update = self.query_one("#upd-self", Checkbox).value
         cfg.automode.max_iterations = max_iter
         cfg.automode.test_command = self.query_one("#am-tests", Input).value.strip()
         cfg.final_prompt = self.query_one("#cfg-final-prompt", TextArea).text.strip()

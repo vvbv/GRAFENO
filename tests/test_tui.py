@@ -38,7 +38,7 @@ def test_app_boots_without_auto_update_worker_by_default():
             # No "auto-update" group is running.
             assert app.workers is None or all(
                 getattr(worker, "group", "") != "auto-update"
-                for worker in (app.workers._workers.values() if app.workers else [])
+                for worker in (app.workers._workers if app.workers else [])
             )
 
     asyncio.run(scenario())
