@@ -1614,3 +1614,43 @@ def test_window_title_falls_back_at_fs_root(monkeypatch):
 
     monkeypatch.setattr(os, "getcwd", lambda: "/")
     assert app_module._window_title() == "Grafeno"
+
+
+def test_task_list_refreshes_when_signature_changes():
+    """The list refreshes on external changes even with NO runtime running."""
+    import os
+
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task, TaskState
+    from textual.widgets import DataTable
+
+    task = Task.create("Stale", "d", os.getcwd(), Config())
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            assert table.row_count == 1
+            before = [str(cell) for cell in table.get_row_at(0)]
+            assert any("Stale" in cell for cell in before)
+
+            # External change with nothing running: state flips on disk.
+            stale = models.load(task.id)
+            stale.state = TaskState.DONE
+            models.save(stale)
+            app.screen._tick_refresh()
+            await pilot.pause()
+            after = [str(cell) for cell in table.get_row_at(0)]
+            assert any("Done" in cell for cell in after)
+
+            # External creation: a new task appears without pressing `r`.
+            extra = Task.create("Llega sola", "d", os.getcwd(), Config())
+            models.save(extra)
+            app.screen._tick_refresh()
+            await pilot.pause()
+            assert table.row_count == 2
+
+    asyncio.run(scenario())

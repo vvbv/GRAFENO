@@ -299,6 +299,7 @@ class TaskListScreen(Screen[None]):
         self._show_all = False
         self._all_tasks: list[Task] = []
         self._tasks: list[Task] = []
+        self._signature: tuple[tuple[str, int, int], ...] = ()  # last seen disk snapshot
 
     def compose(self) -> ComposeResult:
         yield GrafenoHeader()
@@ -325,7 +326,7 @@ class TaskListScreen(Screen[None]):
         )
         self._reload()
         table.focus()
-        # Periodic refresh: shows progress of background tasks.
+        # Periodic refresh: signature-based reload + running progress.
         self.set_interval(2.0, self._tick_refresh)
 
     def on_screen_resume(self) -> None:
@@ -333,7 +334,10 @@ class TaskListScreen(Screen[None]):
 
     def _tick_refresh(self) -> None:
         runtimes = getattr(self.app, "runtimes", {})
-        if any(runtime.running for runtime in runtimes.values()):
+        signature = models.tasks_signature()
+        if signature != self._signature or any(
+            runtime.running for runtime in runtimes.values()
+        ):
             self._reload(preserve_cursor=True)
 
     def action_toggle_scope(self) -> None:
@@ -351,6 +355,9 @@ class TaskListScreen(Screen[None]):
             self.action_consoles()
 
     def _reload(self, *, preserve_cursor: bool = False) -> None:
+        # Snapshot the signature BEFORE list_all: a save landing mid-load is
+        # still caught by the next tick (stored signature is the pre-load one).
+        self._signature = models.tasks_signature()
         table = self.query_one(DataTable)
         selected = self._selected_task_id() if preserve_cursor else None
         table.clear()

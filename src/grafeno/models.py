@@ -430,3 +430,26 @@ def list_all() -> list[Task]:
             except Exception:
                 continue  # corrupt task: ignored in the listing
     return tasks
+
+
+def tasks_signature() -> tuple[tuple[str, int, int], ...]:
+    """Cheap change detector for the tasks store.
+
+    Sorted tuple of ``(task_id, mtime_ns, size)`` for every ``task.toml``
+    under the tasks dir. Any save/create/delete changes the signature.
+    The list screen polls it to refresh only when something changed.
+    """
+    base = paths.tasks_dir()
+    if not base.is_dir():
+        return ()
+    entries: list[tuple[str, int, int]] = []
+    for entry in base.iterdir():
+        meta = entry / "task.toml"
+        try:
+            if entry.is_dir() and meta.exists():
+                stat = meta.stat()
+                entries.append((entry.name, stat.st_mtime_ns, stat.st_size))
+        except OSError:
+            continue  # transient stat error: skip that entry
+    entries.sort()
+    return tuple(entries)

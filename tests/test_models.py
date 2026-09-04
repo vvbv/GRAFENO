@@ -409,3 +409,22 @@ def test_reset_to_draft_clears_base_commit(tmp_path):
 
     persisted = models.load(task.id)
     assert persisted.base_commit == ""
+
+
+def test_tasks_signature_changes_on_save_and_delete():
+    """The disk snapshot signature reacts to create/save; list order is stable."""
+    assert models.tasks_signature() == ()  # empty store
+    task = Task.create("Firma", "d", "/tmp", Config())
+    models.save(task)
+    first = models.tasks_signature()
+    assert [entry[0] for entry in first] == [task.id]
+
+    task.state = models.TaskState.DONE
+    models.save(task)
+    second = models.tasks_signature()
+    assert second != first  # any save flips mtime/size
+
+    import shutil
+
+    shutil.rmtree(models.paths.task_dir(task.id))
+    assert models.tasks_signature() == ()
