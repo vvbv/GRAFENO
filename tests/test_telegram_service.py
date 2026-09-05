@@ -606,7 +606,7 @@ def test_callback_from_other_chat_is_rejected(tmp_path, monkeypatch):
 # Chaining question (tg:n / tg:l)
 # ---------------------------------------------------------------------- #
 def _in_progress_task(name: str, workdir: str, state=TaskState.IMPLEMENTING):
-    """Saved task in an active pipeline state (chaining candidate)."""
+    """Saved task in any state; the caller picks state (chaining candidate)."""
     task = models.Task.create(name, "d", workdir, Config())
     task.state = state
     models.save(task)
@@ -638,11 +638,12 @@ def test_chain_last_links_to_latest_in_progress_task(tmp_path, monkeypatch):
 
 
 def test_chain_last_picks_the_newest_candidate(tmp_path, monkeypatch):
-    una = _in_progress_task("Una", str(tmp_path))
-    dos = _in_progress_task("Dos", str(tmp_path))
+    """Two parallel chains of the same project: 'chain last' first asks which."""
+    _in_progress_task("Una", str(tmp_path))
+    _in_progress_task("Dos", str(tmp_path))
     other_dir = tmp_path / "otro"
     other_dir.mkdir()
-    otra = _in_progress_task("Otra", str(other_dir))
+    _in_progress_task("Otra", str(other_dir))
     driver = FakeDriver([_json_result({
         "action": "create_tasks",
         "tasks": [{"name": "Nueva"}],
@@ -653,15 +654,34 @@ def test_chain_last_picks_the_newest_candidate(tmp_path, monkeypatch):
     _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
     _run(service._handle_update(_callback_update(f"tg:l:{pid}")))
 
+    # The disambiguation question goes out with one button per chain end
+    # plus a "none (parallel)" row (index -1), and no new task is created yet.
+    ask_message, ask_markup = client.sent[-1][1], client.sent[-1][2]
+    assert "more than one chain" in ask_message
+    assert ask_markup is not None
+    callbacks = [
+        button["callback_data"]
+        for row in ask_markup["inline_keyboard"]
+        for button in row
+    ]
+    assert any(data.startswith(f"tg:m:{pid}:") for data in callbacks)
+    assert f"tg:m:{pid}:-1" in callbacks  # the parallel option
+    assert not any(t.name == "Nueva" for t in models.list_all())
+
+    # Pick the parallel option: Nueva is created without a parent.
+    _run(service._handle_update(_callback_update(f"tg:m:{pid}:-1")))
+
     nueva = next(t for t in models.list_all() if t.name == "Nueva")
-    assert nueva.parent_id == max(una.id, dos.id)
-    assert nueva.parent_id != otra.id  # never the other-project task
+    assert nueva.parent_id == ""
 
 
-def test_chain_last_ignores_non_active_states(tmp_path, monkeypatch):
-    done = _in_progress_task("Hecha", str(tmp_path), state=TaskState.DONE)
-    draft = models.Task.create("Borrador", "d", str(tmp_path), Config())
-    models.save(draft)
+def test_chain_last_terminal_tasks_are_not_candidates(tmp_path, monkeypatch):
+    """DONE/DISCARDED tasks are not chain ends: a project whose only task is
+    DONE yields no candidate and the new task is created parallel.
+    """
+    done = models.Task.create("Hecha", "d", str(tmp_path), Config())
+    done.state = TaskState.DONE
+    models.save(done)
     driver = FakeDriver([_json_result({
         "action": "create_tasks",
         "tasks": [{"name": "Nueva"}],
@@ -810,6 +830,146 @@ def test_chain_last_batch_respects_each_project(tmp_path, monkeypatch):
     assert by_name["A"].parent_id == ""
     assert by_name["B"].parent_id == ""
     assert by_name["C"].parent_id == by_name["A"].id
+
+
+def test_chain_last_chains_to_deepest_draft_leaf(tmp_path, monkeypatch):
+    """A->B->C with A active and B,C drafts: chain goes to C without asking."""
+    a = models.Task.create("A", "d", str(tmp_path), Config())
+    a.state = TaskState.IMPLEMENTING
+    models.save(a)
+    b = models.Task.create("B", "d", str(tmp_path), Config())
+    b.parent_id = a.id
+    models.save(b)
+    c = models.Task.create("C", "d", str(tmp_path), Config())
+    c.parent_id = b.id
+    models.save(c)
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Nueva"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    _run(service._parse_and_reply(555, "crea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:l:{pid}")))
+
+    nueva = next(t for t in models.list_all() if t.name == "Nueva")
+    assert nueva.parent_id == c.id
+    # No disambiguation question went out.
+    ask_markups = [
+        item[2] for item in client.sent if item[2] is not None
+        and any(
+            "more than one chain" in btn.get("text", "")
+            for row in item[2]["inline_keyboard"]
+            for btn in row
+        )
+    ]
+    assert ask_markups == []
+
+
+def test_chain_last_ambiguous_chains_ask_and_pick(tmp_path, monkeypatch):
+    """Two parallel chains A->B and C->D: ambiguous, picker chooses one end."""
+    a = models.Task.create("A", "d", str(tmp_path), Config())
+    a.state = TaskState.IMPLEMENTING
+    models.save(a)
+    b = models.Task.create("B", "d", str(tmp_path), Config())
+    b.parent_id = a.id
+    models.save(b)
+    c = models.Task.create("C", "d", str(tmp_path), Config())
+    c.state = TaskState.IMPLEMENTING
+    models.save(c)
+    d = models.Task.create("D", "d", str(tmp_path), Config())
+    d.parent_id = c.id
+    models.save(d)
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Nueva"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    _run(service._parse_and_reply(555, "crea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:l:{pid}")))
+
+    # The last sent message is the disambiguation picker; no task is created yet.
+    ask_message, ask_markup = client.sent[-1][1], client.sent[-1][2]
+    assert "more than one chain" in ask_message
+    assert ask_markup is not None
+    callbacks = [
+        button["callback_data"]
+        for row in ask_markup["inline_keyboard"]
+        for button in row
+    ]
+    assert any(data.startswith(f"tg:m:{pid}:") for data in callbacks)
+    assert f"tg:m:{pid}:-1" in callbacks
+    assert not any(t.name == "Nueva" for t in models.list_all())
+
+    # Pick the first candidate (D is the first leaf in newest-first order).
+    _run(service._handle_update(_callback_update(f"tg:m:{pid}:0")))
+    nueva = next(t for t in models.list_all() if t.name == "Nueva")
+    assert nueva.parent_id == d.id
+
+
+def test_chain_pick_none_creates_parallel(tmp_path, monkeypatch):
+    """Picking the parallel option (-1) creates a parallel task with no notice."""
+    a = models.Task.create("A", "d", str(tmp_path), Config())
+    a.state = TaskState.IMPLEMENTING
+    models.save(a)
+    b = models.Task.create("B", "d", str(tmp_path), Config())
+    b.parent_id = a.id
+    models.save(b)
+    c = models.Task.create("C", "d", str(tmp_path), Config())
+    c.state = TaskState.IMPLEMENTING
+    models.save(c)
+    d = models.Task.create("D", "d", str(tmp_path), Config())
+    d.parent_id = c.id
+    models.save(d)
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Nueva"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    _run(service._parse_and_reply(555, "crea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:l:{pid}")))
+
+    _run(service._handle_update(_callback_update(f"tg:m:{pid}:-1")))
+
+    nueva = next(t for t in models.list_all() if t.name == "Nueva")
+    assert nueva.parent_id == ""
+    assert "parallel task" not in client.sent[-1][1]
+
+
+def test_chain_pick_invalid_index_ignored(tmp_path, monkeypatch):
+    """Out-of-range index keeps the question alive and creates no task."""
+    a = models.Task.create("A", "d", str(tmp_path), Config())
+    a.state = TaskState.IMPLEMENTING
+    models.save(a)
+    b = models.Task.create("B", "d", str(tmp_path), Config())
+    b.parent_id = a.id
+    models.save(b)
+    c = models.Task.create("C", "d", str(tmp_path), Config())
+    c.state = TaskState.IMPLEMENTING
+    models.save(c)
+    d = models.Task.create("D", "d", str(tmp_path), Config())
+    d.parent_id = c.id
+    models.save(d)
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Nueva"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    _run(service._parse_and_reply(555, "crea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:l:{pid}")))
+
+    # Pick a clearly out-of-range index (only 2 candidates exist).
+    _run(service._handle_update(_callback_update(f"tg:m:{pid}:7")))
+
+    assert not any(t.name == "Nueva" for t in models.list_all())
+    assert pid in service._proposals
 
 
 # ---------------------------------------------------------------------- #

@@ -486,6 +486,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "supd.failed": "Could not update GRAFENO: {error}",
         "supd.latest": "GRAFENO is up to date (v{version}).",
         "supd.check_failed": "Could not check for updates (GitHub unreachable).",
+        "supd.updating": "Updating GRAFENO from v{current} to v{latest}.",
         "supd.verify_failed": "The update ran but GRAFENO is still at v{version}.",
         # remote (SSH/sshfs)
         "remote.no_sshfs": "sshfs is not installed: remote projects cannot be mounted.",
@@ -544,9 +545,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Should the new task(s) be chained?\n"
             "• None: parallel task, not chained to any other\n"
             "• To the latest of the project: it will start when the last "
-            "in-progress task of the project finishes"
+            "task of the project's chain finishes"
         ),
-        "tg.chain.no_parent": "No in-progress task in the project: '{name}' was created as a parallel task.",
+        "tg.chain.no_parent": "No chainable task found in the project: '{name}' was created as a parallel task.",
+        "tg.chain.ask_which": "The project {workdir} has more than one chain. After which task should the new one(s) start?",
         "tg.proposal.expired": "That proposal expired or was already handled.",
         "tg.proposal.cancelled": "Cancelled: no task was created.",
         "tg.created": "Created {count} task(s); the scheduler will start them shortly:\n{items}",
@@ -1022,6 +1024,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "supd.failed": "No se pudo actualizar GRAFENO: {error}",
         "supd.latest": "GRAFENO está al día (v{version}).",
         "supd.check_failed": "No se pudo comprobar si hay actualizaciones (GitHub inaccesible).",
+        "supd.updating": "Actualizando GRAFENO de v{current} a v{latest}.",
         "supd.verify_failed": "La actualización terminó pero GRAFENO sigue en v{version}.",
         # remoto (SSH/sshfs)
         "remote.no_sshfs": "sshfs no está instalado: no se pueden montar proyectos remotos.",
@@ -1079,10 +1082,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tg.chain.ask": (
             "¿La nueva tarea debe encadenarse?\n"
             "• Ninguna: tarea paralela, no encadenada a ninguna otra\n"
-            "• A la última del proyecto: arrancará cuando termine la última "
-            "tarea en progreso del proyecto"
+            "• A la última del proyecto: arrancará cuando termine la última tarea de la cadena del proyecto"
         ),
-        "tg.chain.no_parent": "No hay ninguna tarea en progreso en el proyecto: '{name}' se creó como tarea paralela.",
+        "tg.chain.no_parent": "No hay ninguna tarea encadenable en el proyecto: '{name}' se creó como tarea paralela.",
+        "tg.chain.ask_which": "El proyecto {workdir} tiene más de una cadena. ¿Después de qué tarea deben arrancar las nuevas?",
         "tg.proposal.expired": "Esa propuesta expiró o ya fue gestionada.",
         "tg.proposal.cancelled": "Cancelado: no se creó ninguna tarea.",
         "tg.created": "Creada(s) {count} tarea(s); el planificador las arrancará en breve:\n{items}",

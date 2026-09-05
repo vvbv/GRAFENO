@@ -141,7 +141,10 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `importlib.metadata.version("grafeno")` (si no coincide, `ok=False` con
   `supd.verify_failed`; sin metadata se confía en el código de salida). El
   comando `grafeno update` (interceptado en `main()` antes del argparse)
-  actualiza manualmente y devuelve código de salida 0/1.
+  actualiza manualmente y devuelve código de salida 0/1. Antes de instalar
+  imprime la versión destino (`supd.updating`) y durante la descarga dibuja
+  una barra de progreso ASCII con porcentaje en una sola línea (parseo de
+  los porcentajes de pip `--progress-bar=on`; vía `--pip-args` con pipx).
 - **Editor**: la apertura automática usa `editor.py` (mejor esfuerzo,
   nunca bloquea la TUI). Config global en `[editor]`, sobreescritura
   por proyecto en `<proyecto>/.grafeno.toml`; el flag `--noeditor`
@@ -163,16 +166,25 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   ahora, `origin="telegram"`: el tick del planificador las arranca
   desatendidas, igual que los triggers).   Antes de crearlas, el bot
   pregunta siempre el encadenamiento con dos botones inline ("ninguna" =
-  paralela, "a la última del proyecto" = `parent_id` a la última tarea en
-  progreso del proyecto según `IN_PROGRESS_STATES` de
-  `telegram/service.py`; sin candidata o con posición inválida según
-  `scheduler.rechain_error`, se crea paralela y se avisa). Cuando un mismo
+  paralela, "a la última del proyecto" = `parent_id` a la última hoja no
+  terminal del bosque de encadenamiento del proyecto según
+  `_chain_ends` de `telegram/service.py`: una tarea del propio proyecto,
+  sin hijos en el almacén y sin estado terminal); si esa cabeza no es
+  única (2+ cadenas paralelas en el mismo proyecto), el bot pregunta
+  antes con botones inline (callback `tg:m:<id>:<idx>`, índice `-1` =
+  paralela; la cola FIFO avanza con cada respuesta). Cuando un mismo
   mensaje crea varias tareas y el usuario elige encadenar, el lote se
-  encadena de forma secuencial: la primera tras la última en progreso de
-  su proyecto (o paralela con aviso si no hay candidata) y cada una de las
-  siguientes tras la anterior del lote del mismo proyecto. La pregunta es
-  obligatoria también con `confirm_create` desactivado. El contexto del
-  parser incluye las tareas existentes con su directorio (columna extra en
+  encadena de forma secuencial: la primera tras la última de la cadena
+  de su proyecto (elegida en la desambiguación o por defecto si es única)
+  y cada una de las siguientes tras la anterior del lote del mismo
+  proyecto. `chain_parent` es un `dict[workdir, parent_id]` que `_create_tasks`
+  consulta para enrutar cada spec del lote al `parent_id` correspondiente
+  (`""` = paralela por desambiguación del usuario o por falta de
+  candidata); sin candidata o con posición inválida según
+  `scheduler.rechain_error`, la tarea se crea paralela y se avisa con
+  `tg.chain.no_parent`. La pregunta es obligatoria también con
+  `confirm_create` desactivado. El contexto del parser incluye las
+  tareas existentes con su directorio (columna extra en
   `intents.tasks_summary`), de modo que las tareas nuevas se enrutan al
   proyecto correspondiente (`workdir` exacto del listado, vía
   `intents.resolve_workdir`; vacío = directorio por defecto como fallback) y

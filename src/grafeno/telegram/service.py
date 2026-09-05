@@ -38,23 +38,10 @@ PROPOSAL_TTL = 1800.0          # seconds a Create/Cancel proposal stays valid
 ATTACHMENT_TTL = 600.0         # seconds a buffered photo/video stays pending
 MAX_ATTACHMENTS = 5            # per chat
 ASK_CONTEXT_CHARS = 20000      # artifact context budget for the "ask" action
-CALLBACK_PREFIX = "tg:"        # callback_data prefix: tg:c|x|n|l:<id> (proposals), tg:fa|fn|fp|fd:<id> and tg:ft:<id>:<state> (list filters)
+CALLBACK_PREFIX = "tg:"        # callback_data prefix: tg:c|x|n|l:<id> (proposals), tg:m:<id>:<idx> (chain-specific pick), tg:fa|fn|fp|fd:<id> / tg:ft:<id>:<state> (list filters)
 TYPING_REFRESH = 4.0           # chat actions last ~5s on the clients
 UNAUTHORIZED_COOLDOWN = 300.0  # seconds between "not authorized" notices
 LOG_MAX_BYTES = 1_000_000      # telegram.log is truncated past this size
-
-# States considered "in progress" for the "chain to the latest of the
-# project" option: started but not finished (DRAFT/PAUSED/FAILED/DONE/
-# DISCARDED do not count).
-IN_PROGRESS_STATES = (
-    TaskState.PLANNING,
-    TaskState.PLANNED,
-    TaskState.IMPLEMENTING,
-    TaskState.IMPLEMENTED,
-    TaskState.REVIEWING,
-    TaskState.FIXING,
-    TaskState.FINALIZING,
-)
 
 # States offered in the task-list filter picker, in display order.
 FILTERABLE_STATES = tuple(TaskState)
@@ -111,19 +98,30 @@ def _save_state(state: _State) -> None:
         pass
 
 
-def _last_in_progress(workdir: str, tasks: list[Task]) -> Task | None:
-    """Most recent in-progress task of a project (``tasks`` is newest first).
+def _chain_ends(workdir: str, tasks: list[Task]) -> list[Task]:
+    """Chain-end candidates of a project: non-terminal leaf tasks.
 
-    Only local tasks of the exact project directory count; remote tasks and
-    tasks in non-active states (draft, paused, failed, done, discarded) are
-    ignored.
+    A chain end is a task of the exact project directory (remote tasks never
+    count) with no children at all in the store and not in a terminal state
+    (DONE/DISCARDED): it is the deepest point of a chain where a new task can
+    still be appended. The input order (newest first) is preserved.
+
+    Terminal leaves do not count: a completed task cannot be a parent and a
+    node with a completed child cannot be extended either (position sealed,
+    see ``scheduler.rechain_error``), so a chain that ends in a DONE/DISCARDED
+    leaf yields no candidate.
     """
+    parents = {task.parent_id for task in tasks if task.parent_id}
+    ends: list[Task] = []
     for task in tasks:
         if task.is_remote or task.workdir != workdir:
             continue
-        if task.state in IN_PROGRESS_STATES:
-            return task
-    return None
+        if task.state in scheduler.TERMINAL_STATES:
+            continue
+        if task.id in parents:
+            continue  # has children: not a chain end
+        ends.append(task)
+    return ends
 
 
 @dataclass
@@ -134,6 +132,9 @@ class PendingProposal:
     chat_id: int
     specs: list[TaskSpec]
     created_at: float = field(default_factory=time.monotonic)
+    chain_selected: dict[str, str] = field(default_factory=dict)      # workdir -> parent id ("" = parallel chosen)
+    chain_options: dict[str, list[Task]] = field(default_factory=dict)  # workdir -> ambiguous candidates
+    chain_queue: list[str] = field(default_factory=list)              # workdirs awaiting a chain-specific pick
 
     @property
     def expired(self) -> bool:
@@ -766,7 +767,9 @@ class TelegramService:
     ) -> None:
         """Ask explicitly how the new task(s) chain: the only two valid options
         are "ninguna" (parallel, not chained) and "a la última del proyecto"
-        (chained after the last in-progress task of the project)."""
+        (chained after the deepest non-terminal leaf of the project's chain,
+        per ``_chain_ends``; when several ends exist a follow-up picker asks
+        which one to chain after)."""
         markup = {
             "inline_keyboard": [
                 [
@@ -809,10 +812,20 @@ class TelegramService:
                 state_value=parts[2] if len(parts) > 2 else "",
             )
             return
-        await self._handle_proposal_callback(action, parts[1], chat_id)
+        await self._handle_proposal_callback(
+            action, parts[1], chat_id,
+            extra=parts[2] if len(parts) > 2 else "",
+        )
 
-    async def _handle_proposal_callback(self, action: str, proposal_id: str, chat_id: int) -> None:
-        """Create/Cancel/Chaining callbacks of task proposals (existing flow)."""
+    async def _handle_proposal_callback(
+        self,
+        action: str,
+        proposal_id: str,
+        chat_id: int,
+        *,
+        extra: str = "",
+    ) -> None:
+        """Create/Cancel/Chaining/Chain-pick callbacks of task proposals."""
         proposal = self._proposals.get(proposal_id)
         if proposal is None or proposal.chat_id != chat_id:
             await self._send(chat_id, self._tt(chat_id, "tg.proposal.expired"))
@@ -830,12 +843,29 @@ class TelegramService:
             # Confirmed creation: now ask the mandatory chaining question.
             await self._ask_chaining(chat_id, proposal)
             return
-        if action not in ("n", "l"):
+        if action in ("n", "l"):
+            chain_mode = "last" if action == "l" else "none"
+            if action == "l":
+                self._resolve_chain_targets(proposal)
+                if proposal.chain_queue:
+                    # Ambiguous: ask before creating; the proposal stays alive.
+                    await self._ask_chain_specific(
+                        chat_id, proposal, proposal.chain_queue[0]
+                    )
+                    return
+            self._proposals.pop(proposal_id, None)
+            created, errors, unchained = self._create_tasks(
+                chat_id, proposal.specs, chain_mode=chain_mode,
+                chain_parent=proposal.chain_selected or None,
+            )
+            await self._send(
+                chat_id, self._format_created(chat_id, created, errors, unchained)
+            )
             return
-        self._proposals.pop(proposal_id, None)
-        chain_mode = "last" if action == "l" else "none"
-        created, errors, unchained = self._create_tasks(chat_id, proposal.specs, chain_mode=chain_mode)
-        await self._send(chat_id, self._format_created(chat_id, created, errors, unchained))
+        if action == "m":
+            await self._handle_chain_pick(chat_id, proposal, extra)
+            return
+        return
 
     async def _handle_filter_callback(
         self,
@@ -894,19 +924,104 @@ class TelegramService:
             self._list_queries.pop(query_id, None)
             await self._send_filtered_list(chat_id, query, mode="selected")
 
+    def _resolve_chain_targets(self, proposal: PendingProposal) -> None:
+        """Resolve the chain parent per workdir of the proposal.
+
+        Fills ``chain_selected`` for unambiguous workdirs (single candidate)
+        and ``chain_options`` + ``chain_queue`` for ambiguous ones (2+).
+        Workdirs without any candidate resolve to "" (parallel).
+        """
+        known_tasks = models.list_all()
+        seen: list[str] = []
+        for spec in proposal.specs:
+            workdir = intents.resolve_workdir(
+                spec.workdir, known_tasks, self.default_workdir,
+                self._discovered_projects(),
+            )
+            if not Path(workdir).is_dir() or workdir in seen:
+                continue
+            seen.append(workdir)
+            candidates = _chain_ends(workdir, known_tasks)
+            if len(candidates) == 1:
+                proposal.chain_selected[workdir] = candidates[0].id
+            elif len(candidates) > 1:
+                proposal.chain_options[workdir] = candidates
+                proposal.chain_queue.append(workdir)
+
+    async def _ask_chain_specific(
+        self, chat_id: int, proposal: PendingProposal, workdir: str
+    ) -> None:
+        """Ask which chain end of an ambiguous project to chain after.
+
+        One button per candidate leaf plus a final "none (parallel)" row
+        encoded as index -1.
+        """
+        candidates = proposal.chain_options[workdir]
+        rows: list[list[dict[str, str]]] = []
+        for index, candidate in enumerate(candidates):
+            rows.append([
+                {"text": f"* {candidate.name}",
+                 "callback_data": f"{CALLBACK_PREFIX}m:{proposal.id}:{index}"},
+            ])
+        rows.append([
+            {"text": self._tt(chat_id, "tg.btn.chain_none"),
+             "callback_data": f"{CALLBACK_PREFIX}m:{proposal.id}:-1"},
+        ])
+        text = self._tt(chat_id, "tg.chain.ask_which", workdir=workdir)
+        await self._send(chat_id, text, reply_markup={"inline_keyboard": rows})
+
+    async def _handle_chain_pick(
+        self, chat_id: int, proposal: PendingProposal, extra: str
+    ) -> None:
+        """Resolve one ambiguous workdir of the chain-specific picker.
+
+        ``extra`` is the candidate index (-1 = create parallel for this
+        workdir). On invalid input the handler returns silently.
+        """
+        if not proposal.chain_queue:
+            return  # nothing pending: ignore (stale tap)
+        workdir = proposal.chain_queue[0]
+        try:
+            index = int(extra)
+        except ValueError:
+            return
+        options = proposal.chain_options.get(workdir, [])
+        if index >= len(options):
+            return  # malformed index: keep the question alive
+        proposal.chain_selected[workdir] = (
+            "" if index < 0 else options[index].id  # -1 = parallel chosen
+        )
+        proposal.chain_queue.pop(0)
+        if proposal.chain_queue:
+            await self._ask_chain_specific(chat_id, proposal, proposal.chain_queue[0])
+            return
+        self._proposals.pop(proposal.id, None)
+        created, errors, unchained = self._create_tasks(
+            chat_id, proposal.specs, chain_mode="last",
+            chain_parent=proposal.chain_selected,
+        )
+        await self._send(
+            chat_id, self._format_created(chat_id, created, errors, unchained)
+        )
+
     def _create_tasks(
-        self, chat_id: int, specs: list[TaskSpec], *, chain_mode: str = "none"
+        self,
+        chat_id: int,
+        specs: list[TaskSpec],
+        *,
+        chain_mode: str = "none",
+        chain_parent: dict[str, str] | None = None,
     ) -> tuple[list[Task], list[str], list[str]]:
         """Create the confirmed tasks; the scheduler tick starts them.
 
         The first created task receives the chat's buffered attachments
         (images as ``media/`` tokens, videos as absolute-path references).
-        With ``chain_mode == "last"`` the first task of the batch chains
-        after the last in-progress task of its project and every following
-        task chains after the previous one of the batch (same project), so
-        a multi-task message runs sequentially; when there is no
-        in-progress candidate (or the position is invalid) the task is
-        created parallel and its name is returned in the third list.
+        With ``chain_mode == "last"`` the first task of each project chains
+        after the project's chain end (or the user's explicit pick when
+        there were several ends); the rest chain sequentially within the
+        batch. When there is no chainable candidate (or the position is
+        invalid) the task is created parallel and its name is returned in
+        the third list.
         """
         from .. import config as config_module
 
@@ -930,11 +1045,10 @@ class TelegramService:
             if chain_mode == "last":
                 parent_id = last_in_batch.get(workdir, "")
                 if not parent_id:
-                    parent = _last_in_progress(workdir, known_tasks)
-                    if parent is None:
-                        unchained.append(spec.name.strip())
-                    else:
-                        parent_id = parent.id
+                    parent_id = chain_parent.get(workdir, "") if chain_parent else ""
+                if not parent_id:
+                    if not chain_parent or workdir not in chain_parent:
+                        unchained.append(spec.name.strip())  # no candidate found
             try:
                 task = models.Task.create(
                     spec.name.strip(),
