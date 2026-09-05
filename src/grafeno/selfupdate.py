@@ -24,7 +24,9 @@ from .telegram.api import USER_AGENT, default_opener
 
 RELEASES_API = "https://api.github.com/repos/vvbv/GRAFENO/releases/latest"
 GIT_URL = "https://github.com/vvbv/GRAFENO.git"
-CHECK_TIMEOUT = 10.0    # seconds for the release check
+CHECK_TIMEOUT = 10.0    # seconds for the release check (per attempt)
+CHECK_ATTEMPTS = 3      # check attempts before giving up (transient hiccups)
+CHECK_BACKOFF = 2.0     # seconds between check attempts
 UPDATE_TIMEOUT = 600.0  # seconds for the pip/pipx update command
 
 _PROGRESS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
@@ -122,12 +124,20 @@ async def fetch_latest_version(
     """Latest release version (normalized, no ``v``) or ``None`` on error.
 
     ``opener`` is injectable so tests never touch the network; by default it
-    reuses ``telegram.api.default_opener`` (same TLS/User-Agent policy).
+    reuses ``telegram.api.default_opener`` (same TLS/User-Agent policy). The
+    check is retried a few times with a short backoff: a single attempt made
+    transient DNS/Wi-Fi hiccups report GitHub as unreachable.
     """
-    tag = await asyncio.to_thread(
-        _fetch_tag_sync, opener or default_opener, timeout
-    )
-    return normalize_version(tag) if tag else None
+    attempts = max(1, CHECK_ATTEMPTS)
+    for index in range(attempts):
+        tag = await asyncio.to_thread(
+            _fetch_tag_sync, opener or default_opener, timeout
+        )
+        if tag:
+            return normalize_version(tag)
+        if index < attempts - 1 and CHECK_BACKOFF > 0:
+            await asyncio.sleep(CHECK_BACKOFF)
+    return None
 
 
 def installed_via_pipx() -> bool:

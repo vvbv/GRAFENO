@@ -37,11 +37,42 @@ def test_fetch_latest_version_ok():
     assert latest == "9.9.9"
 
 
-def test_fetch_latest_version_network_error():
+def test_fetch_latest_version_network_error(monkeypatch):
+    monkeypatch.setattr(selfupdate, "CHECK_BACKOFF", 0.0)
+
     def bad_opener(request, timeout):
         raise urllib.error.URLError("boom")
 
     assert asyncio.run(selfupdate.fetch_latest_version(opener=bad_opener)) is None
+
+
+def test_fetch_latest_version_retries_until_ok(monkeypatch):
+    """Transient failures are retried; a later attempt can still succeed."""
+    monkeypatch.setattr(selfupdate, "CHECK_BACKOFF", 0.0)
+    calls = []
+
+    def flaky_opener(request, timeout):
+        calls.append(1)
+        if len(calls) < 2:
+            raise urllib.error.URLError("boom")
+        return b'{"tag_name": "v9.9.9"}'
+
+    latest = asyncio.run(selfupdate.fetch_latest_version(opener=flaky_opener))
+    assert latest == "9.9.9"
+    assert len(calls) == 2
+
+
+def test_fetch_latest_version_gives_up_after_max_attempts(monkeypatch):
+    """After CHECK_ATTEMPTS failures the check reports unreachable."""
+    monkeypatch.setattr(selfupdate, "CHECK_BACKOFF", 0.0)
+    calls = []
+
+    def bad_opener(request, timeout):
+        calls.append(1)
+        raise urllib.error.URLError("boom")
+
+    assert asyncio.run(selfupdate.fetch_latest_version(opener=bad_opener)) is None
+    assert len(calls) == selfupdate.CHECK_ATTEMPTS
 
 
 def test_fetch_latest_version_bad_json():
