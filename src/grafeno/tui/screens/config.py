@@ -22,7 +22,7 @@ from ... import editor as editor_module
 from ... import paths
 from ... import references as references_module
 from ... import triggers as triggers_module
-from ...config import KNOWN_CLIS, Config
+from ...config import DEFAULT_API_HOST, DEFAULT_API_PORT, KNOWN_CLIS, Config
 from ...drivers import fetch_all_models, fetch_all_variants
 from ...i18n import LANGUAGES, set_language, t
 from ...pipeline.hooks import HOOK_STAGES, format_stages, parse_stages
@@ -152,8 +152,21 @@ class ConfigScreen(Screen[None]):
                 yield Input(id="tg-tts-key", password=True)
                 yield Label(t("cfg.tg.tts.model"))
                 yield Input(id="tg-tts-model")
-                yield Label(t("cfg.tg.tts.voice"))
-                yield Input(id="tg-tts-voice")
+            yield Label(t("cfg.tg.tts.voice"))
+            yield Input(id="tg-tts-voice")
+            yield Static(t("cfg.api"), classes="section-title")
+            yield Static(t("cfg.api.tokens.help"))
+            with Horizontal(classes="automode-row"):
+                yield Checkbox(t("cfg.api.enabled"), id="api-enabled")
+            with Horizontal(classes="automode-row"):
+                yield Label(t("cfg.api.host"))
+                yield Input(id="api-host")
+                yield Label(t("cfg.api.port"))
+                yield Input(id="api-port", type="integer")
+            with Horizontal(classes="automode-row"):
+                yield Label(t("cfg.api.tokens"))
+                yield Input(id="api-tokens", password=True,
+                            placeholder=t("cfg.tg.token.placeholder"))
             with Horizontal(id="config-buttons"):
                 yield Button(t("common.save"), variant="primary", id="cfg-save")
                 yield Button(t("common.back"), id="cfg-back")
@@ -218,6 +231,11 @@ class ConfigScreen(Screen[None]):
         self.query_one("#tg-tts-key", Input).value = tg.tts_key
         self.query_one("#tg-tts-model", Input).value = tg.tts_model
         self.query_one("#tg-tts-voice", Input).value = tg.tts_voice
+        api = self._config.api
+        self.query_one("#api-enabled", Checkbox).value = api.enabled
+        self.query_one("#api-host", Input).value = api.host
+        self.query_one("#api-port", Input).value = str(api.port)
+        self.query_one("#api-tokens", Input).value = api.tokens
         self._load_models()
 
     # ------------------------------------------------------------------ #
@@ -335,6 +353,20 @@ class ConfigScreen(Screen[None]):
         tg.tts_key = self.query_one("#tg-tts-key", Input).value.strip()
         tg.tts_model = self.query_one("#tg-tts-model", Input).value.strip()
         tg.tts_voice = self.query_one("#tg-tts-voice", Input).value.strip()
+        port_text = self.query_one("#api-port", Input).value.strip()
+        try:
+            api_port = int(port_text) if port_text else DEFAULT_API_PORT
+        except ValueError:
+            self.notify(t("cfg.error.api_port"), severity="error")
+            return
+        if not (1 <= api_port <= 65535):
+            self.notify(t("cfg.error.api_port"), severity="error")
+            return
+        api = cfg.api
+        api.enabled = self.query_one("#api-enabled", Checkbox).value
+        api.host = self.query_one("#api-host", Input).value.strip() or DEFAULT_API_HOST
+        api.port = api_port
+        api.tokens = self.query_one("#api-tokens", Input).value.strip()
         config_module.save(cfg)
         references_module.save_global(
             self.query_one("#cfg-refs", ReferencesForm).references()
