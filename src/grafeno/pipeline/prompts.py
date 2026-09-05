@@ -172,15 +172,30 @@ tarea de programación orquestada por GRAFENO.
 {_cycle_section(task)}{_remote_section(task, for_plan=True)}{_references_section(task)}{_media_section(task)}
 # Tu entrega
 1. Explora el proyecto para entender su estructura, stack y convenciones.
-2. Escribe el plan en UNO O VARIOS archivos Markdown dentro de:
+2. DESCUBRIMIENTO OBLIGATORIO — antes de diseñar la solución:
+   - Antes de proponer cualquier helper, utilidad, componente UI, formato o
+     patrón nuevo, DEMUESTRA si el proyecto ya lo resuelve: busca por el
+     concepto, no solo por el nombre exacto (p.ej. mask/phone/format/clean si
+     la tarea es de formato), y cita la evidencia (comando + archivo + línea).
+   - Revisa EXPLÍCITAMENTE lo que las plantillas base y el framework ya cargan
+     (librerías JS/CSS incluidas en el layout base, helpers JS globales,
+     helpers de render del backend, registries, hooks, filtros) y cómo las
+     secciones/módulos similares resuelven lo mismo: un mecanismo ya
+     implementado en otra parte del proyecto se REUTILIZA, no se reinventa.
+   - El plan DEBE incluir una sección breve "Capacidades existentes detectadas"
+     con lo que se reutiliza (componente → archivo → cómo se consume). Si el
+     diseño propone algo nuevo, justifica ahí que ninguna capacidad existente
+     cubre el caso; suponer que no existe sin haberlo verificado ES un defecto
+     del plan.
+3. Escribe el plan en UNO O VARIOS archivos Markdown dentro de:
    {plan_dir}
    Nómbralos `NN-slug.md` (p.ej. `01-setup.md`, `02-api.md`) en orden de ejecución.
-3. CADA archivo debe comenzar EXACTAMENTE con esta cabecera (sin modificar):
+4. CADA archivo debe comenzar EXACTAMENTE con esta cabecera (sin modificar):
 
 {executor_header(task)}
 {executor_notice(task)}
 
-4. El plan lo ejecutará OTRO modelo (`{task.implementer.model or "default"}` vía CLI `{task.implementer.cli}`),
+5. El plan lo ejecutará OTRO modelo (`{task.implementer.model or "default"}` vía CLI `{task.implementer.cli}`),
    que no compartirá tu contexto. OPTIMIZA el plan para que ese ejecutor lo
    implemente sin ambigüedades:
    - pasos pequeños, numerados y verificables;
@@ -188,20 +203,23 @@ tarea de programación orquestada por GRAFENO.
    - comandos concretos listos para copiar;
    - fragmentos de código clave cuando aporten claridad;
    - criterios de aceptación explícitos al final de cada archivo.{_tests_section(task)}
-5. Para cualquier método o función que consideres COMPLEJO para el modelo que
+   - Si la tarea es visual (máscara, layout, formato, feedback de UI), los
+     criterios DEBEN incluir el recorrido manual verificable (p.ej. smoke test
+     con sesión activa); el análisis estático no basta para aprobarlos.
+6. Para cualquier método o función que consideres COMPLEJO para el modelo que
    implementará (`{task.implementer.model or "default"}` vía `{task.implementer.cli}`),
    añade un bloque "Sugerencias" junto a ese paso con:
    - descomposición del método en funciones más pequeñas, si aplica;
    - pseudocódigo o la firma exacta del método;
    - alternativas más simples de implementar y advertencias de errores típicos.
-6. NO implementes el código: solo planifica.
-7. El plan debe incluir literalmente estas reglas para el ejecutor:
+7. NO implementes el código: solo planifica.
+8. El plan debe incluir literalmente estas reglas para el ejecutor:
 
 {_CODE_RULES}
 
 {_MD_RULES}
 
-8. Termina tu respuesta con un resumen de 3 líneas y la lista de archivos escritos.
+9. Termina tu respuesta con un resumen de 3 líneas y la lista de archivos escritos.
 
 {_COMMON_RULES}
 """.strip()
@@ -224,9 +242,15 @@ plan existente, NO una planificación desde cero.
    {plan_dir}
    LEE PRIMERO esos archivos (en orden alfabético) para entender qué se
    planificó en repeticiones anteriores.
-2. Compara el plan existente con la descripción ORIGINAL de la tarea (arriba)
+2. Audita el DESCUBRIMIENTO de la planificación previa: si propuso un helper,
+   utilidad, componente UI, formato o patrón nuevo sin verificar (con
+   evidencia de comandos) si el proyecto ya lo resuelve, repite esa revisión
+   ahora y CORRÍGELO para reutilizar la capacidad existente; la sección
+   "Capacidades existentes detectadas" del plan debe quedar respondida con la
+   misma exigencia que en una planificación nueva.
+3. Compara el plan existente con la descripción ORIGINAL de la tarea (arriba)
    y con el estado actual del proyecto en `{task.workdir}`.
-3. ACTUALIZA los archivos del plan solo donde proceda:
+4. ACTUALIZA los archivos del plan solo donde proceda:
    - mantén el formato de cabecera EXACTO en cada archivo (sin modificar):
 
 {executor_header(task)}
@@ -236,17 +260,17 @@ plan existente, NO una planificación desde cero.
      proyecto;
    - añade o elimina archivos `NN-slug.md` si la estructura del plan cambia;
    - mantén el orden de numeración coherente.
-4. Si el plan sigue siendo válido, NO lo modifiques: indícalo en tu respuesta
+5. Si el plan sigue siendo válido, NO lo modifiques: indícalo en tu respuesta
    y no escribas archivos nuevos.
-5. El plan lo ejecutará OTRO modelo (`{task.implementer.model or "default"}` vía CLI `{task.implementer.cli}`),
+6. El plan lo ejecutará OTRO modelo (`{task.implementer.model or "default"}` vía CLI `{task.implementer.cli}`),
    que no compartirá tu contexto. OPTIMIZA el plan para ese ejecutor.{_tests_section(task)}
-6. El plan debe incluir literalmente estas reglas para el ejecutor:
+7. El plan debe incluir literalmente estas reglas para el ejecutor:
 
 {_CODE_RULES}
 
 {_MD_RULES}
 
-7. Termina tu respuesta con un resumen de los cambios (o de "sin cambios").
+8. Termina tu respuesta con un resumen de los cambios (o de "sin cambios").
 
 {_COMMON_RULES}
 """.strip()

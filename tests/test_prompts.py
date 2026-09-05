@@ -35,6 +35,28 @@ def test_plan_prompt_mentions_tests_when_defined(tmp_path):
     assert "pytest -q" in prompt
 
 
+def test_plan_prompt_requires_discovery(tmp_path):
+    """The plan prompt mandates evidence-based discovery and reuse."""
+    task = _task(tmp_path)
+    prompt = prompts.plan_prompt(task)
+    assert "DESCUBRIMIENTO OBLIGATORIO" in prompt
+    assert "Capacidades existentes detectadas" in prompt
+    assert "REUTILIZA" in prompt
+    assert "no se reinventa" in prompt
+    # Visual/UX tasks must demand a verifiable manual walkthrough.
+    assert "recorrido manual verificable" in prompt
+    assert "análisis estático no basta" in prompt
+
+
+def test_reevaluate_plan_prompt_audits_prior_discovery(tmp_path):
+    """The re-evaluation prompt audits the discovery of the original plan."""
+    task = _task(tmp_path)
+    prompt = prompts.reevaluate_plan_prompt(task)
+    assert "DESCUBRIMIENTO" in prompt
+    assert "CORRÍGELO para reutilizar la capacidad existente" in prompt
+    assert "Capacidades existentes detectadas" in prompt
+
+
 def test_implement_prompt_points_to_plan_dir(tmp_path):
     task = _task(tmp_path)
     prompt = prompts.implement_prompt(task)
