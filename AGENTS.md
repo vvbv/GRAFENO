@@ -15,10 +15,10 @@ CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex y Claude Code).
 
 ```
 src/grafeno/
-├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas); intercepta el comando CLI `grafeno update` antes del argparse; `--version`/`-v` imprime la versión
-├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo, automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), prompt de pasos finales, sección [telegram] (TelegramConfig)
+├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas); intercepta el comando CLI `grafeno update` antes del argparse; `--version`/`-v` imprime la versión; arranca el servidor API (worker `api-server`) si `cfg.api.enabled`
+├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo, automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), prompt de pasos finales, sección [telegram] (TelegramConfig), sección [api] (ApiConfig: enabled/host/port/tokens + env GRAFENO_API_TOKEN)
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict; incluye `failed_phase` (fase del pipeline que fallo, para reanudar)
-├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME
+├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME; incluye `api_log_path()`
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
 ├── live_log.py             # Persistencia del log en vivo (Text -> logs/live.jsonl, carga al crear el runtime; best-effort)
 ├── mdnorm.py               # Normalización de Markdown: colapsa saltos de línea y compacta listas sueltas en los .md de cada etapa
@@ -44,6 +44,13 @@ src/grafeno/
 │   ├── tts.py              #   Voz generada vía endpoint OpenAI-compatible (Groq orpheus, voz masculina `troy` por defecto), opt-in; el WAV del proveedor se convierte a OGG/OPUS con ffmpeg externo (best effort; sin ffmpeg se envía como sendAudio) y los fallos se registran en telegram.log
 │   ├── intents.py          #   Interpretación del mensaje con un CLI de agente (prompt one-shot -> JSON): crear/listar tareas/listar proyectos (directorios del scope global)/tareas de un proyecto/estado/archivos/preguntar
 │   └── service.py          #   Bucle de polling (worker de la App), whitelist de chats, propuestas con botones inline, creación origin="telegram", notificación de fin
+├── server/                 # Servidor remoto REST + WS sobre stdlib (asyncio)
+│   ├── service.py          #   Ciclo de vida: bind, eventos push por sondeo (signature) y registro de conexiones WS; logs a ~/.grafeno/api.log (cap 1 MiB) sin el token
+│   ├── httpcore.py         #   HTTP/1.1 parseo/serialización (límites 32 KiB head/1 MiB body, keep-alive)
+│   ├── auth.py             #   Bearer/query token; denegar todo cuando no hay tokens
+│   ├── rest.py             #   Router con placeholder {task_id} precompilado (regex fullmatch); dispatch a actions.py
+│   ├── actions.py          #   Operaciones compartidas REST/WS (read y write); ApiError(status, message) -> Response
+│   └── ws.py               #   RFC 6455: handshake (accept key), frames enmascarados de cliente, comandos JSON-RPC {"id","method","params"} y eventos {"event":...,...} con suscripción por topic
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL; expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
 │   ├── opencode.py, kimi.py, codex.py, claude.py#   Dialectos concretos
@@ -71,7 +78,7 @@ install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), v
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
 `task.toml`, `plan/`, `review/`, `final/`, `media/`, `logs/live.jsonl`, `logs/*.jsonl`;
 además `config.toml`, `references.toml`, `triggers.toml`, `consoles/`,
-`mounts/`, `telegram-state.toml`); no
+`mounts/`, `telegram-state.toml`, `api.log`); no
 en el repo.
 
 ## Compilar / ejecutar / tests
@@ -155,6 +162,37 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `gh` instalado y acceso autenticado (`gh.py`); al elegir un issue se
   rellenan nombre y descripción de la tarea. La carga se hace en segundo
   plano y nunca bloquea ni rompe el formulario.
+- **Servidor API (REST + WebSocket)**: integración opcional (sección `[api]`
+  del config + sección en la pantalla de ajustes). El servidor corre como
+  worker de la App mientras la TUI está abierta: bind sobre `host:port`
+  (por defecto `127.0.0.1:8735`) con HTTP/1.1 parseado a mano sobre asyncio
+  streams (stdlib, cero dependencias nuevas; misma política que el bot de
+  Telegram). Limites: 32 KiB de cabecera y 1 MiB de cuerpo; sin chunked;
+  keep-alive HTTP/1.1. Autenticación por token: `Authorization: Bearer
+  <token>` o `?token=`; el conjunto vacío deniega todo (defecto = apagado).
+  Los tokens pueden venir del fichero (separados por comas) o del env
+  `GRAFENO_API_TOKEN` (prioridad al env). El router se compila al importar
+  con `re.fullmatch` y soporta `{task_id}` como placeholder. Acciones REST
+  bajo `/api/v1`: status, tasks (GET/POST, `/{id}/start|resume|restart|
+  pause|extend|discard|mark-done`, `/{id}/logs`, `/{id}/artifacts?kind=
+  plan|review|final&cycle=`, projects). WebSocket en `/api/v1/ws` con
+  handshake RFC 6455 (cliente enmascarado obligatorio; servidor sin
+  máscara), comandos JSON-RPC `{"id","method","params"}` que devuelven
+  `{"id","result"|"error"}` y eventos de suscripción `{"event":"task.changed",
+  "task":{...}}` publicados al topic `tasks`. La entrega de eventos se hace
+  por sondeo del store (`tasks_signature`, cada 2 s): cada conexión
+  suscrita recibe el `task.changed` cuando cambia `state`; el snapshot se
+  actualiza aunque no haya conexiones (para no spamear a un cliente que
+  se conecte luego con el backlog). Las operaciones de escritura
+  (`create/start/resume/restart/pause/extend/discard/mark-done`) usan
+  exactamente las mismas ramas y corutinas de la TUI
+  (`TaskRuntime.start`, `run_automode*`, `reset_to_draft`,
+  `start_new_cycle`, `cancel`, `state = DONE/DISCARDED`) y, cuando el
+  servicio no tiene `app` (tests de solo lectura), devuelven `503`. Cambios
+  de la sección `[api]` aplican al siguiente arranque de la TUI (el worker
+  se crea en `on_mount`, no en caliente). El log de actividad va a
+  `~/.grafeno/api.log` (cap 1 MiB, rotación in-place) y nunca contiene el
+  token.
 - **Telegram**: integración opcional de un bot (sección `[telegram]` del
   config + sección en la pantalla de ajustes). El bot corre como worker de
   la App mientras la TUI está abierta (long polling con stdlib urllib:

@@ -88,6 +88,25 @@ If the hook is an `http(s)` URL, GRAFENO does not execute any command: it sends 
 
 **Self-update**: GRAFENO can keep itself up to date from its GitHub releases. A background check runs on every TUI startup; when the `self_update` flag in `config.toml` is enabled, GRAFENO installs the newer release automatically (pipx only when GRAFENO itself lives in a pipx-managed venv, otherwise the current interpreter's `pip install --upgrade --force-reinstall`), and the header of every screen announces success or warns on failure. After the installer runs, the installed version is verified and a mismatch is reported as a failed update instead of a false success. With the flag disabled, the header just appends a discreet orange `(v X.Y.Z available)` next to the current version, so you can choose when to update. The same check is exposed as a manual command: `grafeno update` (no TUI, exits 0 on success / 1 on error). Before installing it prints the target version (`Updating GRAFENO from vX to vY.`) and while pip downloads it draws a single-line ASCII progress bar with the parsed percentage (`pip --progress-bar=on`, forwarded through `--pip-args` when installed via pipx).
 
+**Remote API (REST + WebSocket)**: when the `[api]` section is enabled in the settings, GRAFENO starts a local HTTP/1.1 server on the configured host:port (default `127.0.0.1:8735`) with a small, token-protected REST API and a single WebSocket endpoint that lets remote clients drive the orchestrator and receive live task events. The endpoint is built on the asyncio stdlib (no new runtime dependency) and reuses every action the TUI itself exposes: create/start/resume/restart/pause/extend/discard/mark-done, list/get tasks, fetch logs and artifacts, list projects. Authentication is `Authorization: Bearer <token>` or `?token=…`; an empty token set denies every request (the default — the server is opt-in). Tokens can also be passed through the `GRAFENO_API_TOKEN` environment variable, so secrets never have to be written to disk. A `task.changed` event is broadcast to WebSocket clients that subscribed to the `tasks` topic; the server polls the on-disk task store every 2 s (no hooks into the App), so a fresh client receives every change that happens after it connects without being spammed with the backlog. Changes to the API settings only apply on the next TUI launch — the worker boots in `on_mount`, not on save. Activity (accepted and denied requests, never the token itself) is logged to `~/.grafeno/api.log` and capped at 1 MB.
+
+### Remote API endpoints
+
+```
+GET  /api/v1/status                            # {version, uptime_seconds, pid, ws_path}
+GET  /api/v1/tasks[?state=...]                 # list tasks (optional state filter)
+GET  /api/v1/tasks/{id}                        # full task detail (to_dict + derived)
+GET  /api/v1/projects                          # workdirs + task counts
+GET  /api/v1/tasks/{id}/logs?limit=N           # last N lines of the live log (1<=N<=1000)
+GET  /api/v1/tasks/{id}/artifacts?kind=&cycle=#  # plan|review|final .md files
+POST /api/v1/tasks                             # create a task (body: name, workdir, ...)
+POST /api/v1/tasks/{id}/start|resume|restart|pause|discard|mark-done
+POST /api/v1/tasks/{id}/extend                 # body: {"request": "..."}
+WS   /api/v1/ws                                # JSON-RPC: {"id","method","params"} + subscribe {"event":"task.changed","task":{...}}
+```
+
+## Installation
+
 ## Installation
 
 ```bash
@@ -162,9 +181,10 @@ grafeno --version (or -v)          # print the installed GRAFENO version and exi
 
 ```
 ~/.grafeno/
-├── config.toml              # language (en/es), roles (cli+model+effort), automode, tests, git, theme (palette), final-steps prompt, global hook, editor, auto_update (agent CLIs), self_update (GRAFENO itself), workspaces (root folders for project discovery)
+├── config.toml              # language (en/es), roles (cli+model+effort), automode, tests, git, theme (palette), final-steps prompt, global hook, editor, auto_update (agent CLIs), self_update (GRAFENO itself), workspaces (root folders for project discovery), api (enabled/host/port/tokens for the REST + WebSocket server)
 ├── references.toml          # global references (name + description + path/URL); edited from the configuration screen
 ├── triggers.toml            # global trigger tasks (name + description + phases + timing + workdir); edited from the configuration screen
+├── api.log                  # REST + WebSocket server activity (accepted/denied requests; never tokens); capped at 1 MB
 └── tasks/<date>-<slug>/
     ├── task.toml            # state, iterations, sessions, workdir, branch, failed_phase (pipeline phase that failed, for [u] Resume), scheduling (scheduled_at, parent_id, repeat_mode, plan_reuse, repeat_count, last_completed_at), per-role effort level, references + use_global_references/use_project_references flags
     ├── plan/*.md            # plans with GRAFENO-EXECUTOR header
