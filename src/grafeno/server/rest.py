@@ -65,17 +65,57 @@ async def _status(service: "ServerService", request: Request, params: dict[str, 
 
 
 # ---------------------------------------------------------------------- #
+# Read endpoints
+# ---------------------------------------------------------------------- #
+@route("GET", "/api/v1/tasks")
+async def _tasks_list(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    state = request.query.get("state") or None
+    return actions.list_tasks(service, state=state)
+
+
+@route("GET", "/api/v1/tasks/{task_id}")
+async def _task_detail(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.get_task(service, params["task_id"])
+
+
+@route("GET", "/api/v1/projects")
+async def _projects_list(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.list_projects(service)
+
+
+@route("GET", "/api/v1/tasks/{task_id}/logs")
+async def _task_logs(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    raw_limit = request.query.get("limit", "200")
+    try:
+        limit = int(raw_limit)
+    except ValueError as exc:
+        raise actions.ApiError(400, "limit must be an integer") from exc
+    return actions.get_logs(service, params["task_id"], limit=limit)
+
+
+@route("GET", "/api/v1/tasks/{task_id}/artifacts")
+async def _task_artifacts(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    kind = request.query.get("kind") or ""
+    raw_cycle = request.query.get("cycle", "1")
+    try:
+        cycle = int(raw_cycle)
+    except ValueError as exc:
+        raise actions.ApiError(400, "cycle must be an integer") from exc
+    return actions.get_artifacts(service, params["task_id"], kind=kind, cycle=cycle)
+
+
+# ---------------------------------------------------------------------- #
 # Helpers
 # ---------------------------------------------------------------------- #
-def _match(request: Request) -> Optional[REST_HANDLER]:
+def _match(request: Request) -> tuple[Optional[REST_HANDLER], dict[str, str]]:
     for route in _ROUTES:
         if route.method != request.method:
             continue
         match = route.pattern.fullmatch(request.path)
         if match is None:
             continue
-        return route.handler
-    return None
+        return route.handler, match.groupdict()
+    return None, {}
 
 
 async def dispatch_rest(
@@ -86,13 +126,13 @@ async def dispatch_rest(
         return Response(405, headers={"Allow": ", ".join(sorted({r.method for r in _ROUTES}))}), None
     if request.method == "OPTIONS":
         return Response(200, headers={"Allow": ", ".join(sorted({r.method for r in _ROUTES}))}), None
-    handler = _match(request)
+    handler, params = _match(request)
     if handler is None:
         if any(r.pattern.fullmatch(request.path) for r in _ROUTES):
             return Response.json(405, {"error": "method not allowed"}), None
         return Response.json(404, {"error": "not found"}), None
     try:
-        payload = await handler(service, request, {})
+        payload = await handler(service, request, params)
     except actions.ApiError as exc:
         return Response.json(exc.status, {"error": exc.message}), None
     except Exception as exc:  # noqa: BLE001
