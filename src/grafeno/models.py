@@ -146,6 +146,7 @@ class Task:
     repeat_count: int = 0         # repetitions already executed (0 = first execution)
     last_completed_at: str = ""   # local ISO of the last time it reached DONE
     origin: str = ""              # "" = normal; "trigger" = spawned by a trigger task
+    failed_phase: str = ""        # pipeline phase that failed (plan/implement/review/fix/final); "" = unknown
     usage_waiting: bool = field(default=False, repr=False)  # transient: waiting for CLI quota
     created_at: str = ""
     updated_at: str = ""
@@ -228,6 +229,7 @@ class Task:
         self.extensions[str(self.cycle)] = request
         self.iteration = 0
         self.state = TaskState.DRAFT
+        self.failed_phase = ""
 
     def record_tokens(self, cli: str, model: str, phase: str, usage: "TokenUsage") -> None:
         """Accumulate the token usage of a run under its phase and CLI+model."""
@@ -308,6 +310,7 @@ class Task:
                 "repeat_count": self.repeat_count,
                 "last_completed_at": self.last_completed_at,
                 "origin": self.origin,
+                "failed_phase": self.failed_phase,
                 "use_global_references": self.use_global_references,
                 "use_project_references": self.use_project_references,
                 "created_at": self.created_at,
@@ -360,6 +363,7 @@ class Task:
             repeat_count=int(raw.get("repeat_count", 0)),
             last_completed_at=str(raw.get("last_completed_at", "")),
             origin=str(raw.get("origin", "")),
+            failed_phase=str(raw.get("failed_phase", "")),
             sessions={str(k): str(v) for k, v in data.get("sessions", {}).items()},
             durations={str(k): int(v) for k, v in data.get("durations", {}).items()},
             extensions={str(k): str(v) for k, v in data.get("extensions", {}).items()},
@@ -405,6 +409,7 @@ def reset_to_draft(task: Task) -> None:
     task.extensions = {}
     task.scheduled_at = ""
     task.base_commit = ""
+    task.failed_phase = ""
     for directory in (
         paths.plan_dir(task.id),
         paths.review_dir(task.id),

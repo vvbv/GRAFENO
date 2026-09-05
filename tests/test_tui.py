@@ -1654,3 +1654,105 @@ def test_task_list_refreshes_when_signature_changes():
             assert table.row_count == 2
 
     asyncio.run(scenario())
+
+
+def test_resume_on_failed_task_runs_resume_runner():
+    """The 'u' key confirms and launches run_automode_resume on the orchestrator."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task, TaskState
+        from grafeno.tui.screens.detail import StatusConfirmScreen, TaskDetailScreen
+
+        task = Task.create("Fallida", "desc", "/tmp", Config())
+        models.save(task)
+        task.state = TaskState.FAILED
+        task.failed_phase = "review"
+        models.save(task)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            screen = TaskDetailScreen(models.load(task.id))
+            started: list[tuple] = []
+            screen._start = lambda runner, label, plan_then_ask=False: started.append(
+                (runner, label)
+            )
+            app.push_screen(screen)
+            await pilot.pause()
+            await pilot.press("u")
+            await pilot.pause()
+            assert isinstance(app.screen, StatusConfirmScreen)
+            app.screen.query_one("#pc-accept").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#pc-accept")
+            for _ in range(5):
+                await pilot.pause(0.1)
+            assert len(started) == 1
+            runner, label = started[0]
+
+            calls: list[str] = []
+
+            class OrchSpy:
+                async def run_automode_resume(self) -> None:
+                    calls.append("resume")
+
+            await runner(OrchSpy())
+            assert calls == ["resume"]
+            assert label
+
+    asyncio.run(scenario())
+
+
+def test_resume_warns_when_not_failed():
+    """On a DRAFT task, 'u' warns and opens no modal."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task
+        from grafeno.tui.screens.detail import StatusConfirmScreen, TaskDetailScreen
+
+        task = Task.create("Borrador", "desc", "/tmp", Config())
+        models.save(task)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            screen = TaskDetailScreen(models.load(task.id))
+            started: list[str] = []
+            screen._start = lambda runner, label, plan_then_ask=False: started.append(label)
+            app.push_screen(screen)
+            await pilot.pause()
+            await pilot.press("u")
+            await pilot.pause()
+            assert not isinstance(app.screen, StatusConfirmScreen)
+            assert started == []
+
+    asyncio.run(scenario())
+
+
+def test_resume_blocked_when_discarded():
+    """A discarded task cannot be resumed."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task, TaskState
+        from grafeno.tui.screens.detail import StatusConfirmScreen, TaskDetailScreen
+
+        task = Task.create("Descartada", "desc", "/tmp", Config())
+        models.save(task)
+        task.state = TaskState.DISCARDED
+        models.save(task)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            screen = TaskDetailScreen(models.load(task.id))
+            started: list[str] = []
+            screen._start = lambda runner, label, plan_then_ask=False: started.append(label)
+            app.push_screen(screen)
+            await pilot.pause()
+            await pilot.press("u")
+            await pilot.pause()
+            assert not isinstance(app.screen, StatusConfirmScreen)
+            assert started == []
+
+    asyncio.run(scenario())

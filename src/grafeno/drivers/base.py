@@ -52,6 +52,42 @@ async def read_lines(stream: asyncio.StreamReader) -> AsyncIterator[str]:
         yield buffer
 
 
+def format_error_message(payload: dict, *candidates: object) -> str:
+    """Build a readable error message from a JSON event payload.
+
+    Candidates are tried in order: the first non-empty string wins; a dict
+    is inspected for a nested message (``message`` or ``data.message``)
+    decorated with its ``name``/``ref``; when nothing matches, the payload
+    is dumped as JSON (never the Python repr, which leaked single-quoted
+    dicts into the live log).
+    """
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            if candidate:
+                return candidate
+        elif isinstance(candidate, dict):
+            text = _format_error_dict(candidate)
+            if text:
+                return text
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _format_error_dict(obj: dict) -> str:
+    """Human-readable text out of an error dict like ``{name, data: {message, ref}}``."""
+    data = obj.get("data")
+    data = data if isinstance(data, dict) else {}
+    message = obj.get("message") or data.get("message")
+    name = obj.get("name")
+    ref = obj.get("ref") or data.get("ref")
+    if isinstance(message, str) and message:
+        text = f"{name}: {message}" if isinstance(name, str) and name else message
+    else:
+        text = json.dumps(obj, ensure_ascii=False)
+    if isinstance(ref, str) and ref:
+        text += f" (ref: {ref})"
+    return text
+
+
 class EventKind(Enum):
     TEXT = "text"    # assistant text
     TOOL = "tool"    # tool usage (read/write/commands)

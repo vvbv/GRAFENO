@@ -428,3 +428,45 @@ def test_tasks_signature_changes_on_save_and_delete():
 
     shutil.rmtree(models.paths.task_dir(task.id))
     assert models.tasks_signature() == ()
+
+
+def test_failed_phase_roundtrip(tmp_path):
+    """failed_phase se persiste en task.toml y se restaura al cargar."""
+    task = Task.create("Fallo", "desc", str(tmp_path), Config())
+    task.state = TaskState.FAILED
+    task.failed_phase = "review"
+    data = task.to_dict()
+    assert data["task"]["failed_phase"] == "review"
+    assert Task.from_dict(data).failed_phase == "review"
+    models.save(task)
+    assert models.load(task.id).failed_phase == "review"
+
+
+def test_failed_phase_legacy_defaults_to_empty(tmp_path):
+    """Un task.toml antiguo (sin la clave) carga con failed_phase vacio."""
+    task = Task.create("Legado", "desc", str(tmp_path), Config())
+    data = task.to_dict()
+    data["task"].pop("failed_phase")
+    assert Task.from_dict(data).failed_phase == ""
+
+
+def test_reset_to_draft_limpia_failed_phase(tmp_path):
+    """reset_to_draft olvida la fase fallida."""
+    task = Task.create("Reinicio", "desc", str(tmp_path), Config())
+    models.save(task)
+    task.state = TaskState.FAILED
+    task.failed_phase = "fix"
+    models.save(task)
+    reset_to_draft(task)
+    assert task.failed_phase == ""
+    assert models.load(task.id).failed_phase == ""
+
+
+def test_start_new_cycle_limpia_failed_phase(tmp_path):
+    """Un ciclo nuevo no arrastra la fase fallida anterior."""
+    task = Task.create("Ampliar", "desc", str(tmp_path), Config())
+    task.state = TaskState.FAILED
+    task.failed_phase = "final"
+    task.start_new_cycle("mas cosas")
+    assert task.failed_phase == ""
+    assert task.state is TaskState.DRAFT

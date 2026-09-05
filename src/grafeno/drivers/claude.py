@@ -39,7 +39,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from .base import CLIDriver, EventKind, RunEvent, RunRequest, TokenUsage
+from .base import CLIDriver, EventKind, RunEvent, RunRequest, TokenUsage, format_error_message
 
 
 class ClaudeDriver(CLIDriver):
@@ -103,7 +103,7 @@ class ClaudeDriver(CLIDriver):
 
         if event_type == "result":
             if payload.get("is_error") or str(payload.get("subtype", "")).startswith("error"):
-                message = payload.get("result") or payload.get("error") or str(payload)
+                message = format_error_message(payload, payload.get("result"), payload.get("error"))
                 return RunEvent(EventKind.ERROR, str(message)[:500]), session_id
             return None, session_id  # OK result: usage is extracted by extract_usage
 

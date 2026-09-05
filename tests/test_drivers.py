@@ -91,6 +91,38 @@ def test_opencode_list_models(monkeypatch):
     assert driver.list_models() == ["opencode-go/kimi-k3", "opencode/big-pickle"]
 
 
+def test_opencode_decode_error_dict():
+    """Real OpenCode shape: error events whose ``error`` field is a dict."""
+    driver = OpenCodeDriver()
+    payload = {
+        "type": "error",
+        "error": {"name": "UnknownError", "data": {"message": "Server exploded", "ref": "err_123"}},
+    }
+    event, _, _ = driver.decode_line(json.dumps(payload))
+    assert event.kind is EventKind.ERROR
+    assert event.text == "UnknownError: Server exploded (ref: err_123)"
+
+
+def test_opencode_decode_error_string_unchanged():
+    driver = OpenCodeDriver()
+    event, _, _ = driver.decode_line(json.dumps({"type": "error", "error": "boom"}))
+    assert event.kind is EventKind.ERROR
+    assert event.text == "boom"
+
+
+def test_format_error_message_fallback_json_dump():
+    """Without usable fields the payload is dumped as JSON, not as Python repr."""
+    from grafeno.drivers.base import format_error_message
+    text = format_error_message({"a": "b", "c": 1})
+    assert text == '{"a": "b", "c": 1}'
+    assert "'" not in text  # no single-quoted Python repr
+
+
+def test_format_error_message_first_string_wins():
+    from grafeno.drivers.base import format_error_message
+    assert format_error_message({}, "primero", {"message": "segundo"}) == "primero"
+
+
 # ---------------------------------------------------------------------- #
 # Kimi
 # ---------------------------------------------------------------------- #

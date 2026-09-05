@@ -1313,3 +1313,140 @@ class _FakeStream:
             return b""
         self._consumed = True
         return b""
+
+
+# ---------------------------------------------------------------------- #
+# Resume of failed tasks
+# ---------------------------------------------------------------------- #
+def _resume_drivers(**overrides) -> dict[str, FakeDriver]:
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", []),
+        "fake-rev": FakeDriver("fake-rev", [_ok("Bien.\nVERDICT: APPROVED")]),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
+    }
+    drivers.update(overrides)
+    return drivers
+
+
+def _write_plan(task: Task) -> None:
+    (paths.plan_dir(task.id, task.cycle) / "01-plan.md").write_text("plan", encoding="utf-8")
+
+
+def test_resume_legacy_empty_runs_full_automode(tmp_path):
+    """failed_phase vacio: pipeline completo reusando el plan en disco."""
+    task = _make_task(tmp_path, state=TaskState.FAILED)
+    models.save(task)
+    _write_plan(task)
+    drivers = _resume_drivers()
+    _run(Orchestrator(task, drivers=drivers).run_automode_resume())
+
+    assert task.state is TaskState.DONE
+    assert drivers["fake-planner"].prompts == []  # plan reused, no replan
+    assert drivers["fake-impl"].prompts  # implementation ran
+
+
+def test_resume_from_implement(tmp_path):
+    task = _make_task(tmp_path, state=TaskState.FAILED, failed_phase="implement")
+    models.save(task)
+    _write_plan(task)
+    drivers = _resume_drivers()
+    _run(Orchestrator(task, drivers=drivers).run_automode_resume())
+
+    assert task.state is TaskState.DONE
+    assert drivers["fake-planner"].prompts == []
+    assert drivers["fake-impl"].prompts[0] == prompts.implement_prompt(task)
+
+
+def test_resume_from_review(tmp_path):
+    task = _make_task(tmp_path, state=TaskState.FAILED, failed_phase="review")
+    models.save(task)
+    _write_plan(task)
+    drivers = _resume_drivers()
+    _run(Orchestrator(task, drivers=drivers).run_automode_resume())
+
+    assert task.state is TaskState.DONE
+    assert drivers["fake-impl"].prompts == []  # implementation skipped
+    assert len(drivers["fake-rev"].prompts) == 1
+    assert drivers["fake-final"].prompts
+
+
+def test_resume_from_fix(tmp_path):
+    """El fix se rehace con la misma numeracion de iteracion."""
+    task = _make_task(tmp_path, state=TaskState.FAILED, failed_phase="fix")
+    models.save(task)
+    _write_plan(task)
+    (paths.review_dir(task.id, task.cycle) / "01-review.md").write_text(
+        "faltan cosas", encoding="utf-8"
+    )
+    drivers = _resume_drivers()
+    _run(Orchestrator(task, drivers=drivers).run_automode_resume())
+
+    assert task.state is TaskState.DONE
+    assert "01-review.md" in drivers["fake-impl"].prompts[0]
+    assert task.iteration == 1
+
+
+def test_resume_from_final(tmp_path):
+    task = _make_task(tmp_path, state=TaskState.FAILED, failed_phase="final")
+    models.save(task)
+    _write_plan(task)
+    drivers = _resume_drivers()
+    _run(Orchestrator(task, drivers=drivers).run_automode_resume())
+
+    assert task.state is TaskState.DONE
+    assert drivers["fake-impl"].prompts == []
+    assert drivers["fake-rev"].prompts == []
+    assert len(drivers["fake-final"].prompts) == 1
+
+
+def test_resume_resets_exhausted_budget(tmp_path):
+    task = _make_task(
+        tmp_path, state=TaskState.FAILED, failed_phase="review", max_iterations=2
+    )
+    task.iteration = 2
+    models.save(task)
+    _write_plan(task)
+    drivers = _resume_drivers()
+    _run(Orchestrator(task, drivers=drivers).run_automode_resume())
+
+    assert task.state is TaskState.DONE
+    assert task.iteration == 0  # budget restarted, the review approved
+
+
+def test_max_iterations_marks_review_phase(tmp_path):
+    task = _make_task(tmp_path, max_iterations=1)
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", []),
+        "fake-rev": FakeDriver("fake-rev", []),  # never approves
+        "fake-final": FakeDriver("fake-final", []),
+    }
+    _run(Orchestrator(task, drivers=drivers).run_automode())
+
+    assert task.state is TaskState.FAILED
+    assert task.failed_phase == "review"
+
+
+def test_execute_failure_marks_phase_and_success_clears_it(tmp_path):
+    task = _make_task(tmp_path)
+    (tmp_path / "AGENTS.md").write_text("docs", encoding="utf-8")  # skip generation
+    drivers = {
+        "fake-planner": FakeDriver(
+            "fake-planner", [RunResult(ok=False, text="", error="boom")]
+        ),
+        "fake-impl": FakeDriver("fake-impl", []),
+        "fake-rev": FakeDriver("fake-rev", []),
+        "fake-final": FakeDriver("fake-final", []),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    with pytest.raises(PhaseError):
+        _run(orch.run_plan())
+    assert task.state is TaskState.FAILED
+    assert task.failed_phase == "plan"
+    assert models.load(task.id).failed_phase == "plan"
+
+    drivers["fake-planner"]._results.append(_ok("plan ok"))
+    _run(orch.run_plan())
+    assert task.failed_phase == ""
+    assert models.load(task.id).failed_phase == ""

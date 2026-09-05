@@ -45,6 +45,8 @@ Every task follows a pipeline with four configurable roles (CLI + model for each
 
 **Cycles ("Ask for more")**: once the task is completed (or at any pause), the `m` key lets you request extensions on the same project. Each extension starts a new cycle with the same logic (plan -> optional approval -> implementation -> review), keeping the history under `plan/ciclo-NN/` and `review/ciclo-NN/`.
 
+**Resume failed tasks**: when a task ends in `failed`, the `u` key on the detail screen restarts the pipeline from the phase that failed, reusing everything already on disk: `plan/`, `review/`, fixes, sessions and the git branch (the captured `base_commit`). The orchestrator records the failed phase (`failed_phase` in `task.toml`) and decides deterministically what to run next — if it failed during `implement`, it skips planning and jumps back into the implementer; if it died in `review` or `fix` with the iteration budget exhausted, the budget is reset so the loop can run again. Legacy tasks without a recorded phase simply re-run the full pipeline (reusing any plan already on disk, like `a`). Use `R` instead when you want to start over from scratch and clear every artifact.
+
 **Scheduler, chains and repetitive tasks**: in the new-task form you can set a start time (`Start at`, format `YYYY-MM-DD HH:MM`), chain the task to another (`Chained after task`, which fires as soon as the parent reaches `DONE`), and turn it into a repetitive task. Two repeat modes are available: `interval` (every N minutes after the previous run, with the interval reused as the next start time) and `infinite` (restart when the whole chain finishes). For repetitive runs you also pick a plan policy: `reuse` (run the same plan again), `replan` (drop the plan and let the planner start from scratch) or `reevaluate` (keep the plan but ask the planner to re-check it against the description before implementing). Unattended runs always use the full pipeline in automode and ignore `confirm_plan`; tasks paused manually (`PAUSED`) are never auto-started. The detail view shows the start time and the repeat mode so the context is visible without leaving the screen.
 
 **Tasks list**: the task table renders chained tasks as a sub-list under their parent, with the child rows indented (`+` marks the root, two spaces per level). Besides the live clock that the global header shows on every screen (date and time with seconds, updated every second), this screen also has a scope button — `Project tasks` by default (it compares `task.workdir` against the current directory, including chained children whose parent belongs to this project) and `All tasks` when toggled with the `v` key. Running tasks show a leading `▶` so they stand out even when the list is long.
@@ -149,6 +151,7 @@ grafeno --version (or -v)          # print the installed GRAFENO version and exi
 | `E` | Detail | Edit task name and description |
 | `d` | Detail | Force-close (marks the task as `done`, with confirmation) |
 | `D` | Detail | Discard task (terminal state `discarded`, with confirmation) |
+| `u` | Detail | Resume a failed task from the phase that failed, reusing `plan/`, `review/`, fixes and the git branch already on disk (with confirmation) |
 | `R` | Detail | Restart the task from scratch (aborts the current run if any, then resets to `DRAFT` and clears `plan/`, `review/`, `final/` and the schedule, with confirmation) |
 | `x` | Detail | Cancel execution |
 | `Esc` | Detail/Config | Back |
@@ -163,7 +166,7 @@ grafeno --version (or -v)          # print the installed GRAFENO version and exi
 ├── references.toml          # global references (name + description + path/URL); edited from the configuration screen
 ├── triggers.toml            # global trigger tasks (name + description + phases + timing + workdir); edited from the configuration screen
 └── tasks/<date>-<slug>/
-    ├── task.toml            # state, iterations, sessions, workdir, branch, scheduling (scheduled_at, parent_id, repeat_mode, plan_reuse, repeat_count, last_completed_at), per-role effort level, references + use_global_references/use_project_references flags
+    ├── task.toml            # state, iterations, sessions, workdir, branch, failed_phase (pipeline phase that failed, for [u] Resume), scheduling (scheduled_at, parent_id, repeat_mode, plan_reuse, repeat_count, last_completed_at), per-role effort level, references + use_global_references/use_project_references flags
     ├── plan/*.md            # plans with GRAFENO-EXECUTOR header
     ├── review/*.md          # reviews numbered by iteration
     ├── final/*.md           # final-step reports per cycle + auto-generated changes.md

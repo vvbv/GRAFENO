@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import CLIDriver, EventKind, RunEvent, RunRequest, TokenUsage
+from .base import CLIDriver, EventKind, RunEvent, RunRequest, TokenUsage, format_error_message
 
 
 class CodexDriver(CLIDriver):
@@ -96,7 +96,7 @@ class CodexDriver(CLIDriver):
             return None, session_id  # internal noise: recorded in the raw log
 
         if event_type == "error" or payload.get("error"):
-            message = payload.get("message") or payload.get("error") or str(payload)
+            message = format_error_message(payload, payload.get("message"), payload.get("error"))
             return RunEvent(EventKind.ERROR, str(message)[:500]), session_id
 
         return RunEvent(EventKind.INFO, f"[{event_type or 'evento'}]"), session_id

@@ -70,6 +70,11 @@ class Orchestrator:
         models.save(self.task)
         self._on_state(self.task)
 
+    def _mark_failed(self, phase: str) -> None:
+        """Mark the pipeline phase as failed (recorded for resume)."""
+        self.task.failed_phase = phase
+        self._set_state(TaskState.FAILED)
+
     def _info(self, message: str) -> None:
         self._on_info(message)
 
@@ -115,10 +120,10 @@ class Orchestrator:
         try:
             driver = self._driver(role.cli)
         except PhaseError:
-            self._set_state(TaskState.FAILED)
+            self._mark_failed(phase)
             raise
         if not driver.is_available():
-            self._set_state(TaskState.FAILED)
+            self._mark_failed(phase)
             raise PhaseError(
                 t("orch.cli_missing", cli=role.cli, name=driver.display_name)
             )
@@ -165,9 +170,10 @@ class Orchestrator:
         if not result.ok:
             if result.usage_wait is not None:
                 self._info(t("orch.usage_wait.giving_up", max=ratelimit.MAX_ATTEMPTS))
-            self._set_state(TaskState.FAILED)
+            self._mark_failed(phase)
             await self._run_hooks(phase, "failed")
             raise PhaseError(result.error or t("orch.phase_failed", phase=phase_label(phase)))
+        self.task.failed_phase = ""  # the phase advanced: forget the old failure
         self._set_state(done_state)
         self._info(
             t("orch.phase_done", phase=phase_label(phase), duration=format_duration(time.monotonic() - started_at))
@@ -329,7 +335,7 @@ class Orchestrator:
         if not self._plan_files():
             # Fallback: the planner wrote no files; we materialise its output.
             if not result.text.strip():
-                self._set_state(TaskState.FAILED)
+                self._mark_failed("plan")
                 raise PhaseError(t("orch.no_plan_output"))
             plan_path = paths.plan_dir(self.task.id, self.task.cycle) / "01-plan.md"
             plan_path.write_text(
@@ -529,6 +535,18 @@ class Orchestrator:
         except PhaseError as exc:
             self._info(str(exc))
 
+    async def _review_fix_loop(self) -> None:
+        """Review/fix cycle shared by run_automode_continue and resume."""
+        while self.task.state is not TaskState.DONE:
+            await self.run_review()
+            if self.task.state is TaskState.DONE:
+                break
+            if self.task.iteration >= self.task.max_iterations:
+                self._mark_failed("review")
+                self._info(t("orch.max_iterations", max=self.task.max_iterations))
+                return
+            await self.run_fix()
+
     async def run_automode_continue(self) -> None:
         """Implementation + review loop (requires an existing plan)."""
         self.task.automode = True
@@ -539,18 +557,44 @@ class Orchestrator:
         try:
             await self.run_implement()
             await self.run_tests()
+            await self._review_fix_loop()
+            if self.task.state is TaskState.DONE:
+                await self.run_final()
+        except PhaseError as exc:
+            self._info(str(exc))
 
-            while self.task.state is not TaskState.DONE:
-                await self.run_review()
-                if self.task.state is TaskState.DONE:
-                    break
-                if self.task.iteration >= self.task.max_iterations:
-                    self._set_state(TaskState.FAILED)
-                    self._info(
-                        t("orch.max_iterations", max=self.task.max_iterations)
-                    )
-                    return
+    async def run_automode_resume(self) -> None:
+        """Resume a FAILED task, reusing the artifacts already on disk."""
+        self.task.automode = True
+        models.save(self.task)
+        failed = self.task.failed_phase
+        if failed not in ("implement", "review", "fix", "final"):
+            # Legacy/unknown failure ("" or "plan"): full pipeline; the plan
+            # phase still reuses any plan files already on disk. The state
+            # goes back to DRAFT (artifacts are kept) because run_automode
+            # bails out on FAILED tasks.
+            if self.task.state is TaskState.FAILED:
+                self._set_state(TaskState.DRAFT)
+            await self.run_automode()
+            return
+        self._info(t("orch.resume_from", phase=phase_label(failed)))
+        try:
+            if failed == "final":
+                await self.run_final()
+                return
+            if self.task.iteration >= self.task.max_iterations:
+                # Review/fix budget exhausted: restart it (branch, plan files
+                # and other artifacts are still reused).
+                self.task.iteration = 0
+                models.save(self.task)
+            if failed == "implement":
+                if not self._plan_files():
+                    await self.run_plan()
+                await self.run_implement()
+                await self.run_tests()
+            elif failed == "fix":
                 await self.run_fix()
+            await self._review_fix_loop()
             if self.task.state is TaskState.DONE:
                 await self.run_final()
         except PhaseError as exc:

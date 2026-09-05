@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .base import CLIDriver, EventKind, RunEvent, RunRequest, TokenUsage
+from .base import CLIDriver, EventKind, RunEvent, RunRequest, TokenUsage, format_error_message
 
 
 class KimiDriver(CLIDriver):
@@ -85,7 +85,7 @@ class KimiDriver(CLIDriver):
             return None, session_id  # versions, resume hints...: raw log only
 
         if event_type == "error" or payload.get("error"):
-            message_text = payload.get("error") or payload.get("message") or str(payload)
+            message_text = format_error_message(payload, payload.get("error"), payload.get("message"))
             return RunEvent(EventKind.ERROR, str(message_text)[:500]), session_id
 
         # Alternate format {"type":"assistant","message":{"content":[...]}}

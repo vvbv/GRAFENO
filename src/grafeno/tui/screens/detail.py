@@ -320,6 +320,7 @@ class TaskDetailScreen(Screen[None]):
         Binding("E", "edit_info", t("det.bind.edit")),
         Binding("d", "mark_done", t("det.bind.complete")),
         Binding("R", "restart", t("det.bind.restart")),
+        Binding("u", "resume", t("det.bind.resume")),
         Binding("D", "mark_discard", t("det.bind.discard")),
         Binding("x", "cancel", t("det.bind.cancel")),
         Binding("escape", "back", t("common.back")),
@@ -816,6 +817,31 @@ class TaskDetailScreen(Screen[None]):
 
         self.app.push_screen(
             StatusConfirmScreen(t("det.restart.title"), t("det.restart.body")),
+            decide,
+        )
+
+    def action_resume(self) -> None:
+        """Resume a FAILED task, reusing the work already done (keeps plan/,
+        review/ and the git branch)."""
+        if self.runtime.running:
+            self.notify(t("det.warn.running"), severity="warning")
+            return
+        if self.current_task.state is TaskState.DISCARDED:
+            self.notify(t("det.warn.discarded"), severity="warning")
+            return
+        if self.current_task.state is not TaskState.FAILED:
+            self.notify(t("det.warn.not_failed"), severity="warning")
+            return
+
+        def decide(accepted: bool) -> None:
+            if accepted:
+                self._start(
+                    lambda orch: orch.run_automode_resume(),
+                    t("det.resume.label"),
+                )
+
+        self.app.push_screen(
+            StatusConfirmScreen(t("det.resume.title"), t("det.resume.body")),
             decide,
         )
 

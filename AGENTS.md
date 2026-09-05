@@ -17,7 +17,7 @@ CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex y Claude Code).
 src/grafeno/
 ├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas); intercepta el comando CLI `grafeno update` antes del argparse; `--version`/`-v` imprime la versión
 ├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo, automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), prompt de pasos finales, sección [telegram] (TelegramConfig)
-├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict
+├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict; incluye `failed_phase` (fase del pipeline que fallo, para reanudar)
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
 ├── live_log.py             # Persistencia del log en vivo (Text -> logs/live.jsonl, carga al crear el runtime; best-effort)
@@ -49,7 +49,7 @@ src/grafeno/
 │   ├── opencode.py, kimi.py, codex.py, claude.py#   Dialectos concretos
 │   └── __init__.py         #   Registro: get_driver(), available_clis(), fetch_all_models(), fetch_all_variants()
 ├── pipeline/
-│   ├── orchestrator.py     # Orquestador de fases (plan/implementar/revisar/final, automode, ciclos)
+│   ├── orchestrator.py     # Orquestador de fases (plan/implementar/revisar/final, automode, ciclos); `_mark_failed` registra la fase fallida, `_review_fix_loop` es el bucle compartido y `run_automode_resume` reanuda desde la fase fallida reaprovechando artefactos (resetea el presupuesto de iteracion solo si estaba agotado)
 │   ├── hooks.py            # Hooks de completado por etapa (comando shell o webhook URL; global + por tarea, mejor esfuerzo)
 │   ├── prompts.py          # Prompts por fase, cabecera GRAFENO-EXECUTOR e instrucciones finales personalizables
 │   ├── verdict.py          # Parseo del veredicto del revisor (VERDICT: APPROVED / CHANGES_REQUESTED)
@@ -62,7 +62,7 @@ src/grafeno/
     ├── refform.py          # Editor reutilizable de referencias (tabla + añadir/borrar)
     ├── trigform.py         # Editor reutilizable de triggers globales (tabla + añadir/borrar)
     ├── widgets.py          # Widgets comunes (cabecera GrafenoHeader con reloj fecha/hora, LocationBar con la ruta actual y la de la tarea + distintivo SSH, barra de fases, helpers Markdown, MediaTextArea que guarda imágenes pegadas e inserta tokens media/media-NN.png)
-    └── screens/            # tasks (lista), detail (detalle+acciones), config, roles, consoles (tabs de shells del proyecto)
+    └── screens/            # tasks (lista), detail (detalle+acciones: `u` reanuda una tarea FAILED reusando artefactos, `R` reinicia desde cero borrandolos), config, roles, consoles (tabs de shells del proyecto)
 tests/                      # pytest; conftest aísla GRAFENO_HOME e idioma por test
 docs/screenshot.png         # captura de la lista de tareas usada en el README
 install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), vía pipx; la ausencia de CLIs de agente es siempre un warning (nunca un error)
@@ -123,7 +123,11 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   espera cuando se detecta uso agotado en el run (reintenta la fase con
   la espera indicada o sondea cada `PROBE_SECONDS` hasta `MAX_ATTEMPTS`;
   durante la espera la TUI muestra el sufijo i18n `state.waiting` en la
-  lista de tareas y en `PhaseBar`).
+  lista de tareas y en `PhaseBar`). La rama de errores de cada driver
+  normaliza su texto con `format_error_message(payload, ...)` de
+  `base.py` (nunca `str(payload)`: los campos dict del CLI se traducen a
+  `name: message (ref)` y el fallback es `json.dumps`, nunca el repr de
+  Python).
 - **Auto-actualización de GRAFENO**: `selfupdate.py` consulta la última
   release de GitHub al arrancar la TUI (siempre, worker en segundo
   plano, fallos silenciosos). Con `Config.self_update` activado se

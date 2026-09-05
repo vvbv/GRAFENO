@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .base import CLIDriver, EventKind, RunEvent, RunRequest, TokenUsage
+from .base import CLIDriver, EventKind, RunEvent, RunRequest, TokenUsage, format_error_message
 
 
 class OpenCodeDriver(CLIDriver):
@@ -125,8 +125,8 @@ class OpenCodeDriver(CLIDriver):
             return RunEvent(EventKind.TOOL, summary[:200]), session_id
 
         if event_type == "error":
-            message = payload.get("error") or part.get("message") or str(payload)
-            return RunEvent(EventKind.ERROR, str(message)[:500]), session_id
+            message = format_error_message(payload, payload.get("error"), part.get("message"))
+            return RunEvent(EventKind.ERROR, message[:500]), session_id
 
         if event_type in {"step_start", "step_finish", "session_start", "session_end"}:
             return None, session_id  # internal noise: recorded in the raw log

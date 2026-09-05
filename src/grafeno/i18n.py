@@ -250,6 +250,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "det.bind.discard": "Discard",
         "det.bind.edit": "Edit",
         "det.bind.restart": "Restart",
+        "det.bind.resume": "Resume",
         # consolas del proyecto
         "consoles.title": "Consoles · {path}",
         "consoles.new": "New",
@@ -334,6 +335,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "This cannot be undone."
         ),
         "det.restarted": "Task restarted: back to draft; plan, reviews and final report cleared.",
+        "det.resume.title": "Resume this failed task?",
+        "det.resume.body": (
+            "The pipeline continues from the failing phase, keeping everything already "
+            "on disk: plan files, reviews, fixes and the git branch (base commit). "
+            "Use [R] to restart from scratch instead."
+        ),
+        "det.resume.label": "Resume from failure",
+        "det.warn.not_failed": "Resume only applies to failed tasks (use [R] to restart from scratch).",
         "det.warn.discarded": "Task is discarded: pipeline actions are blocked.",
         "det.warn.already_done": "Task is already done.",
         "det.warn.already_discarded": "Task is already discarded.",
@@ -425,6 +434,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "orch.tests.exec_error": "[Tests] Could not run: {error}",
         "orch.tests.exit": "[Tests] Exit code: {code} ({duration})",
         "orch.plan_reused": "Plan already exists; reusing it.",
+        "orch.resume_from": "Resuming from the failed phase: {phase}. Reusing artifacts already on disk.",
         "orch.no_plan_files": "There are no plan files; generate the plan first ([p]).",
         "orch.max_iterations": "Maximum iterations reached ({max}). Check the review files.",
         "orch.not_git": "The directory is not a git repository; working without a dedicated branch.",
@@ -785,6 +795,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "det.bind.discard": "Descartar",
         "det.bind.edit": "Editar",
         "det.bind.restart": "Reiniciar",
+        "det.bind.resume": "Reanudar",
         # consolas del proyecto
         "consoles.title": "Consolas · {path}",
         "consoles.new": "Nueva",
@@ -868,6 +879,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "actuales. Se limpia la programación horaria. Esta acción no se puede deshacer."
         ),
         "det.restarted": "Tarea reiniciada: vuelve a borrador; plan, revisiones e informe final borrados.",
+        "det.resume.title": "¿Reanudar esta tarea fallida?",
+        "det.resume.body": (
+            "El pipeline continúa desde la fase que falló, conservando todo lo ya "
+            "existente en disco: plan, revisiones, correcciones y la rama git "
+            "(base commit). Usa [R] para reiniciar desde cero."
+        ),
+        "det.resume.label": "Reanudar desde el fallo",
+        "det.warn.not_failed": "La reanudación solo aplica a tareas fallidas (usa [R] para reiniciar desde cero).",
         "det.warn.discarded": "La tarea está descartada: las acciones del pipeline están bloqueadas.",
         "det.warn.already_done": "La tarea ya está completada.",
         "det.warn.already_discarded": "La tarea ya está descartada.",
@@ -954,6 +973,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "orch.tests.exec_error": "[Tests] No se pudo ejecutar: {error}",
         "orch.tests.exit": "[Tests] Código de salida: {code} ({duration})",
         "orch.plan_reused": "Plan ya existente; se reutiliza.",
+        "orch.resume_from": "Reanudando desde la fase fallida: {phase}. Reaprovechando los artefactos en disco.",
         "orch.no_plan_files": "No hay archivos de plan; genera el plan primero ([p]).",
         "orch.max_iterations": "Se alcanzó el máximo de iteraciones ({max}). Revisa los archivos de revisión.",
         "orch.not_git": "El directorio no es un repositorio git; se trabaja sin rama dedicada.",
