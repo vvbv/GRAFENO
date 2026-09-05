@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .. import models, paths
+from .. import models, paths, scheduler
 from ..models import Task, TaskState, task_state_label
 
 if TYPE_CHECKING:
@@ -141,3 +141,141 @@ def get_artifacts(service: "ServerService", task_id: str, kind: str, cycle: int 
                 continue
             files.append({"name": entry.name, "content": content})
     return {"kind": kind, "cycle": cycle, "files": files}
+
+
+# ---------------------------------------------------------------------- #
+# Write operations
+# ---------------------------------------------------------------------- #
+def _runtime_start(service: "ServerService", task: Task, runner_factory, label: str) -> None:
+    """Start a runner on the task's runtime, raising ApiError on failures."""
+    app = service.app
+    if app is None:
+        raise ApiError(503, "app unavailable")
+    runtime = service.app.runtime_for(task)
+    if not runtime.start(app, runner_factory, label):
+        raise ApiError(409, "task already running")
+
+
+def create_task(service: "ServerService", payload: dict) -> dict:
+    """Create a new task from a JSON payload and return its summary."""
+    from .. import config as config_module
+
+    if not isinstance(payload, dict):
+        raise ApiError(400, "payload must be an object")
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise ApiError(400, "name is required")
+    workdir = str(payload.get("workdir") or "").strip()
+    if not workdir:
+        raise ApiError(400, "workdir is required")
+    description = str(payload.get("description") or "")
+    cfg = config_module.load()
+    parent_id = str(payload.get("parent_id") or "").strip()
+    if parent_id:
+        # Validate the proposed position using the same rule the TUI uses.
+        task = models.Task.create(
+            name=name,
+            description=description,
+            workdir=workdir,
+            config=cfg,
+            automode=bool(payload.get("automode", True)),
+            parent_id=parent_id or None,
+        )
+        by_id = {item.id: item for item in models.list_all()}
+        error = scheduler.rechain_error(task, parent_id, by_id)
+        if error:
+            raise ApiError(400, error)
+    else:
+        task = models.Task.create(
+            name=name,
+            description=description,
+            workdir=workdir,
+            config=cfg,
+            automode=bool(payload.get("automode", True)),
+        )
+    scheduled_at = payload.get("scheduled_at")
+    if scheduled_at:
+        task.scheduled_at = str(scheduled_at)
+    if payload.get("origin"):
+        task.origin = str(payload["origin"])
+    else:
+        task.origin = "api"
+    models.save(task)
+    return 201, {"task": task_summary(task)}
+
+
+def _load_or_404(task_id: str) -> Task:
+    try:
+        return models.load(task_id)
+    except (FileNotFoundError, KeyError, OSError, ValueError) as exc:
+        raise ApiError(404, "task not found") from exc
+
+
+def start_task(service: "ServerService", task_id: str) -> dict:
+    """Start the full automode pipeline of a task."""
+    task = _load_or_404(task_id)
+    _runtime_start(service, task, lambda orch: orch.run_automode(), "API start")
+    return {"ok": True}
+
+
+def resume_task(service: "ServerService", task_id: str) -> dict:
+    """Resume a FAILED task reusing the artifacts on disk."""
+    task = _load_or_404(task_id)
+    if task.state is not TaskState.FAILED:
+        raise ApiError(409, "task is not in FAILED state")
+    _runtime_start(service, task, lambda orch: orch.run_automode_resume(), "API resume")
+    return {"ok": True}
+
+
+def restart_task(service: "ServerService", task_id: str) -> dict:
+    """Reset the task to DRAFT and start automode again."""
+    task = _load_or_404(task_id)
+    models.reset_to_draft(task)
+    _runtime_start(service, task, lambda orch: orch.run_automode(), "API restart")
+    return {"ok": True}
+
+
+def extend_task(service: "ServerService", task_id: str, request: str) -> dict:
+    """Start a new cycle on an existing task with a fresh request."""
+    task = _load_or_404(task_id)
+    request = (request or "").strip()
+    if not request:
+        raise ApiError(400, "request is required")
+    task.start_new_cycle(request)
+    models.save(task)
+    _runtime_start(service, task, lambda orch: orch.run_automode_plan(), "API extend")
+    return {"ok": True}
+
+
+def pause_task(service: "ServerService", task_id: str) -> dict:
+    """Pause a running task (cancels the worker)."""
+    task = _load_or_404(task_id)
+    app = service.app
+    if app is None:
+        raise ApiError(503, "app unavailable")
+    runtime = app.runtimes.get(task.id)
+    if runtime is None or not runtime.running:
+        raise ApiError(409, "not running")
+    runtime.cancel()
+    return {"ok": True, "state": "paused"}
+
+
+def discard_task(service: "ServerService", task_id: str) -> dict:
+    """Mark the task as DISCARDED (cancel any running pipeline first)."""
+    task = _load_or_404(task_id)
+    app = service.app
+    if app is not None:
+        runtime = app.runtimes.get(task.id)
+        if runtime is not None and runtime.running:
+            runtime.cancel()
+    task.state = TaskState.DISCARDED
+    models.save(task)
+    return {"ok": True, "state": "discarded"}
+
+
+def mark_done(service: "ServerService", task_id: str) -> dict:
+    """Force-complete the task without running the rest of the pipeline."""
+    task = _load_or_404(task_id)
+    task.state = TaskState.DONE
+    models.save(task)
+    return {"ok": True, "state": "done"}

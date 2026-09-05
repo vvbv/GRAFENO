@@ -63,6 +63,8 @@ class GrafenoApp(App):
         self.runtimes: dict[str, TaskRuntime] = {}
         # Telegram bot service (None when disabled or misconfigured).
         self.telegram: TelegramService | None = None
+        # REST + WebSocket server (None when disabled).
+        self.api_server = None
 
     def on_mount(self) -> None:
         self.sub_title = t("app.subtitle", version=__version__)
@@ -94,6 +96,8 @@ class GrafenoApp(App):
         self.set_interval(10.0, self._scheduler_tick)
         if cfg.telegram.enabled:
             self._start_telegram(cfg)
+        if cfg.api.enabled:
+            self._start_api(cfg)
 
     def watch_theme(self, theme_name: str) -> None:
         """Persist the chosen palette in the config (e.g. via Ctrl+T)."""
@@ -176,6 +180,16 @@ class GrafenoApp(App):
         self.run_worker(
             self.telegram.run(), exclusive=True,
             group="telegram", exit_on_error=False,
+        )
+
+    def _start_api(self, cfg) -> None:
+        """Start the REST + WebSocket API server worker when enabled."""
+        from .server.service import ServerService
+
+        self.api_server = ServerService(cfg.api, app=self)
+        self.run_worker(
+            self.api_server.run(), exclusive=True,
+            group="api-server", exit_on_error=False,
         )
 
     def _scheduler_tick(self) -> None:

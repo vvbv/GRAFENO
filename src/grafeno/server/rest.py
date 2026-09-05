@@ -105,6 +105,52 @@ async def _task_artifacts(service: "ServerService", request: Request, params: di
 
 
 # ---------------------------------------------------------------------- #
+# Write endpoints
+# ---------------------------------------------------------------------- #
+@route("POST", "/api/v1/tasks")
+async def _task_create(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    payload = parse_json_body(request)
+    return actions.create_task(service, payload)
+
+
+@route("POST", "/api/v1/tasks/{task_id}/start")
+async def _task_start(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.start_task(service, params["task_id"])
+
+
+@route("POST", "/api/v1/tasks/{task_id}/resume")
+async def _task_resume(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.resume_task(service, params["task_id"])
+
+
+@route("POST", "/api/v1/tasks/{task_id}/restart")
+async def _task_restart(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.restart_task(service, params["task_id"])
+
+
+@route("POST", "/api/v1/tasks/{task_id}/pause")
+async def _task_pause(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.pause_task(service, params["task_id"])
+
+
+@route("POST", "/api/v1/tasks/{task_id}/discard")
+async def _task_discard(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.discard_task(service, params["task_id"])
+
+
+@route("POST", "/api/v1/tasks/{task_id}/mark-done")
+async def _task_mark_done(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.mark_done(service, params["task_id"])
+
+
+@route("POST", "/api/v1/tasks/{task_id}/extend")
+async def _task_extend(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    payload = parse_json_body(request)
+    request_text = str(payload.get("request") or "")
+    return actions.extend_task(service, params["task_id"], request=request_text)
+
+
+# ---------------------------------------------------------------------- #
 # Helpers
 # ---------------------------------------------------------------------- #
 def _match(request: Request) -> tuple[Optional[REST_HANDLER], dict[str, str]]:
@@ -132,13 +178,17 @@ async def dispatch_rest(
             return Response.json(405, {"error": "method not allowed"}), None
         return Response.json(404, {"error": "not found"}), None
     try:
-        payload = await handler(service, request, params)
+        result = await handler(service, request, params)
     except actions.ApiError as exc:
         return Response.json(exc.status, {"error": exc.message}), None
     except Exception as exc:  # noqa: BLE001
         service._log(f"unhandled error: {exc}")
         return Response.json(500, {"error": "internal error"}), None
-    return Response.json(200, payload), None
+    if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], int):
+        status, payload = result
+    else:
+        status, payload = 200, result
+    return Response.json(status, payload), None
 
 
 def extract_params(route: _Route, request: Request) -> dict[str, str]:
