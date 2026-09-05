@@ -1,0 +1,731 @@
+openapi: 3.1.0
+info:
+  title: GRAFENO Remote API
+  version: 1.0.0
+  summary: Token-protected REST API of the GRAFENO remote server.
+  description: |
+    REST control API exposed by the GRAFENO TUI while it is running
+    (`[api]` section of `~/.grafeno/config.toml`). The server lives only
+    inside the TUI process as a worker; there is no standalone daemon.
+    Every request is authenticated by a shared token, either as
+    `Authorization: Bearer <token>` or as the `?token=` query parameter
+    (duplicate of `src/grafeno/server/auth.py`). An empty token set on
+    the server denies every request. Error payloads are always
+    `{"error": "<message>"}`.
+externalDocs:
+  description: WebSocket protocol (AsyncAPI)
+  url: ./asyncapi.yaml
+servers:
+  - url: http://127.0.0.1:8735
+    description: Default local bind; host and port are configurable in `[api]`.
+security:
+  - BearerAuth: []
+  - QueryToken: []
+tags:
+  - name: status
+    description: Server metadata.
+  - name: tasks
+    description: Task lifecycle, logs and artifacts.
+  - name: projects
+    description: Project list with task counts.
+paths:
+  /api/v1/status:
+    get:
+      tags: [status]
+      summary: Server metadata (version, uptime, pid and WS path).
+      operationId: getStatus
+      responses:
+        "200":
+          description: Server metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/tasks:
+    get:
+      tags: [tasks]
+      summary: List tasks, optionally filtered by state.
+      operationId: listTasks
+      parameters:
+        - $ref: "#/components/parameters/StateQuery"
+      responses:
+        "200":
+          description: Tasks wrapped under the `tasks` key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskListResponse"
+        "400":
+          description: Unknown `state` value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags: [tasks]
+      summary: Create a task (DRAFT via automode).
+      operationId: createTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskCreateRequest"
+      responses:
+        "201":
+          description: Created task summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskCreateResponse"
+        "400":
+          description: Validation error (name/workdir required, rechain error).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/tasks/{task_id}:
+    get:
+      tags: [tasks]
+      summary: Full task detail (`to_dict()` plus derived fields).
+      operationId: getTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Task detail wrapped under the `task` key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetailResponse"
+        "401":
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Task not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/projects:
+    get:
+      tags: [projects]
+      summary: Distinct task workdirs with their task counts (plus discovered workspaces).
+      operationId: listProjects
+      responses:
+        "200":
+          description: Projects wrapped under the `projects` key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectListResponse"
+        "401":
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/tasks/{task_id}/logs:
+    get:
+      tags: [tasks]
+      summary: Tail of the persisted live log of a task.
+      operationId: getTaskLogs
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/LimitQuery"
+      responses:
+        "200":
+          description: One plain-text log line per array item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogsResponse"
+        "400":
+          description: "`limit` out of range or not an integer."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Task not found (checked before any content).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/tasks/{task_id}/artifacts:
+    get:
+      tags: [tasks]
+      summary: Every `.md` file of a plan/review/final phase.
+      operationId: getTaskArtifacts
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/KindQuery"
+        - $ref: "#/components/parameters/CycleQuery"
+      responses:
+        "200":
+          description: Markdown files of the requested phase.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactsResponse"
+        "400":
+          description: Missing `kind`, unknown `kind` or bad `cycle`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Task not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/tasks/{task_id}/start:
+    post:
+      tags: [tasks]
+      summary: Start the full automode pipeline.
+      operationId: startTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Pipeline started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Task not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Task already running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: App unavailable (write op without the TUI runtime).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/tasks/{task_id}/resume:
+    post:
+      tags: [tasks]
+      summary: Resume a FAILED task reusing the artifacts on disk.
+      operationId: resumeTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Pipeline resumed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Task not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Task is not in FAILED state (or already running).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: App unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/tasks/{task_id}/restart:
+    post:
+      tags: [tasks]
+      summary: Reset the task to DRAFT and start automode again.
+      operationId: restartTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Pipeline restarted from scratch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Task not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Task already running (409 may also come from the runner check).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: App unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/tasks/{task_id}/pause:
+    post:
+      tags: [tasks]
+      summary: Pause a running task (cancels the worker).
+      operationId: pauseTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Task paused; `state` becomes `paused`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkStateResponse"
+        "401":
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Task not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Not running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: App unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/tasks/{task_id}/discard:
+    post:
+      tags: [tasks]
+      summary: Mark the task as DISCARDED (cancels any running pipeline first).
+      operationId: discardTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Task discarded; `state` becomes `discarded`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkStateResponse"
+        "401":
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Task not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/tasks/{task_id}/mark-done:
+    post:
+      tags: [tasks]
+      summary: Force-complete the task without running the rest of the pipeline.
+      operationId: markTaskDone
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Task completed; `state` becomes `done`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkStateResponse"
+        "401":
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Task not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/tasks/{task_id}/extend:
+    post:
+      tags: [tasks]
+      summary: Start a new cycle on an existing task with a fresh request.
+      operationId: extendTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExtendRequest"
+      responses:
+        "200":
+          description: New cycle started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "400":
+          description: Empty `request`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Task not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: App unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Token from the `[api].tokens` list or the `GRAFENO_API_TOKEN` env var (env wins).
+    QueryToken:
+      type: apiKey
+      in: query
+      name: token
+      description: Same token passed as a query parameter (browser/websocket friendly).
+  parameters:
+    TaskId:
+      name: task_id
+      in: path
+      required: true
+      description: Task identifier, e.g. `20260905-101126-slug`.
+      schema:
+        type: string
+    StateQuery:
+      name: state
+      in: query
+      required: false
+      description: Optional state filter.
+      schema:
+        $ref: "#/components/schemas/TaskState"
+    LimitQuery:
+      name: limit
+      in: query
+      required: false
+      description: Max number of log lines (1..1000, default 200).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 200
+    KindQuery:
+      name: kind
+      in: query
+      required: true
+      description: Artifact kind.
+      schema:
+        type: string
+        enum: [plan, review, final]
+    CycleQuery:
+      name: cycle
+      in: query
+      required: false
+      description: Artifact cycle number (default 1).
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+    TaskState:
+      type: string
+      enum: [draft, planning, planned, implementing, implemented, reviewing, fixing, finalizing, done, failed, paused, discarded]
+    RoleConfig:
+      type: object
+      properties:
+        cli:
+          type: string
+        model:
+          type: string
+        effort:
+          type: string
+    TaskSummary:
+      type: object
+      description: Slim task payload used by list endpoints and WS events.
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        workdir:
+          type: string
+        remote:
+          type: string
+        state:
+          $ref: "#/components/schemas/TaskState"
+        state_label:
+          type: string
+        automode:
+          type: boolean
+        origin:
+          type: string
+        scheduled_at:
+          type: string
+        parent_id:
+          type: string
+      required: [id, name, workdir, state, automode]
+    TaskRaw:
+      type: object
+      description: Raw `Task` fields persisted in `task.toml`.
+      properties:
+        id: {type: string}
+        name: {type: string}
+        description: {type: string}
+        workdir: {type: string}
+        remote: {type: string}
+        remote_os: {type: string}
+        state:
+          $ref: "#/components/schemas/TaskState"
+        automode: {type: boolean}
+        max_iterations: {type: integer}
+        test_command: {type: string}
+        create_branch: {type: boolean}
+        confirm_plan: {type: boolean}
+        final_prompt: {type: string}
+        hook_command: {type: string}
+        hook_stages: {type: string}
+        hook_mode: {type: string}
+        branch: {type: string}
+        base_commit: {type: string}
+        iteration: {type: integer}
+        cycle: {type: integer}
+        scheduled_at: {type: string}
+        parent_id: {type: string}
+        repeat_mode: {type: string}
+        repeat_interval_minutes: {type: integer}
+        plan_reuse: {type: string}
+        repeat_count: {type: integer}
+        last_completed_at: {type: string}
+        origin: {type: string}
+        failed_phase: {type: string}
+        use_global_references: {type: boolean}
+        use_project_references: {type: boolean}
+        created_at: {type: string}
+        updated_at: {type: string}
+    TokenTotals:
+      type: object
+      properties:
+        input: {type: integer}
+        output: {type: integer}
+    TaskDetail:
+      type: object
+      description: Full payload = `Task.to_dict()` plus derived fields.
+      properties:
+        task:
+          $ref: "#/components/schemas/TaskRaw"
+        planner:
+          $ref: "#/components/schemas/RoleConfig"
+        implementer:
+          $ref: "#/components/schemas/RoleConfig"
+        reviewer:
+          $ref: "#/components/schemas/RoleConfig"
+        final:
+          $ref: "#/components/schemas/RoleConfig"
+        sessions:
+          type: object
+        durations:
+          type: object
+        extensions:
+          type: object
+        tokens:
+          type: object
+        references:
+          type: array
+          items: {}
+        state_label:
+          type: string
+        token_totals:
+          $ref: "#/components/schemas/TokenTotals"
+        total_duration_seconds:
+          type: number
+    TaskDetailResponse:
+      type: object
+      description: Wrapper with the task payload under the `task` key (see `actions.get_task`).
+      properties:
+        task:
+          $ref: "#/components/schemas/TaskDetail"
+    TaskCreateRequest:
+      type: object
+      properties:
+        name: {type: string}
+        workdir: {type: string}
+        description: {type: string}
+        automode:
+          type: boolean
+          default: true
+        parent_id: {type: string}
+        scheduled_at: {type: string}
+        origin: {type: string}
+      required: [name, workdir]
+    TaskCreateResponse:
+      type: object
+      properties:
+        task:
+          $ref: "#/components/schemas/TaskSummary"
+    TaskListResponse:
+      type: object
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskSummary"
+    ProjectItem:
+      type: object
+      properties:
+        workdir: {type: string}
+        count: {type: integer}
+    ProjectListResponse:
+      type: object
+      properties:
+        projects:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectItem"
+    StatusResponse:
+      type: object
+      properties:
+        version: {type: string}
+        uptime_seconds: {type: integer}
+        pid: {type: integer}
+        ws_path:
+          type: string
+          example: /api/v1/ws
+    OkResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          default: true
+    OkStateResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          default: true
+        state:
+          type: string
+          description: Resulting state (`paused`, `discarded` or `done`).
+    ExtendRequest:
+      type: object
+      properties:
+        request:
+          type: string
+          description: Free-text request for the new cycle.
+      required: [request]
+    LogsResponse:
+      type: object
+      properties:
+        logs:
+          type: array
+          items:
+            type: string
+    ArtifactsResponse:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [plan, review, final]
+        cycle:
+          type: integer
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              name: {type: string}
+              content: {type: string}

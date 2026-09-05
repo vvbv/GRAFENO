@@ -192,7 +192,10 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   de la sección `[api]` aplican al siguiente arranque de la TUI (el worker
   se crea en `on_mount`, no en caliente). El log de actividad va a
   `~/.grafeno/api.log` (cap 1 MiB, rotación in-place) y nunca contiene el
-  token.
+  token. Las specs se mantienen a mano en `docs/api/` (OpenAPI 3.1 para
+  REST, AsyncAPI 3.0 para la WebSocket) y `tests/test_api_specs.py`
+  garantiza que cada ruta REST y cada método WS del código estén
+  documentados.
 - **Telegram**: integración opcional de un bot (sección `[telegram]` del
   config + sección en la pantalla de ajustes). El bot corre como worker de
   la App mientras la TUI está abierta (long polling con stdlib urllib:

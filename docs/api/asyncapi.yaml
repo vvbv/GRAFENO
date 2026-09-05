@@ -1,0 +1,236 @@
+asyncapi: 3.0.0
+info:
+  title: GRAFENO Remote WebSocket API
+  version: 1.0.0
+  description: |
+    Bidirectional JSON-RPC channel exposed on `/api/v1/ws` (implemented by
+    hand on RFC 6455, see `src/grafeno/server/ws.py`). The HTTP GET
+    upgrade is authenticated with the same token as the REST endpoints
+    (`Authorization: Bearer <token>` or `?token=`). Client frames must be
+    masked; server frames are unmasked; text frames carry UTF-8 JSON.
+    Messages over 1 MiB close the socket. Ping is answered with Pong by
+    the server itself.
+
+    Commands are JSON-RPC style requests `{"id","method","params"}` and
+    each gets exactly one response: `{"id","result":...}` on success or
+    `{"id","error":{"message","status?"}}` on failure (`id` echoes the
+    request id, `null` when the input was not valid JSON). The available
+    methods mirror the REST endpoints one to one:
+    | Method              | Params                                           | REST equivalent                    |
+    | status              | -                                                | GET /api/v1/status                 |
+    | tasks.list          | `state?`                                         | GET /api/v1/tasks                  |
+    | tasks.get           | `task_id`                                        | GET /api/v1/tasks/{id}             |
+    | projects.list       | -                                                | GET /api/v1/projects               |
+    | tasks.logs          | `task_id`, `limit?` (1..1000, default 200)      | GET /api/v1/tasks/{id}/logs        |
+    | tasks.artifacts     | `task_id`, `kind`, `cycle?` (default 1)         | GET /api/v1/tasks/{id}/artifacts   |
+    | tasks.create        | `name`, `workdir`, `description?`, `automode?`, `parent_id?`, `scheduled_at?`, `origin?` | POST /api/v1/tasks |
+    | tasks.start         | `task_id`                                        | POST /api/v1/tasks/{id}/start      |
+    | tasks.resume        | `task_id` (FAILED only)                          | POST /api/v1/tasks/{id}/resume     |
+    | tasks.restart       | `task_id`                                        | POST /api/v1/tasks/{id}/restart    |
+    | tasks.pause         | `task_id`                                        | POST /api/v1/tasks/{id}/pause      |
+    | tasks.discard       | `task_id`                                        | POST /api/v1/tasks/{id}/discard    |
+    | tasks.mark_done     | `task_id`                                        | POST /api/v1/tasks/{id}/mark-done  |
+    | tasks.extend        | `task_id`, `request`                             | POST /api/v1/tasks/{id}/extend     |
+    | subscribe           | `topics` (list of strings, `tasks` supported)    | -                                  |
+    | unsubscribe         | -                                                | -                                  |
+
+    After `subscribe {"topics":["tasks"]}`, every task whose `state`
+    changes is pushed as a `task.changed` event carrying the same
+    `TaskSummary` shape as the REST list endpoint. The server polls the
+    on-disk task store every 2 s (signature of every `task.toml`: mtime +
+    size); the snapshot is kept fresh even with no subscribers, so a new
+    client is never spammed with the backlog.
+servers:
+  local:
+    host: 127.0.0.1:8735
+    pathname: /api/v1/ws
+    protocol: ws
+    protocolVersion: "13"
+    security:
+      - $ref: "#/components/securitySchemes/BearerAuth"
+      - $ref: "#/components/securitySchemes/QueryToken"
+channels:
+  control:
+    address: /api/v1/ws
+    messages:
+      command:
+        $ref: "#/components/messages/Command"
+      result:
+        $ref: "#/components/messages/Result"
+      errorResult:
+        $ref: "#/components/messages/ErrorResult"
+      taskChanged:
+        $ref: "#/components/messages/TaskChanged"
+operations:
+  sendCommand:
+    action: send
+    title: Client sends a JSON-RPC command
+    channel:
+      $ref: "#/channels/control"
+    messages:
+      - $ref: "#/channels/control/messages/command"
+  receiveResult:
+    action: receive
+    title: Server answers each command with result or error
+    channel:
+      $ref: "#/channels/control"
+    messages:
+      - $ref: "#/channels/control/messages/result"
+      - $ref: "#/channels/control/messages/errorResult"
+  receiveTaskChanged:
+    action: receive
+    title: Server pushes state changes to `tasks` subscribers
+    channel:
+      $ref: "#/channels/control"
+    messages:
+      - $ref: "#/channels/control/messages/taskChanged"
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+    QueryToken:
+      type: httpApiKey
+      in: query
+      name: token
+  schemas:
+    MethodEnum:
+      type: string
+      enum:
+        - status
+        - tasks.list
+        - tasks.get
+        - projects.list
+        - tasks.logs
+        - tasks.artifacts
+        - tasks.create
+        - tasks.start
+        - tasks.resume
+        - tasks.restart
+        - tasks.pause
+        - tasks.discard
+        - tasks.mark_done
+        - tasks.extend
+        - subscribe
+        - unsubscribe
+    TaskSummary:
+      type: object
+      description: Same slim payload as the REST list endpoint and the `task.changed` event.
+      properties:
+        id: {type: string}
+        name: {type: string}
+        workdir: {type: string}
+        remote: {type: string}
+        state:
+          type: string
+          enum: [draft, planning, planned, implementing, implemented, reviewing, fixing, finalizing, done, failed, paused, discarded]
+        state_label: {type: string}
+        automode: {type: boolean}
+        origin: {type: string}
+        scheduled_at: {type: string}
+        parent_id: {type: string}
+      required: [id, name, workdir, state, automode]
+  messages:
+    Command:
+      name: Command
+      title: JSON-RPC request
+      summary: Client request with `id`, `method` and `params`.
+      payload:
+        type: object
+        properties:
+          id:
+            anyOf:
+              - type: string
+              - type: integer
+              - type: "null"
+          method:
+            $ref: "#/components/schemas/MethodEnum"
+          params:
+            type: object
+            additionalProperties: true
+        required: [method]
+      examples:
+        - name: subscribe
+          payload:
+            id: 1
+            method: subscribe
+            params:
+              topics: [tasks]
+        - name: tasks.list
+          payload:
+            id: 2
+            method: tasks.list
+            params:
+              state: done
+    Result:
+      name: Result
+      title: JSON-RPC success response
+      payload:
+        type: object
+        properties:
+          id:
+            anyOf:
+              - type: string
+              - type: integer
+              - type: "null"
+          result:
+            type: object
+            additionalProperties: true
+        required: [result]
+    ErrorResult:
+      name: ErrorResult
+      title: JSON-RPC error response
+      payload:
+        type: object
+        properties:
+          id:
+            anyOf:
+              - type: string
+              - type: integer
+              - type: "null"
+          error:
+            type: object
+            properties:
+              message: {type: string}
+              status: {type: integer}
+            required: [message]
+        required: [error]
+      examples:
+        - name: unknown method
+          payload:
+            id: 3
+            error:
+              message: "unknown method: foo"
+        - name: api error with status
+          payload:
+            id: 4
+            error:
+              message: "task not found"
+              status: 404
+    TaskChanged:
+      name: TaskChanged
+      title: Push event delivered to `tasks` subscribers
+      payload:
+        type: object
+        properties:
+          event:
+            type: string
+            const: task.changed
+          task:
+            $ref: "#/components/schemas/TaskSummary"
+        required: [event, task]
+      examples:
+        - name: state flip
+          payload:
+            event: task.changed
+            task:
+              id: 20260905-101126-slug
+              name: Demo
+              workdir: /repo/path
+              remote: ""
+              state: done
+              state_label: Done
+              automode: true
+              origin: api
+              scheduled_at: ""
+              parent_id: ""

@@ -105,6 +105,12 @@ POST /api/v1/tasks/{id}/extend                 # body: {"request": "..."}
 WS   /api/v1/ws                                # JSON-RPC: {"id","method","params"} + subscribe {"event":"task.changed","task":{...}}
 ```
 
+The endpoints are documented as machine-readable specs under `docs/api/`:
+[OpenAPI 3.1](docs/api/openapi.yaml) for REST and
+[AsyncAPI 3.0](docs/api/asyncapi.yaml) for the WebSocket JSON-RPC protocol.
+Browse them with Swagger UI/Redoc or AsyncAPI Studio; coverage of every
+registered route/method is enforced by `tests/test_api_specs.py`.
+
 ## Installation
 
 ## Installation
