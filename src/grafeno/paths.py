@@ -44,6 +44,11 @@ def telegram_log_path() -> Path:
     return home() / "telegram.log"
 
 
+def api_log_path() -> Path:
+    """API server activity log (accepted/denied requests; never tokens)."""
+    return home() / "api.log"
+
+
 def tasks_dir() -> Path:
     path = home() / "tasks"
     path.mkdir(parents=True, exist_ok=True)

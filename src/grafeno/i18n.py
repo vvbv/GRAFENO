@@ -606,6 +606,20 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cfg.tg.tts.key": "TTS API key (empty = STT key)",
         "cfg.tg.tts.model": "TTS model",
         "cfg.tg.tts.voice": "TTS voice",
+        "cfg.api": "Remote API (REST + WebSocket)",
+        "cfg.api.enabled": "Enable",
+        "cfg.api.host": "Host",
+        "cfg.api.port": "Port",
+        "cfg.api.tokens": "API tokens (comma-separated)",
+        "cfg.api.tokens.help": (
+            "Every request needs an 'Authorization: Bearer <token>' header "
+            "(or '?token=' query). Empty = deny all. "
+            "GRAFENO_API_TOKEN adds tokens without writing them to disk."
+        ),
+        "api.started": "API server listening on {host}:{port}",
+        "api.failed": "API server could not start: {error}",
+        "api.stopped": "API server stopped",
+        "cfg.error.api_port": "Invalid API port: must be 1-65535",
     },
     "es": {
         "app.subtitle": "v{version} · orquestador multi-CLI",
@@ -1143,5 +1157,19 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cfg.tg.tts.key": "API key de TTS (vacío = la de STT)",
         "cfg.tg.tts.model": "Modelo de TTS",
         "cfg.tg.tts.voice": "Voz de TTS",
+        "cfg.api": "API remota (REST + WebSocket)",
+        "cfg.api.enabled": "Activar",
+        "cfg.api.host": "Host",
+        "cfg.api.port": "Puerto",
+        "cfg.api.tokens": "Tokens de API (separados por comas)",
+        "cfg.api.tokens.help": (
+            "Toda petición exige la cabecera 'Authorization: Bearer <token>' "
+            "(o '?token='). Vacío = denegar todo. "
+            "GRAFENO_API_TOKEN añade tokens sin escribirlos en disco."
+        ),
+        "api.started": "Servidor API escuchando en {host}:{port}",
+        "api.failed": "El servidor API no pudo arrancar: {error}",
+        "api.stopped": "Servidor API detenido",
+        "cfg.error.api_port": "Puerto de API inválido: debe ser 1-65535",
     },
 }

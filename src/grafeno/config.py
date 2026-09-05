@@ -23,6 +23,11 @@ DEFAULT_TTS_URL = "https://api.groq.com/openai/v1/audio/speech"
 DEFAULT_TTS_MODEL = "canopylabs/orpheus-v1-english"
 DEFAULT_TTS_VOICE = "troy"  # male voice
 
+# API server defaults (REST + WebSocket remote clients).
+API_TOKEN_ENV = "GRAFENO_API_TOKEN"
+DEFAULT_API_HOST = "127.0.0.1"
+DEFAULT_API_PORT = 8735
+
 
 @dataclass
 class RoleConfig:
@@ -230,6 +235,45 @@ class TelegramConfig:
 
 
 @dataclass
+class ApiConfig:
+    """Remote API server (REST + WebSocket): authenticated remote clients.
+
+    The server runs as a background worker inside the TUI when enabled.
+    Tokens can also come from the environment (env var wins), so a secret
+    never has to be written to disk. ``tokens`` is comma-separated and
+    empty means deny every request.
+    """
+
+    enabled: bool = False
+    host: str = DEFAULT_API_HOST
+    port: int = DEFAULT_API_PORT
+    tokens: str = ""  # GRAFENO_API_TOKEN overrides
+
+    def resolve_tokens(self) -> set[str]:
+        """Accepted API tokens: environment variable first, then the file."""
+        from_env = os.environ.get(API_TOKEN_ENV, "")
+        raw = f"{from_env},{self.tokens}"
+        return {part.strip() for part in raw.split(",") if part.strip()}
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "host": self.host,
+            "port": self.port,
+            "tokens": self.tokens,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ApiConfig":
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            host=str(data.get("host", DEFAULT_API_HOST)),
+            port=int(data.get("port", DEFAULT_API_PORT)),
+            tokens=str(data.get("tokens", "")),
+        )
+
+
+@dataclass
 class Config:
     language: str = "en"
     planner: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
@@ -245,6 +289,7 @@ class Config:
     self_update: bool = False  # self-update GRAFENO from GitHub releases
     workspaces: list[str] = field(default_factory=list)  # root folders whose subfolders are projects
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
+    api: ApiConfig = field(default_factory=ApiConfig)
 
     def role(self, name: str) -> RoleConfig:
         return getattr(self, name)
@@ -265,6 +310,7 @@ class Config:
             "self_update": self.self_update,
             "workspaces": list(self.workspaces),
             "telegram": self.telegram.to_dict(),
+            "api": self.api.to_dict(),
         }
 
     @classmethod
@@ -288,6 +334,7 @@ class Config:
                 if isinstance(item, str)
             ] if isinstance(data.get("workspaces", []), list) else [],
             telegram=TelegramConfig.from_dict(data.get("telegram", {})),
+            api=ApiConfig.from_dict(data.get("api", {})),
         )
 
 
