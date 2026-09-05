@@ -141,18 +141,20 @@ class ServerService:
         """Poll the task store and broadcast ``task.changed`` events."""
         from .actions import task_summary
 
+        # Take the initial snapshot at startup so the first poll detects
+        # any state that exists before the first tick; clients that connect
+        # later still receive every change that happens after startup.
+        self._last_states = {task.id: task.state for task in models.list_all()}
         try:
             while True:
                 try:
                     await asyncio.sleep(POLL_SECONDS)
                 except asyncio.CancelledError:
                     return
-                try:
-                    sig = tasks_signature()
-                except Exception as exc:  # noqa: BLE001
-                    self._log(f"signature poll failed: {exc}")
-                    continue
-                if not self._last_states:
+                if not self._connections:
+                    # Keep the snapshot fresh even when nobody is listening,
+                    # so the first subscriber does not get spammed with the
+                    # backlog.
                     self._last_states = {task.id: task.state for task in models.list_all()}
                     continue
                 current = {task.id: task.state for task in models.list_all()}
@@ -161,15 +163,12 @@ class ServerService:
                     for task_id, state in current.items()
                     if self._last_states.get(task_id) is not state
                 ]
-                if not changed_ids:
-                    self._last_states = current
-                    continue
                 self._last_states = current
-                if not self._connections:
+                if not changed_ids:
                     continue
                 changed = [task for task in models.list_all() if task.id in changed_ids]
                 for task in changed:
-                    await self._broadcast_event("task.changed", {"event": "task.changed", "task": task_summary(task)})
+                    await self._broadcast_event("tasks", {"event": "task.changed", "task": task_summary(task)})
         except asyncio.CancelledError:
             return
 

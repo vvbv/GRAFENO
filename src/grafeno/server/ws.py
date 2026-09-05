@@ -17,6 +17,7 @@ import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Optional
 
+from . import actions
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -276,18 +277,75 @@ async def _status_method(service: "ServerService", params: dict, conn: "WsConnec
 
 
 async def _tasks_list(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    from .. import models as models_module
-    from ..models import TaskState as _TS
+    return actions.list_tasks(service, state=params.get("state") or None)
 
-    state_filter = str(params.get("state") or "").strip().lower()
-    tasks = models_module.list_all()
-    if state_filter:
-        try:
-            wanted = _TS(state_filter)
-        except ValueError as exc:
-            raise actions.ApiError(400, f"unknown state: {state_filter}") from exc
-        tasks = [task for task in tasks if task.state is wanted]
-    return {"tasks": [actions.task_summary(task) for task in tasks]}
+
+async def _tasks_get(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    task_id = params.get("task_id")
+    if not task_id or not isinstance(task_id, str):
+        raise actions.ApiError(400, "task_id is required")
+    return actions.get_task(service, task_id)
+
+
+async def _projects_list(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.list_projects(service)
+
+
+async def _tasks_logs(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    task_id = params.get("task_id")
+    if not task_id or not isinstance(task_id, str):
+        raise actions.ApiError(400, "task_id is required")
+    limit = int(params.get("limit") or 200)
+    return actions.get_logs(service, task_id, limit=limit)
+
+
+async def _tasks_artifacts(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    task_id = params.get("task_id")
+    kind = params.get("kind")
+    cycle = int(params.get("cycle") or 1)
+    if not task_id or not isinstance(task_id, str):
+        raise actions.ApiError(400, "task_id is required")
+    if not kind or not isinstance(kind, str):
+        raise actions.ApiError(400, "kind is required")
+    return actions.get_artifacts(service, task_id, kind=kind, cycle=cycle)
+
+
+async def _tasks_create(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    result = actions.create_task(service, params)
+    if isinstance(result, tuple):
+        return result[1]
+    return result
+
+
+async def _tasks_start(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.start_task(service, params["task_id"])
+
+
+async def _tasks_resume(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.resume_task(service, params["task_id"])
+
+
+async def _tasks_restart(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.restart_task(service, params["task_id"])
+
+
+async def _tasks_pause(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.pause_task(service, params["task_id"])
+
+
+async def _tasks_discard(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.discard_task(service, params["task_id"])
+
+
+async def _tasks_mark_done(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.mark_done(service, params["task_id"])
+
+
+async def _tasks_extend(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    request = params.get("request")
+    if not request or not isinstance(request, str):
+        raise actions.ApiError(400, "request is required")
+    return actions.extend_task(service, params["task_id"], request=request)
 
 
 async def _subscribe(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
@@ -306,6 +364,18 @@ async def _unsubscribe(service: "ServerService", params: dict, conn: "WsConnecti
 METHODS: dict[str, Callable] = {
     "status": _status_method,
     "tasks.list": _tasks_list,
+    "tasks.get": _tasks_get,
+    "projects.list": _projects_list,
+    "tasks.logs": _tasks_logs,
+    "tasks.artifacts": _tasks_artifacts,
+    "tasks.create": _tasks_create,
+    "tasks.start": _tasks_start,
+    "tasks.resume": _tasks_resume,
+    "tasks.restart": _tasks_restart,
+    "tasks.pause": _tasks_pause,
+    "tasks.discard": _tasks_discard,
+    "tasks.mark_done": _tasks_mark_done,
+    "tasks.extend": _tasks_extend,
     "subscribe": _subscribe,
     "unsubscribe": _unsubscribe,
 }
