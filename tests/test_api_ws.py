@@ -28,8 +28,8 @@ def _free_port() -> int:
         return handle.getsockname()[1]
 
 
-async def _start_service() -> tuple[ServerService, asyncio.Task]:
-    cfg = ApiConfig(enabled=True, host="127.0.0.1", port=0, tokens="t1")
+async def _start_service(tokens: str = "t1") -> tuple[ServerService, asyncio.Task]:
+    cfg = ApiConfig(enabled=True, host="127.0.0.1", port=0, tokens=tokens)
     service = ServerService(cfg, app=None)
     task = asyncio.create_task(service.run())
     for _ in range(200):
@@ -171,6 +171,24 @@ def test_handshake_without_token_returns_401() -> None:
                 head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=5.0)
                 status = int(head.decode("iso-8859-1").split(" ", 2)[1])
                 assert status == 401
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+
+def test_handshake_without_token_succeeds_when_no_tokens() -> None:
+    async def scenario():
+        service, srv_task = await _start_service(tokens="")
+        try:
+            reader, writer = await _ws_handshake(service.port, token=None)
+            try:
+                reply = await _rpc(reader, writer, {"id": 1, "method": "status", "params": {}})
+                assert reply["id"] == 1
+                assert reply["result"]["version"]
             finally:
                 writer.close()
                 await writer.wait_closed()

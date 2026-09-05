@@ -612,9 +612,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cfg.api.port": "Port",
         "cfg.api.tokens": "API tokens (comma-separated)",
         "cfg.api.tokens.help": (
-            "Every request needs an 'Authorization: Bearer <token>' header "
-            "(or '?token=' query). Empty = deny all. "
-            "GRAFENO_API_TOKEN adds tokens without writing them to disk."
+            "Optional API key(s) for the REST + WebSocket server. Empty = no auth "
+            "(open access). When set, requests need 'Authorization: Bearer <token>' "
+            "(or '?token='). GRAFENO_API_TOKEN adds tokens without writing them to "
+            "disk. Independent from the Telegram credentials."
         ),
         "api.started": "API server listening on {host}:{port}",
         "api.failed": "API server could not start: {error}",
@@ -1163,9 +1164,11 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cfg.api.port": "Puerto",
         "cfg.api.tokens": "Tokens de API (separados por comas)",
         "cfg.api.tokens.help": (
-            "Toda petición exige la cabecera 'Authorization: Bearer <token>' "
-            "(o '?token='). Vacío = denegar todo. "
-            "GRAFENO_API_TOKEN añade tokens sin escribirlos en disco."
+            "Clave(s) de API opcionales del servidor REST + WebSocket. Vacío = sin "
+            "autenticación (acceso abierto). Si hay tokens, toda petición exige "
+            "'Authorization: Bearer <token>' (o '?token='). GRAFENO_API_TOKEN añade "
+            "tokens sin escribirlos en disco. Independiente de las credenciales de "
+            "Telegram."
         ),
         "api.started": "Servidor API escuchando en {host}:{port}",
         "api.failed": "El servidor API no pudo arrancar: {error}",

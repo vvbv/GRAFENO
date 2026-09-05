@@ -1,17 +1,19 @@
 openapi: 3.1.0
 info:
   title: GRAFENO Remote API
-  version: 1.0.0
-  summary: Token-protected REST API of the GRAFENO remote server.
+  version: 1.1.0
+  summary: REST API of the GRAFENO remote server (optional token authentication).
   description: |
     REST control API exposed by the GRAFENO TUI while it is running
     (`[api]` section of `~/.grafeno/config.toml`). The server lives only
     inside the TUI process as a worker; there is no standalone daemon.
-    Every request is authenticated by a shared token, either as
-    `Authorization: Bearer <token>` or as the `?token=` query parameter
-    (duplicate of `src/grafeno/server/auth.py`). An empty token set on
-    the server denies every request. Error payloads are always
-    `{"error": "<message>"}`.
+    Authentication is OPTIONAL and dedicated to this server (it never
+    shares nor overrides credentials with the Telegram bot or any other
+    integration): when tokens are configured, requests must carry the
+    shared token as `Authorization: Bearer <token>` or as the `?token=`
+    query parameter (duplicate of `src/grafeno/server/auth.py`); when the
+    token set is empty (the default), no authentication is required.
+    Error payloads are always `{"error": "<message>"}`.
 externalDocs:
   description: WebSocket protocol (AsyncAPI)
   url: ./asyncapi.yaml
@@ -21,6 +23,7 @@ servers:
 security:
   - BearerAuth: []
   - QueryToken: []
+  - {}
 tags:
   - name: status
     description: Server metadata.
@@ -42,7 +45,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/StatusResponse"
         "401":
-          description: Missing or invalid token.
+          description: Missing or invalid token (only enforced when tokens are configured).
           content:
             application/json:
               schema:
@@ -68,7 +71,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: Missing or invalid token.
+          description: Missing or invalid token (only enforced when tokens are configured).
           content:
             application/json:
               schema:
@@ -97,7 +100,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: Missing or invalid token.
+          description: Missing or invalid token (only enforced when tokens are configured).
           content:
             application/json:
               schema:
@@ -117,7 +120,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/TaskDetailResponse"
         "401":
-          description: Missing or invalid token.
+          description: Missing or invalid token (only enforced when tokens are configured).
           content:
             application/json:
               schema:
@@ -141,7 +144,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProjectListResponse"
         "401":
-          description: Missing or invalid token.
+          description: Missing or invalid token (only enforced when tokens are configured).
           content:
             application/json:
               schema:
@@ -168,7 +171,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: Missing or invalid token.
+          description: Missing or invalid token (only enforced when tokens are configured).
           content:
             application/json:
               schema:
@@ -202,7 +205,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: Missing or invalid token.
+          description: Missing or invalid token (only enforced when tokens are configured).
           content:
             application/json:
               schema:
@@ -228,7 +231,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/OkResponse"
         "401":
-          description: Missing or invalid token.
+          description: Missing or invalid token (only enforced when tokens are configured).
           content:
             application/json:
               schema:
@@ -266,7 +269,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/OkResponse"
         "401":
-          description: Missing or invalid token.
+          description: Missing or invalid token (only enforced when tokens are configured).
           content:
             application/json:
               schema:
@@ -304,7 +307,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/OkResponse"
         "401":
-          description: Missing or invalid token.
+          description: Missing or invalid token (only enforced when tokens are configured).
           content:
             application/json:
               schema:
@@ -342,7 +345,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/OkStateResponse"
         "401":
-          description: Missing or invalid token.
+          description: Missing or invalid token (only enforced when tokens are configured).
           content:
             application/json:
               schema:
@@ -380,7 +383,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/OkStateResponse"
         "401":
-          description: Missing or invalid token.
+          description: Missing or invalid token (only enforced when tokens are configured).
           content:
             application/json:
               schema:
@@ -406,7 +409,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/OkStateResponse"
         "401":
-          description: Missing or invalid token.
+          description: Missing or invalid token (only enforced when tokens are configured).
           content:
             application/json:
               schema:
@@ -444,7 +447,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: Missing or invalid token.
+          description: Missing or invalid token (only enforced when tokens are configured).
           content:
             application/json:
               schema:
@@ -467,12 +470,12 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-      description: Token from the `[api].tokens` list or the `GRAFENO_API_TOKEN` env var (env wins).
+      description: Token from the `[api].tokens` list or the `GRAFENO_API_TOKEN` env var (env wins). Only enforced when non-empty; exclusive credential of this server, unrelated to the Telegram bot token.
     QueryToken:
       type: apiKey
       in: query
       name: token
-      description: Same token passed as a query parameter (browser/websocket friendly).
+      description: Same optional token passed as a query parameter (browser/websocket friendly); only enforced when tokens are configured.
   parameters:
     TaskId:
       name: task_id

@@ -222,18 +222,36 @@ def test_keep_alive_two_requests() -> None:
     _run(scenario())
 
 
-def test_no_tokens_denies_all() -> None:
+def test_no_tokens_allows_all() -> None:
     async def scenario():
         service, task = await _start_service(tokens="")
         try:
             reader, writer = await asyncio.open_connection("127.0.0.1", service.port)
             try:
                 status, _, body = await _exchange(
-                    reader, writer,
-                    _build_request("GET", "/api/v1/status", {"Authorization": "Bearer anything"}),
+                    reader, writer, _build_request("GET", "/api/v1/status")
                 )
-                assert status == 401
-                assert json.loads(body)["error"] == "unauthorized"
+                assert status == 200
+                assert json.loads(body)["version"] == __version__
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        finally:
+            _stop(service, task)
+
+    _run(scenario())
+
+
+def test_no_tokens_ws_independent_note() -> None:
+    """Empty token set opens REST too: status reachable without any header."""
+    async def scenario():
+        service, task = await _start_service(tokens="")
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", service.port)
+            try:
+                status, _, body = await _exchange(reader, writer, _build_request("GET", "/api/v1/status"))
+                assert status == 200
+                assert json.loads(body)["ws_path"] == "/api/v1/ws"
             finally:
                 writer.close()
                 await writer.wait_closed()

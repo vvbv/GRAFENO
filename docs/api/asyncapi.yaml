@@ -1,12 +1,14 @@
 asyncapi: 3.0.0
 info:
   title: GRAFENO Remote WebSocket API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     Bidirectional JSON-RPC channel exposed on `/api/v1/ws` (implemented by
-    hand on RFC 6455, see `src/grafeno/server/ws.py`). The HTTP GET
-    upgrade is authenticated with the same token as the REST endpoints
-    (`Authorization: Bearer <token>` or `?token=`). Client frames must be
+    hand on RFC 6455, see `src/grafeno/server/ws.py`). The HTTP GET upgrade
+    uses the same OPTIONAL token as the REST endpoints (`Authorization:
+    Bearer <token>` or `?token=`); when no tokens are configured (the
+    default) the upgrade is anonymous. The credential is dedicated to this
+    server and never shared with the Telegram bot. Client frames must be
     masked; server frames are unmasked; text frames carry UTF-8 JSON.
     Messages over 1 MiB close the socket. Ping is answered with Pong by
     the server itself.

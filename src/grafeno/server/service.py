@@ -50,7 +50,7 @@ class ServerService:
         self._events_task: Optional[asyncio.Task] = None
         self._logger = logging.getLogger("grafeno.api")
         self._log_path: Path = paths.api_log_path()
-        self._log_startup_token_error()
+        self._log_startup_token_note()
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -211,9 +211,9 @@ class ServerService:
         except OSError:
             pass
 
-    def _log_startup_token_error(self) -> None:
+    def _log_startup_token_note(self) -> None:
         if not self.config.resolve_tokens():
-            self._log("warning: no tokens configured (deny all)")
+            self._log("auth disabled: no tokens configured (accept all)")
 
     def _notify(self, message: str) -> None:
         """Surface a one-line message to the App (if available)."""

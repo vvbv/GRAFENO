@@ -168,10 +168,12 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   (por defecto `127.0.0.1:8735`) con HTTP/1.1 parseado a mano sobre asyncio
   streams (stdlib, cero dependencias nuevas; misma política que el bot de
   Telegram). Limites: 32 KiB de cabecera y 1 MiB de cuerpo; sin chunked;
-  keep-alive HTTP/1.1. Autenticación por token: `Authorization: Bearer
-  <token>` o `?token=`; el conjunto vacío deniega todo (defecto = apagado).
-  Los tokens pueden venir del fichero (separados por comas) o del env
-  `GRAFENO_API_TOKEN` (prioridad al env). El router se compila al importar
+  keep-alive HTTP/1.1. Autenticación opcional por token: `Authorization: Bearer
+  <token>` o `?token=` solo cuando hay tokens configurados; el conjunto vacío
+  (defecto) NO exige API key (acceso abierto). La API key es credencial dedicada de
+  este servidor, independiente de la del bot de Telegram (integración
+  separada que sigue funcionando como canal alternativo). Tokens también por
+  env `GRAFENO_API_TOKEN` (prioridad al env). El router se compila al importar
   con `re.fullmatch` y soporta `{task_id}` como placeholder. Acciones REST
   bajo `/api/v1`: status, tasks (GET/POST, `/{id}/start|resume|restart|
   pause|extend|discard|mark-done`, `/{id}/logs`, `/{id}/artifacts?kind=

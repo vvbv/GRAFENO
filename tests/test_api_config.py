@@ -22,6 +22,15 @@ class TestApiConfig:
         cfg = ApiConfig(tokens="file-token, env-token")
         assert cfg.resolve_tokens() == {"env-token", "file-token"}
 
+    def test_tokens_ignore_telegram_env(self, monkeypatch) -> None:
+        monkeypatch.delenv(API_TOKEN_ENV, raising=False)
+        monkeypatch.setenv("GRAFENO_TELEGRAM_TOKEN", "tg-token")
+        assert ApiConfig(tokens="file-token").resolve_tokens() == {"file-token"}
+
+    def test_empty_tokens_means_open(self, monkeypatch) -> None:
+        monkeypatch.delenv(API_TOKEN_ENV, raising=False)
+        assert ApiConfig(tokens="").resolve_tokens() == set()
+
     def test_config_nested_section(self) -> None:
         cfg = Config()
         cfg.api = ApiConfig(enabled=True, tokens="x")

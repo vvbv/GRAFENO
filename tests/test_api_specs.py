@@ -43,11 +43,12 @@ def test_openapi_covers_every_rest_route():
     assert not missing, f"REST routes not documented: {missing}"
 
 
-def test_openapi_has_both_auth_alternatives():
+def test_openapi_auth_is_optional():
     spec = _load(OPENAPI_PATH)
     security = spec.get("security") or []
     flattened = {key for item in security for key in item}
     assert flattened == {"BearerAuth", "QueryToken"}
+    assert any(item == {} for item in security), "missing anonymous (no-auth) entry"
 
 
 def test_asyncapi_parse_and_version():

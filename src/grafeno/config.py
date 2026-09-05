@@ -236,12 +236,14 @@ class TelegramConfig:
 
 @dataclass
 class ApiConfig:
-    """Remote API server (REST + WebSocket): authenticated remote clients.
+    """Remote API server (REST + WebSocket): remote clients with optional token auth.
 
-    The server runs as a background worker inside the TUI when enabled.
-    Tokens can also come from the environment (env var wins), so a secret
-    never has to be written to disk. ``tokens`` is comma-separated and
-    empty means deny every request.
+    The server runs as a background worker inside the TUI when enabled. Tokens
+    can also come from the environment (env var wins), so a secret never has to
+    be written to disk. ``tokens`` is comma-separated; an empty set means NO
+    authentication is required (open access). These tokens are the dedicated
+    credential of THIS server only: they never merge with nor override the
+    Telegram bot token or any other credential.
     """
 
     enabled: bool = False

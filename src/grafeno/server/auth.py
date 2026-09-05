@@ -1,8 +1,9 @@
 """Token authentication for the API server.
 
-Every request (REST and WebSocket upgrade) must carry the token as
-``Authorization: Bearer <token>`` header or ``?token=<token>`` query
-parameter. Empty configured token set means deny everything.
+When tokens are configured, every request (REST and WebSocket upgrade)
+must carry the token as ``Authorization: Bearer <token>`` header or
+``?token=<token>`` query parameter. An empty configured token set means
+NO authentication is required (open access).
 """
 
 from __future__ import annotations
@@ -17,13 +18,14 @@ class AuthError(Exception):
 def check(config: ApiConfig, headers: dict[str, str], query: dict[str, str] | None) -> None:
     """Validate the bearer token. Case-insensitive header names.
 
-    Raises :class:`AuthError` when no tokens are configured (deny all) or
-    when the provided token is not in the accepted set. The token itself
-    is never logged.
+    With no tokens configured the server runs open (no authentication is
+    required) and this function returns immediately. Otherwise it raises
+    :class:`AuthError` when the provided token is not in the accepted set.
+    The token itself is never logged.
     """
     tokens = config.resolve_tokens()
     if not tokens:
-        raise AuthError("no tokens configured")
+        return
     lowered = {key.lower(): value for key, value in headers.items()}
     provided = ""
     auth = lowered.get("authorization", "")

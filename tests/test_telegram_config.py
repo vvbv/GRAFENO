@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from grafeno import config
 from grafeno.config import (
+    API_TOKEN_ENV,
     DEFAULT_STT_MODEL,
     DEFAULT_STT_URL,
     DEFAULT_TTS_MODEL,
     DEFAULT_TTS_URL,
     DEFAULT_TTS_VOICE,
+    TELEGRAM_TOKEN_ENV,
     Config,
     TelegramConfig,
 )
@@ -100,6 +102,12 @@ def test_token_env_overrides_file(monkeypatch):
     monkeypatch.delenv("GRAFENO_TELEGRAM_TOKEN")
     assert tg.resolve_token() == "file-token"
     assert TelegramConfig().resolve_token() == ""
+
+
+def test_token_ignores_api_env(monkeypatch):
+    monkeypatch.delenv(TELEGRAM_TOKEN_ENV, raising=False)
+    monkeypatch.setenv(API_TOKEN_ENV, "api-token")
+    assert TelegramConfig(bot_token="tg-file").resolve_token() == "tg-file"
 
 
 def test_stt_key_env_overrides_file(monkeypatch):
