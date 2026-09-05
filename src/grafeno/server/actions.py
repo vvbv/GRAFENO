@@ -64,12 +64,20 @@ def list_tasks(service: "ServerService", state: str | None = None) -> dict:
 
 
 def get_task(service: "ServerService", task_id: str) -> dict:
-    """Return the full payload of one task."""
+    """Return the full payload of one task.
+
+    The plan's contract is ``{"task": task_detail(task)}``: the response
+    is wrapped under a ``task`` key (symmetric with ``list_tasks`` which
+    wraps each item in ``{"tasks": [...]}``). ``task_detail`` itself
+    already contains a nested ``task`` key (it returns ``Task.to_dict()``
+    plus a few derived fields), so the result intentionally has a
+    ``task.task.id`` location for the identifier; this matches the plan.
+    """
     try:
         task = models.load(task_id)
     except (FileNotFoundError, KeyError, OSError, ValueError) as exc:
         raise ApiError(404, "task not found") from exc
-    return task_detail(task)
+    return {"task": task_detail(task)}
 
 
 def list_projects(service: "ServerService") -> dict:
@@ -156,6 +164,24 @@ def _runtime_start(service: "ServerService", task: Task, runner_factory, label: 
         raise ApiError(409, "task already running")
 
 
+def _coerce_bool(value: object, default: bool) -> bool:
+    """Coerce a JSON value to a boolean.
+
+    Truthy strings (``"true"``, ``"1"``, ``"yes"``) and actual booleans
+    become True; the rest become False. Without this, ``bool("false")``
+    would silently keep automode on.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes", "on")
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
+
+
 def create_task(service: "ServerService", payload: dict) -> dict:
     """Create a new task from a JSON payload and return its summary."""
     from .. import config as config_module
@@ -171,6 +197,7 @@ def create_task(service: "ServerService", payload: dict) -> dict:
     description = str(payload.get("description") or "")
     cfg = config_module.load()
     parent_id = str(payload.get("parent_id") or "").strip()
+    automode = _coerce_bool(payload.get("automode"), True)
     if parent_id:
         # Validate the proposed position using the same rule the TUI uses.
         task = models.Task.create(
@@ -178,7 +205,7 @@ def create_task(service: "ServerService", payload: dict) -> dict:
             description=description,
             workdir=workdir,
             config=cfg,
-            automode=bool(payload.get("automode", True)),
+            automode=automode,
             parent_id=parent_id or None,
         )
         by_id = {item.id: item for item in models.list_all()}
@@ -191,7 +218,7 @@ def create_task(service: "ServerService", payload: dict) -> dict:
             description=description,
             workdir=workdir,
             config=cfg,
-            automode=bool(payload.get("automode", True)),
+            automode=automode,
         )
     scheduled_at = payload.get("scheduled_at")
     if scheduled_at:

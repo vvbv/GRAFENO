@@ -71,12 +71,17 @@ class Response:
         return cls(status=status, headers={"Content-Type": "application/json"}, body=payload)
 
     def to_bytes(self, keep_alive: bool) -> bytes:
+        """Serialize the response. Caller-supplied headers win over the
+        defaults (``Content-Length`` always overrides; ``Connection`` is
+        only filled when the caller did not specify one, so the 101
+        handshake can keep its ``Connection: Upgrade`` value instead of
+        being overwritten with ``close``)."""
         reason = REASONS.get(self.status, "Unknown")
-        merged = {
-            **self.headers,
-            "Content-Length": str(len(self.body)),
-            "Connection": "keep-alive" if keep_alive else "close",
-        }
+        caller_headers = {key.lower(): value for key, value in self.headers.items()}
+        merged: dict[str, str] = dict(self.headers)
+        merged["Content-Length"] = str(len(self.body))
+        if "connection" not in caller_headers:
+            merged["Connection"] = "keep-alive" if keep_alive else "close"
         lines = [f"HTTP/1.1 {self.status} {reason}"]
         lines.extend(f"{key}: {value}" for key, value in merged.items())
         return ("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + self.body
@@ -196,10 +201,10 @@ def _parse_request_line(raw_head: bytes) -> tuple[str, str, str]:
     if len(parts) != 3:
         raise BadRequest("malformed request line")
     method, target, version = parts
+    # Methods accepted by the parser: HEAD is rejected with 405 by the
+    # router (no body), the rest are routed to a handler or 405/404.
     if method not in ALLOWED_METHODS and method != "HEAD":
-        # HEAD is accepted by the parser but rejected with 405 by the router.
-        if method != "HEAD":
-            raise BadRequest(f"unsupported method: {method}")
+        raise BadRequest(f"unsupported method: {method}")
     if not version.startswith("HTTP/"):
         raise BadRequest("malformed version")
     return method, target, version

@@ -27,7 +27,6 @@ class _Route:
     method: str
     pattern: re.Pattern
     handler: REST_HANDLER
-    has_task_id: bool
 
 
 _ROUTES: list[_Route] = []
@@ -41,8 +40,10 @@ def route(method: str, path: str) -> Callable[[REST_HANDLER], REST_HANDLER]:
     """
 
     def decorator(handler: REST_HANDLER) -> REST_HANDLER:
-        regex = re.compile(re.escape(path).replace(r"\{task_id\}", r"(?P<task_id>[^/]+)") + "$")
-        _ROUTES.append(_Route(method=method, pattern=regex, handler=handler, has_task_id="{task_id}" in path))
+        regex = re.compile(
+            re.escape(path).replace(r"\{task_id\}", r"(?P<task_id>[^/]+)") + "$"
+        )
+        _ROUTES.append(_Route(method=method, pattern=regex, handler=handler))
         return handler
 
     return decorator
@@ -189,37 +190,6 @@ async def dispatch_rest(
     else:
         status, payload = 200, result
     return Response.json(status, payload), None
-
-
-def extract_params(route: _Route, request: Request) -> dict[str, str]:
-    match = route.pattern.fullmatch(request.path)
-    if match is None:
-        return {}
-    return match.groupdict()
-
-
-def route_for(request: Request) -> Optional[_Route]:
-    for route in _ROUTES:
-        if route.method != request.method:
-            continue
-        if route.pattern.fullmatch(request.path) is not None:
-            return route
-    return None
-
-
-def route_path_for(route: _Route, request: Request) -> dict[str, str]:
-    match = route.pattern.fullmatch(request.path)
-    return match.groupdict() if match is not None else {}
-
-
-def find_route(method: str, path: str) -> Optional[tuple[_Route, dict[str, str]]]:
-    for route in _ROUTES:
-        if route.method != method:
-            continue
-        match = route.pattern.fullmatch(path)
-        if match is not None:
-            return route, match.groupdict()
-    return None
 
 
 def parse_json_body(request: Request) -> dict:

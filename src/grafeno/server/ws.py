@@ -65,17 +65,21 @@ def handshake_response(request: Request) -> Optional[Response]:
 
 
 def write_frame(opcode: int, payload: bytes) -> bytes:
-    """Serialize one server-to-client frame (unmasked)."""
+    """Serialize one server-to-client frame (unmasked).
+
+    RFC 6455 §5.1: client frames MUST be masked; server frames MUST NOT be.
+    The mask bit of the second byte is therefore always 0 here.
+    """
     length = len(payload)
     header = bytearray()
     header.append(0x80 | (opcode & 0x0F))  # FIN=1
     if length < 126:
-        header.append(0x80 | length)  # mask=0
+        header.append(length)  # mask=0, length fits in 7 bits
     elif length < (1 << 16):
-        header.append(0x80 | 126)
+        header.append(126)
         header.extend(struct.pack(">H", length))
     else:
-        header.append(0x80 | 127)
+        header.append(127)
         header.extend(struct.pack(">Q", length))
     return bytes(header) + payload
 
@@ -264,6 +268,25 @@ async def _dispatch_text(service: "ServerService", conn: "WsConnection", payload
 # ---------------------------------------------------------------------- #
 # Method table — populated lazily so the import order stays flat.
 # ---------------------------------------------------------------------- #
+def _required_task_id(params: dict) -> str:
+    """Extract a non-empty ``task_id`` string from the call params."""
+    task_id = params.get("task_id")
+    if not task_id or not isinstance(task_id, str):
+        raise actions.ApiError(400, "task_id is required")
+    return task_id
+
+
+def _parse_int(value: object, default: int, *, field: str) -> int:
+    """Parse an int param (or fall back to ``default``). Raises ``ApiError``
+    when the value is present but not an integer-compatible string."""
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise actions.ApiError(400, f"{field} must be an integer") from exc
+
+
 async def _status_method(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
     import time as _time
 
@@ -281,10 +304,7 @@ async def _tasks_list(service: "ServerService", params: dict, conn: "WsConnectio
 
 
 async def _tasks_get(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    task_id = params.get("task_id")
-    if not task_id or not isinstance(task_id, str):
-        raise actions.ApiError(400, "task_id is required")
-    return actions.get_task(service, task_id)
+    return actions.get_task(service, _required_task_id(params))
 
 
 async def _projects_list(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
@@ -292,21 +312,17 @@ async def _projects_list(service: "ServerService", params: dict, conn: "WsConnec
 
 
 async def _tasks_logs(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    task_id = params.get("task_id")
-    if not task_id or not isinstance(task_id, str):
-        raise actions.ApiError(400, "task_id is required")
-    limit = int(params.get("limit") or 200)
+    task_id = _required_task_id(params)
+    limit = _parse_int(params.get("limit"), 200, field="limit")
     return actions.get_logs(service, task_id, limit=limit)
 
 
 async def _tasks_artifacts(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    task_id = params.get("task_id")
+    task_id = _required_task_id(params)
     kind = params.get("kind")
-    cycle = int(params.get("cycle") or 1)
-    if not task_id or not isinstance(task_id, str):
-        raise actions.ApiError(400, "task_id is required")
     if not kind or not isinstance(kind, str):
         raise actions.ApiError(400, "kind is required")
+    cycle = _parse_int(params.get("cycle"), 1, field="cycle")
     return actions.get_artifacts(service, task_id, kind=kind, cycle=cycle)
 
 
@@ -318,34 +334,34 @@ async def _tasks_create(service: "ServerService", params: dict, conn: "WsConnect
 
 
 async def _tasks_start(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    return actions.start_task(service, params["task_id"])
+    return actions.start_task(service, _required_task_id(params))
 
 
 async def _tasks_resume(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    return actions.resume_task(service, params["task_id"])
+    return actions.resume_task(service, _required_task_id(params))
 
 
 async def _tasks_restart(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    return actions.restart_task(service, params["task_id"])
+    return actions.restart_task(service, _required_task_id(params))
 
 
 async def _tasks_pause(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    return actions.pause_task(service, params["task_id"])
+    return actions.pause_task(service, _required_task_id(params))
 
 
 async def _tasks_discard(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    return actions.discard_task(service, params["task_id"])
+    return actions.discard_task(service, _required_task_id(params))
 
 
 async def _tasks_mark_done(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    return actions.mark_done(service, params["task_id"])
+    return actions.mark_done(service, _required_task_id(params))
 
 
 async def _tasks_extend(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
     request = params.get("request")
     if not request or not isinstance(request, str):
         raise actions.ApiError(400, "request is required")
-    return actions.extend_task(service, params["task_id"], request=request)
+    return actions.extend_task(service, _required_task_id(params), request=request)
 
 
 async def _subscribe(service: "ServerService", params: dict, conn: "WsConnection") -> dict:

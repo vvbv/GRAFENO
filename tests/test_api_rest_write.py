@@ -295,3 +295,27 @@ def test_invalid_json_returns_400(tmp_path) -> None:
             _stop(service, srv_task)
 
     _run(scenario())
+
+
+def test_create_task_parses_string_automode_off(tmp_path) -> None:
+    """String 'false' / '0' must disable automode (bool('false') would be True)."""
+    from grafeno import models as models_module
+
+    async def scenario():
+        service, srv_task = await _start_service(app=FakeApp())
+        try:
+            status, payload = await _request(
+                service, "POST", "/api/v1/tasks",
+                json.dumps({
+                    "name": "Manual",
+                    "workdir": str(tmp_path),
+                    "automode": "false",
+                }).encode(),
+            )
+            assert status == 201
+            created = models_module.load(payload["task"]["id"])
+            assert created.automode is False
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())

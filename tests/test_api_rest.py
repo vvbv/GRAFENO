@@ -157,10 +157,13 @@ def test_get_task_detail_and_404(tmp_path) -> None:
         try:
             status, payload = await _request(service, "GET", f"/api/v1/tasks/{task.id}")
             assert status == 200
-            # task.to_dict() nests the task fields under "task".
-            assert payload["task"]["id"] == task.id
-            assert payload["state_label"]
-            assert payload["token_totals"] == {"input": 0, "output": 0}
+            # Plan contract: {"task": task_detail(task)}. ``task_detail``
+            # returns to_dict() which itself has a "task" key, plus derived
+            # fields like ``state_label`` at the top level.
+            inner = payload["task"]
+            assert inner["task"]["id"] == task.id
+            assert inner["state_label"]
+            assert inner["token_totals"] == {"input": 0, "output": 0}
             # 404 for an unknown id.
             status, payload = await _request(service, "GET", "/api/v1/tasks/nope")
             assert status == 404

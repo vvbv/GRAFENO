@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import os
 import socket
@@ -14,6 +15,7 @@ from grafeno import models as models_module
 from grafeno.config import ApiConfig, Config
 from grafeno.models import Task, TaskState
 from grafeno.server.service import ServerService
+from grafeno.server.ws import WS_GUID
 
 
 def _run(coro):
@@ -82,10 +84,17 @@ def _client_text_frame(payload: bytes) -> bytes:
 
 
 async def _read_server_frame(reader: asyncio.StreamReader) -> tuple[int, bytes]:
-    """Read one server-to-client frame (unmasked). Returns (opcode, payload)."""
+    """Read one server-to-client frame (unmasked). Returns (opcode, payload).
+
+    Strict per RFC 6455: the mask bit MUST be 0 on server frames. If the
+    server sends a masked frame the parser raises rather than silently
+    demasking, so regressions on bit-flipping are caught in tests.
+    """
     header = await asyncio.wait_for(reader.readexactly(2), timeout=5.0)
     byte0, byte1 = header[0], header[1]
     opcode = byte0 & 0x0F
+    masked = bool(byte1 & 0x80)
+    assert not masked, f"server frame unexpectedly masked (byte1={byte1:#x})"
     length = byte1 & 0x7F
     if length == 126:
         length = int.from_bytes(await asyncio.wait_for(reader.readexactly(2), timeout=5.0), "big")
@@ -98,13 +107,43 @@ async def _read_server_frame(reader: asyncio.StreamReader) -> tuple[int, bytes]:
 
 
 async def _ws_handshake(port: int, token: Optional[str] = "t1") -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    """Perform the WS upgrade. Asserts the response carries the exact
+    upgrade headers RFC 6455 mandates (Connection: Upgrade, Upgrade:
+    websocket and the Sec-WebSocket-Accept derived from the client key),
+    so a regression to ``Connection: close`` is caught.
+    """
     reader, writer = await asyncio.open_connection("127.0.0.1", port)
-    writer.write(_build_upgrade(token=token))
+    request = _build_upgrade(token=token)
+    writer.write(request)
     await writer.drain()
     head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=5.0)
-    status_line = head.decode("iso-8859-1").split("\r\n", 1)[0]
+    lines = head.decode("iso-8859-1").split("\r\n")
+    status_line = lines[0]
     status = int(status_line.split(" ", 2)[1])
     assert status == 101, f"expected 101 Switching Protocols, got {status}: {head!r}"
+    response_headers: dict[str, str] = {}
+    for line in lines[1:]:
+        if not line:
+            continue
+        key, _, value = line.partition(":")
+        response_headers[key.strip().lower()] = value.strip()
+    # Strict upgrade headers.
+    assert response_headers.get("upgrade", "").lower() == "websocket", response_headers
+    assert response_headers.get("connection", "").lower() == "upgrade", (
+        f"handshake leaked Connection: {response_headers.get('connection')!r}, "
+        "expected 'upgrade' (RFC 6455)"
+    )
+    key_sent = ""
+    for line in request.decode("ascii").split("\r\n"):
+        if line.lower().startswith("sec-websocket-key:"):
+            key_sent = line.split(":", 1)[1].strip()
+    expected_accept = base64.b64encode(
+        hashlib.sha1((key_sent + WS_GUID).encode("ascii")).digest()
+    ).decode("ascii")
+    assert response_headers.get("sec-websocket-accept") == expected_accept, (
+        f"expected Sec-WebSocket-Accept={expected_accept}, "
+        f"got {response_headers.get('sec-websocket-accept')}"
+    )
     return reader, writer
 
 
@@ -174,9 +213,6 @@ def test_tasks_list_returns_empty() -> None:
                 await writer.wait_closed()
         finally:
             _stop(service, srv_task)
-            if "internal error" in str(reply):
-                from grafeno import paths
-                print("LOG:", paths.api_log_path().read_text())
 
     _run(scenario())
 
