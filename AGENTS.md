@@ -161,10 +161,12 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   cero dependencias nuevas). Acepta texto y notas de voz (transcritas vía
   STT OpenAI-compatible, Groq por defecto), interpreta la intención con el
   CLI del rol planner (o `parser_cli`/`parser_model` propios) mediante un
-  prompt one-shot que exige JSON estricto, propone la(s) tarea(s) y las
-  crea tras la confirmación con botones inline (automode, `scheduled_at`=
-  ahora, `origin="telegram"`: el tick del planificador las arranca
-  desatendidas, igual que los triggers).   Antes de crearlas, el bot
+  prompt one-shot que exige JSON estricto, propone la(s) tarea(s)
+  conservando TODO el detalle sustantivo del mensaje (prohibido resumir de
+  forma agresiva o condensar requisitos, especialmente con audios largos
+  transcritos) y las crea tras la confirmación con botones inline (automode,
+  `scheduled_at`= ahora, `origin="telegram"`: el tick del planificador las
+  arranca desatendidas, igual que los triggers).   Antes de crearlas, el bot
   pregunta siempre el encadenamiento con dos botones inline ("ninguna" =
   paralela, "a la última del proyecto" = `parent_id` a la última hoja no
   terminal del bosque de encadenamiento del proyecto según

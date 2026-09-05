@@ -195,8 +195,18 @@ Responde SOLO con un objeto JSON (sin texto alrededor, sin Markdown) con esta fo
 
 Reglas:
 - "lang": SIEMPRE el idioma en que el usuario escribió o dictó el mensaje.
-- "create_tasks": una entrada por cada tarea que pida el mensaje; name corto y
-  descriptivo; description detallada incluyendo TODO lo que pida el usuario.
+- "create_tasks": una entrada por cada tarea que pida el mensaje. name corto
+  pero CONCRETO y específico (nunca genérico: evita títulos tipo "cambios en
+  el código" o "nueva tarea"; nombra el objetivo exacto). description con TODA
+  la información sustantiva del mensaje: requisitos, restricciones, cantidades,
+  nombres de archivos, funciones o módulos, condiciones, casos límite,
+  ejemplos y matices que aporte el usuario. PROHIBIDO resumir de forma agresiva,
+  condensar o fusionar requisitos: la descripción debe heredar la extensión
+  del mensaje, y una transcripción de audio larga y estructurada justifica una
+  descripción igualmente larga (varios párrafos o listas si hace falta). Si el
+  mensaje viene de una nota de voz transcrita, conserva los detalles con la
+  precisión del texto transcrito, sin re-redactarlo en versión corta. Omite
+  solo muletillas y rellenos propios del audio hablado.
   Para "workdir": si el mensaje se refiere a un proyecto del listado de
   proyectos o con tareas existentes (por nombre de proyecto o de
   directorio), usa EXACTAMENTE el directorio de ese listado (sin inventar
@@ -221,6 +231,9 @@ Reglas:
 - "ask": cualquier otra pregunta sobre una tarea concreta.
 - "help": pide ayuda o no queda claro qué hacer.
 - "unknown": no se puede interpretar.
+- Cuando el mensaje sea largo o muy detallado (típico de audios dictados), NO comprimas la
+  descripción por brevedad: prioriza no perder información relevante sobre la brevedad. Lo
+  genérico y vago es peor que lo largo.
 - No inventes tareas: crea solo lo que el mensaje pida explícitamente.
 - Usa el listado de tareas (id | nombre | estado | directorio) para resolver
   "task_ref" de forma inequívoca: devuelve el id exacto de la tarea que mejor

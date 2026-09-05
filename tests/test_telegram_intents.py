@@ -376,3 +376,22 @@ def test_projects_summary_marks_zero_count(tmp_path):
     """Discovered projects appear in the parser context with count 0."""
     summary = intents.projects_summary([], [str(tmp_path / "nuevo")])
     assert summary == f"- {tmp_path / 'nuevo'} | 0"
+
+
+# ---------------------------------------------------------------------- #
+# parser prompt: anti-summarization guidance for create_tasks
+# ---------------------------------------------------------------------- #
+def test_prompt_create_tasks_forbids_aggressive_summary():
+    """The create_tasks guidance forbids aggressive summarization."""
+    prompt = intents.build_parser_prompt("texto", "", ".")
+    assert "resumir de forma agresiva" in prompt
+    assert "PROHIBIDO" in prompt
+    assert "sustantiva" in prompt
+    assert "transcripción de audio larga" in prompt
+
+
+def test_prompt_create_tasks_anti_compression_rule():
+    """Long/detailed messages must not be compressed for brevity."""
+    prompt = intents.build_parser_prompt("texto", "", ".")
+    assert "NO comprimas" in prompt
+    assert "prioriza no perder información" in prompt
