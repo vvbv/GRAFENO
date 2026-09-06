@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from grafeno import media, paths
+from grafeno import config as config_module
+from grafeno import media, models, paths
 
 
 def test_next_media_name_first_in_empty_dir(tmp_path):
@@ -166,3 +167,28 @@ def test_save_attachment_unknown_task_still_works(tmp_path):
     saved = media.save_attachment("t-media-fresh", "v.mp4", b"MP4")
     assert saved is not None
     assert saved.suffix == ".mp4"
+
+
+def test_attach_files_images_and_bin(tmp_path):
+    """Images get media tokens; other suffixes get absolute paths; header appended."""
+    task = models.Task.create("Adjuntos", "", str(tmp_path), config_module.load())
+    saved = media.attach_files(
+        task,
+        [("a.png", b"PNGBYTES"), ("b.zip", b"ZIPBYTES")],
+        header="Attachments received via the API:",
+    )
+    assert len(saved) == 2
+    directory = paths.task_dir(task.id) / "media"
+    assert (directory / "media-01.png").exists()
+    assert "media/media-01.png" in task.description
+    assert "Attachments received via the API:" in task.description
+    assert ".bin" in task.description  # suffix sanitized to .bin
+    assert set(p.name for p in media.list_media(task.id)) == {"media-01.png"}
+
+
+def test_attach_files_empty_list_is_noop(tmp_path):
+    """No attachments means no saved files and an untouched description."""
+    task = models.Task.create("Vacio", "base", str(tmp_path), config_module.load())
+    assert media.attach_files(task, [], header="HEADER-X") == []
+    assert "HEADER-X" not in task.description
+    assert task.description == "base"

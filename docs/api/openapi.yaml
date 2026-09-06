@@ -94,7 +94,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/TaskCreateResponse"
         "400":
-          description: Validation error (name/workdir required, rechain error).
+          description: Validation error (name/workdir required, rechain error, malformed attachments).
           content:
             application/json:
               schema:
@@ -654,6 +654,24 @@ components:
         parent_id: {type: string}
         scheduled_at: {type: string}
         origin: {type: string}
+        attachments:
+          type: array
+          description: >-
+            Optional attachments persisted into the task's media dir and
+            referenced from its description (image tokens for image suffixes,
+            absolute paths otherwise). Max 10 entries; each `data` is standard
+            base64. Total request body is capped at 1 MiB.
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: Original file name; only its extension is honored (png/jpg/jpeg/mp4/webm, else .bin).
+              data:
+                type: string
+                format: byte
+                description: Base64-encoded file content.
+            required: [data]
       required: [name, workdir]
     TaskCreateResponse:
       type: object

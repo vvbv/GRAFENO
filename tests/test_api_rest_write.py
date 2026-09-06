@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import socket
 from typing import Any, Optional
@@ -191,6 +192,75 @@ def test_create_task_with_valid_parent(tmp_path) -> None:
             )
             assert status == 201
             assert payload["task"]["parent_id"] == parent.id
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+
+def test_create_task_with_attachments(tmp_path) -> None:
+    """POST /tasks with base64 attachments persists media and references it."""
+    async def scenario():
+        from grafeno import models as models_module
+        from grafeno import paths
+
+        service, srv_task = await _start_service(app=FakeApp())
+        try:
+            body = {
+                "name": "Con adjunto",
+                "workdir": str(tmp_path),
+                "attachments": [
+                    {"name": "wireframe.png", "data": base64.b64encode(b"PNGBYTES").decode()},
+                    {"name": "notes.mp4", "data": base64.b64encode(b"MP4BYTES").decode()},
+                ],
+            }
+            status, payload = await _request(
+                service, "POST", "/api/v1/tasks", json.dumps(body).encode()
+            )
+            assert status == 201, payload
+            task = models_module.load(payload["task"]["id"])
+            directory = paths.task_dir(task.id) / "media"
+            assert (directory / "media-01.png").exists()
+            assert (directory / "media-01.mp4").exists()
+            assert "media/media-01.png" in task.description
+            assert str(directory / "media-01.mp4") in task.description
+            assert "Attachments received via the API:" in task.description
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+
+def test_create_task_attachments_invalid(tmp_path) -> None:
+    """Malformed attachments yield 400 and no task is created."""
+    cases = [
+        ({"not": "a list"}, "attachments must be a list"),
+        ([{"name": "x.png"}], "attachment 0 must be an object with 'data'"),
+        ([{"name": "x.png", "data": "not base64!!"}], "attachment 0: invalid base64 data"),
+        (
+            [
+                {"name": f"x{n}.png", "data": base64.b64encode(b"P").decode()}
+                for n in range(11)
+            ],
+            "too many attachments (max 10)",
+        ),
+    ]
+
+    async def scenario():
+        service, srv_task = await _start_service(app=FakeApp())
+        try:
+            for attachments, message in cases:
+                body = {
+                    "name": "Invalid",
+                    "workdir": str(tmp_path),
+                    "attachments": attachments,
+                }
+                status, payload = await _request(
+                    service, "POST", "/api/v1/tasks", json.dumps(body).encode()
+                )
+                assert status == 400, (attachments, payload)
+                assert payload["error"] == message
+                assert list_all() == []
         finally:
             _stop(service, srv_task)
 

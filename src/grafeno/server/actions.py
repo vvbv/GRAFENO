@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .. import models, paths, scheduler
+from .. import media, models, paths, scheduler
 from ..models import Task, TaskState, task_state_label
 
 if TYPE_CHECKING:
     from .service import ServerService
+
+
+MAX_CREATE_ATTACHMENTS = 10  # decoded entries per create call
 
 
 class ApiError(Exception):
@@ -182,6 +187,34 @@ def _coerce_bool(value: object, default: bool) -> bool:
     return default
 
 
+def _decode_attachments(payload: dict) -> list[tuple[str, bytes]]:
+    """Validate the optional ``attachments`` list of a create payload.
+
+    Each entry must be an object with ``data`` (base64 string) and an
+    optional ``name`` (defaults to "attachment"). Raises ``ApiError(400)``
+    on any malformed entry; the body cap (MAX_BODY, 1 MiB) already bounds
+    the total size.
+    """
+    raw = payload.get("attachments")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ApiError(400, "attachments must be a list")
+    if len(raw) > MAX_CREATE_ATTACHMENTS:
+        raise ApiError(400, f"too many attachments (max {MAX_CREATE_ATTACHMENTS})")
+    decoded: list[tuple[str, bytes]] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict) or not isinstance(item.get("data"), str):
+            raise ApiError(400, f"attachment {index} must be an object with 'data'")
+        name = str(item.get("name") or "attachment")
+        try:
+            data = base64.b64decode(item["data"], validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ApiError(400, f"attachment {index}: invalid base64 data") from exc
+        decoded.append((name, data))
+    return decoded
+
+
 def create_task(service: "ServerService", payload: dict) -> dict:
     """Create a new task from a JSON payload and return its summary."""
     from .. import config as config_module
@@ -195,6 +228,7 @@ def create_task(service: "ServerService", payload: dict) -> dict:
     if not workdir:
         raise ApiError(400, "workdir is required")
     description = str(payload.get("description") or "")
+    attachments = _decode_attachments(payload)  # 400 before creating the task
     cfg = config_module.load()
     parent_id = str(payload.get("parent_id") or "").strip()
     automode = _coerce_bool(payload.get("automode"), True)
@@ -228,6 +262,8 @@ def create_task(service: "ServerService", payload: dict) -> dict:
     else:
         task.origin = "api"
     models.save(task)
+    if attachments:
+        media.attach_files(task, attachments, header="Attachments received via the API:")
     return 201, {"task": task_summary(task)}
 
 

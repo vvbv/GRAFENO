@@ -256,6 +256,44 @@ def test_tasks_list_with_results(tmp_path) -> None:
     _run(scenario())
 
 
+def test_ws_tasks_create_with_attachments(tmp_path) -> None:
+    """tasks.create over WS accepts the same attachments payload."""
+    async def scenario():
+        from grafeno import paths
+
+        service, srv_task = await _start_service()
+        try:
+            reader, writer = await _ws_handshake(service.port)
+            try:
+                reply = await _rpc(
+                    reader,
+                    writer,
+                    {
+                        "id": "1",
+                        "method": "tasks.create",
+                        "params": {
+                            "name": "WS adjunto",
+                            "workdir": str(tmp_path),
+                            "attachments": [
+                                {"name": "a.jpg", "data": base64.b64encode(b"JPEG").decode()}
+                            ],
+                        },
+                    },
+                )
+                assert "result" in reply, reply
+                task_id = reply["result"]["task"]["id"]
+                task = models_module.load(task_id)
+                assert "media/media-01.jpg" in task.description
+                assert (paths.task_dir(task_id) / "media" / "media-01.jpg").exists()
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+
 def test_invalid_json_returns_error() -> None:
     async def scenario():
         service, srv_task = await _start_service()

@@ -1085,23 +1085,9 @@ class TelegramService:
 
     @staticmethod
     def _attach_to_task(task: Task, attachments: list[tuple[str, bytes]]) -> None:
-        """Save buffered attachments into the task's media dir and reference
-        them in the description (``media/`` tokens for images, absolute paths
-        for videos/other files). Best effort: failures only drop the file."""
-        references: list[str] = []
-        for name, data in attachments:
-            saved = media.save_attachment(task.id, name, data)
-            if saved is None:
-                continue
-            if saved.suffix.lower() in media.IMAGE_SUFFIXES:
-                references.append(f"- media/{saved.name}")
-            else:
-                references.append(f"- {saved}")
-        if references:
-            task.description += (
-                "\n\nAdjuntos recibidos por Telegram:\n" + "\n".join(references) + "\n"
-            )
-            models.save(task)
+        """Save buffered attachments into the task's media dir via the shared
+        helper (kept as a wrapper for the Spanish header)."""
+        media.attach_files(task, attachments, header="Adjuntos recibidos por Telegram:")
 
     def _format_created(
         self, chat_id: int, created: list[Task], errors: list[str], unchained: list[str]

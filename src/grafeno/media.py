@@ -15,7 +15,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import paths
+from . import models, paths
 
 MEDIA_TOKEN_PREFIX = "media/"  # token inserted into texts: media/media-01.png
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")  # listed/injected as task images
@@ -182,6 +182,35 @@ def save_attachment(task_id: str, filename: str, data: bytes) -> Path | None:
     except OSError:
         return None
     return target
+
+
+def attach_files(
+    task: models.Task,
+    attachments: list[tuple[str, bytes]],
+    header: str,
+) -> list[Path]:
+    """Save attachments into the task's media dir and append references to the
+    task description (image tokens for image suffixes, absolute paths for the
+    rest). Best effort: a failed write only drops that file.
+
+    Shared by the Telegram bot (Spanish header) and the API server (English
+    header) so both persist attachments the exact same way.
+    """
+    references: list[str] = []
+    saved_paths: list[Path] = []
+    for name, data in attachments:
+        saved = save_attachment(task.id, name, data)
+        if saved is None:
+            continue
+        saved_paths.append(saved)
+        if saved.suffix.lower() in IMAGE_SUFFIXES:
+            references.append(f"- media/{saved.name}")
+        else:
+            references.append(f"- {saved}")
+    if references:
+        task.description += "\n\n" + header + "\n" + "\n".join(references) + "\n"
+        models.save(task)
+    return saved_paths
 
 
 def open_media(path: Path) -> bool:

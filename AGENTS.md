@@ -175,7 +175,8 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   separada que sigue funcionando como canal alternativo). Tokens también por
   env `GRAFENO_API_TOKEN` (prioridad al env). El router se compila al importar
   con `re.fullmatch` y soporta `{task_id}` como placeholder. Acciones REST
-  bajo `/api/v1`: status, tasks (GET/POST, `/{id}/start|resume|restart|
+  bajo `/api/v1`: status, tasks (GET/POST con `attachments?` opcional base64
+  máx. 10, `/{id}/start|resume|restart|
   pause|extend|discard|mark-done`, `/{id}/logs`, `/{id}/artifacts?kind=
   plan|review|final&cycle=`, projects). WebSocket en `/api/v1/ws` con
   handshake RFC 6455 (cliente enmascarado obligatorio; servidor sin
@@ -357,7 +358,11 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   corrección ni pasos finales, igual que las referencias). `list_media`
   acepta png/jpg/jpeg (las fotos de Telegram llegan como JPEG) y
   `save_attachment` guarda adjuntos arbitrarios (imagen o video) con el
-  patrón `media-NN<ext>`.
+  patrón `media-NN<ext>`. `media.attach_files(task, attachments, header)` es
+  el helper compartido que guarda los adjuntos y los referencia en la
+  descripción (token `media/...` para imágenes, ruta absoluta para el resto):
+  lo usan el bot de Telegram y el servidor API, que acepta `attachments`
+  (base64, máx. 10) en la creación de tareas que se guardan igual.
 - **changes.md**: al terminar la fase final, el orquestador escribe
   `final/<ciclo>/changes.md` con todos los cambios aportados por la tarea
   (comiteados y sin comitear): commits, `git status`, diff completo contra
