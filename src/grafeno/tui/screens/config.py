@@ -162,7 +162,7 @@ class ConfigScreen(Screen[None]):
                 yield Label(t("cfg.api.host"))
                 yield Input(id="api-host")
                 yield Label(t("cfg.api.port"))
-                yield Input(id="api-port", type="integer")
+                yield Input(id="api-port", type="integer", placeholder=str(DEFAULT_API_PORT))
             with Horizontal(classes="automode-row"):
                 yield Label(t("cfg.api.tokens"))
                 yield Input(id="api-tokens", password=True,

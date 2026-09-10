@@ -104,3 +104,26 @@ def test_api_port_non_integer_aborts_save(monkeypatch):
             assert isinstance(app.screen, ConfigScreen)
 
     asyncio.run(scenario())
+
+
+def test_api_port_empty_falls_back_to_default(monkeypatch):
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
+    from grafeno.config import DEFAULT_API_PORT
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 180)) as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            app.screen.query_one("#api-port", Input).value = ""
+            app.screen.query_one("#cfg-save").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#cfg-save")
+            await pilot.pause()
+        saved = config_module.load().api
+        assert saved.port == DEFAULT_API_PORT
+
+    asyncio.run(scenario())
