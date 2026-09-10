@@ -102,7 +102,45 @@ def test_build_update_command_prefers_pipx(monkeypatch):
     cmd = selfupdate.build_update_command("1.42.0")
     assert cmd[:3] == ["/usr/local/bin/pipx", "install", "--force"]
     assert cmd[-1] == "git+https://github.com/vvbv/GRAFENO.git@v1.42.0"
-    assert "--pip-args" in cmd and "--progress-bar=on" in cmd
+    assert "--pip-args=--progress-bar=on" in cmd
+    assert "--pip-args" not in cmd  # two-token form breaks pipx argparse
+
+
+def test_build_update_command_pipx_parseable_by_argparse(monkeypatch):
+    """Regression: pipx argparse rejects ``--pip-args <value-with-dash>``.
+
+    pipx declares ``--pip-args PIP_ARGS`` (one argument); passing the value
+    as a separate token makes argparse treat ``--progress-bar=on`` as
+    another option and abort with ``error: argument --pip-args: expected
+    one argument`` (the v1.53.1 update failure). The generated command must
+    use the single-token ``--pip-args=<value>`` form; this test replays it
+    against a parser mirroring pipx's relevant contract.
+    """
+    import argparse
+
+    monkeypatch.setattr(selfupdate, "installed_via_pipx", lambda: True)
+    monkeypatch.setattr(
+        selfupdate.shutil, "which", lambda name: "/usr/local/bin/pipx"
+    )
+    cmd = selfupdate.build_update_command("1.42.0")
+    parser = argparse.ArgumentParser(prog="pipx install")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--pip-args")
+    parser.add_argument("package_spec", nargs="+")
+    # Skip cmd[0] (pipx path) and cmd[1] (the ``install`` subcommand); the
+    # parser models only the contract under that subcommand.
+    ns, _ = parser.parse_known_args(cmd[2:])
+    assert ns.force is True
+    assert ns.pip_args == "--progress-bar=on"
+    assert ns.package_spec == ["git+https://github.com/vvbv/GRAFENO.git@v1.42.0"]
+
+
+def test_build_update_command_pip_uses_equals_form(monkeypatch):
+    """pip branch: option values starting with ``-`` stay in ``--opt=value`` tokens."""
+    monkeypatch.setattr(selfupdate, "installed_via_pipx", lambda: False)
+    cmd = selfupdate.build_update_command("1.42.0")
+    assert "--progress-bar=on" in cmd
+    assert "--progress-bar" not in cmd
 
 
 def test_build_update_command_pip_fallback(monkeypatch):

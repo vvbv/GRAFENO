@@ -142,7 +142,9 @@ async def fetch_latest_version(
 
 def installed_via_pipx() -> bool:
     """True when the running GRAFENO interpreter lives in a pipx-managed venv."""
-    parts = [part.casefold() for part in Path(sys.prefix).parts]
+    parts = [
+        part.casefold() for part in re.split(r"[\\/]", sys.prefix) if part
+    ]
     return "pipx" in parts
 
 
@@ -164,7 +166,9 @@ def build_update_command(version: str) -> list[str]:
     with git-URL requirements: it can leave the same version in place and
     still exit 0. ``--progress-bar=on`` forces percentage output even when
     stdout is piped, so the CLI can draw a live progress bar; with pipx the
-    flag reaches pip through ``--pip-args``.
+    flag reaches pip through ``--pip-args`` as a single ``--pip-args=<value>``
+    token, because argparse refuses a value starting with ``-`` passed as a
+    separate token (``error: argument --pip-args: expected one argument``).
     """
     tag = f"v{normalize_version(version)}"
     url = f"git+{GIT_URL}@{tag}"
@@ -172,7 +176,7 @@ def build_update_command(version: str) -> list[str]:
     if pipx:
         return [
             pipx, "install", "--force",
-            "--pip-args", "--progress-bar=on", url,
+            "--pip-args=--progress-bar=on", url,
         ]
     return [
         sys.executable, "-m", "pip", "install",
