@@ -611,6 +611,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cfg.api.host": "Host",
         "cfg.api.port": "Port",
         "cfg.api.tokens": "API tokens (comma-separated)",
+        "cfg.api.tokens.placeholder": "GRAFENO_API_TOKEN adds tokens",
         "cfg.api.tokens.help": (
             "Optional API key(s) for the REST + WebSocket server. Empty = no auth "
             "(open access). When set, requests need 'Authorization: Bearer <token>' "
@@ -1163,6 +1164,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cfg.api.host": "Host",
         "cfg.api.port": "Puerto",
         "cfg.api.tokens": "Tokens de API (separados por comas)",
+        "cfg.api.tokens.placeholder": "GRAFENO_API_TOKEN añade tokens",
         "cfg.api.tokens.help": (
             "Clave(s) de API opcionales del servidor REST + WebSocket. Vacío = sin "
             "autenticación (acceso abierto). Si hay tokens, toda petición exige "

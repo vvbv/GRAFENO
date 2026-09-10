@@ -166,7 +166,7 @@ class ConfigScreen(Screen[None]):
             with Horizontal(classes="automode-row"):
                 yield Label(t("cfg.api.tokens"))
                 yield Input(id="api-tokens", password=True,
-                            placeholder=t("cfg.tg.token.placeholder"))
+                            placeholder=t("cfg.api.tokens.placeholder"))
             with Horizontal(id="config-buttons"):
                 yield Button(t("common.save"), variant="primary", id="cfg-save")
                 yield Button(t("common.back"), id="cfg-back")

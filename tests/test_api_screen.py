@@ -36,6 +36,10 @@ def test_api_section_roundtrip(monkeypatch):
             assert app.screen.query_one("#api-host", Input).value == "127.0.0.1"
             assert app.screen.query_one("#api-port", Input).value == "8735"
             assert app.screen.query_one("#api-tokens", Input).value == ""
+            # The placeholder must reference the API env var, not Telegram's.
+            placeholder = app.screen.query_one("#api-tokens", Input).placeholder
+            assert "GRAFENO_API_TOKEN" in placeholder
+            assert "TELEGRAM" not in placeholder
 
             # Fill the values and save.
             app.screen.query_one("#api-enabled", Checkbox).value = True
