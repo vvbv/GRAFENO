@@ -19,7 +19,7 @@ from .httpcore import Request, Response, WsHandler
 if TYPE_CHECKING:
     from .service import ServerService
 
-REST_HANDLER = Callable[["ServerService", Request, dict[str, str]], Awaitable[dict]]
+REST_HANDLER = Callable[["ServerService", Request, dict[str, str]], Awaitable[dict | Response]]
 
 
 @dataclass
@@ -111,7 +111,16 @@ async def _task_artifacts(service: "ServerService", request: Request, params: di
 @route("POST", "/api/v1/tasks")
 async def _task_create(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
     payload = parse_json_body(request)
-    return actions.create_task(service, payload)
+    return await actions.create_task(service, payload)
+
+
+@route("POST", "/api/v1/audio/speech")
+async def _audio_speech(service: "ServerService", request: Request, params: dict[str, str]) -> Response:
+    payload = parse_json_body(request)
+    text = str(payload.get("text") or "")
+    fmt = str(payload.get("format") or "wav").strip().lower()
+    audio, mime = await actions.synthesize_speech(service, text, fmt)
+    return Response(200, headers={"Content-Type": mime}, body=audio)
 
 
 @route("POST", "/api/v1/tasks/{task_id}/start")
@@ -185,6 +194,8 @@ async def dispatch_rest(
     except Exception as exc:  # noqa: BLE001
         service._log(f"unhandled error: {exc}")
         return Response.json(500, {"error": "internal error"}), None
+    if isinstance(result, Response):
+        return result, None
     if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], int):
         status, payload = result
     else:

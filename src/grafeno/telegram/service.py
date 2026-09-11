@@ -1123,7 +1123,12 @@ class TelegramService:
         text: str,
         reply_markup: dict[str, Any] | None = None,
     ) -> None:
-        """Send a text reply; with TTS enabled, also a generated voice note."""
+        """Send a text reply; with TTS enabled, also a generated voice note.
+
+        When the send fails and the message carried an inline keyboard, a
+        short fallback message re-delivers the buttons (best effort): a
+        proposal without its Create/Cancel buttons can never be answered.
+        """
         lock = self._send_locks.setdefault(chat_id, asyncio.Lock())
         async with lock:
             try:
@@ -1134,9 +1139,23 @@ class TelegramService:
                 self._on_info(t("tg.send_failed", error=exc))
                 if exc.cert_error:
                     self._on_info(t("tg.ssl_error"))
+                if reply_markup is not None:
+                    await self._send_markup_fallback(chat_id, reply_markup)
                 return
         if self.cfg.tts_enabled:
             await self._send_voice(chat_id, text)
+
+    async def _send_markup_fallback(self, chat_id: int, reply_markup: dict[str, Any]) -> None:
+        """Last-resort delivery of an inline keyboard after a failed send."""
+        try:
+            await asyncio.to_thread(
+                self.client.send_message,
+                chat_id,
+                self._tt(chat_id, "tg.buttons_fallback"),
+                reply_markup=reply_markup,
+            )
+        except TelegramError as exc:
+            self._log(f"markup fallback failed for chat {chat_id}: {exc}")
 
     async def _send_voice(self, chat_id: int, text: str) -> None:
         """Best-effort TTS voice reply; failures are logged to telegram.log."""

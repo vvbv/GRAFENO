@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 class TaskState(str, Enum):
     DRAFT = "draft"
+    FIRST_STEP = "first_step"
     PLANNING = "planning"
     PLANNED = "planned"
     IMPLEMENTING = "implementing"
@@ -55,7 +56,7 @@ TOKEN_KEY_SEP = "|"
 DEFAULT_MODEL_LABEL = "default"  # key when the role does not set a model
 LEGACY_PHASE = "legacy"          # phase for usage records stored with the old format
 # Order of the phases with tokens (used to display the breakdown).
-TOKEN_PHASES = ("plan", "implement", "review", "fix", "final")
+TOKEN_PHASES = ("first", "plan", "implement", "review", "fix", "final")
 
 # Valid task repetition modes (empty = not repetitive).
 REPEAT_MODES = ("", "interval", "infinite")
@@ -110,6 +111,7 @@ class Task:
     remote: str = ""  # canonical remote spec "user@host:/path"; empty = local
     remote_os: str = ""  # detected destination OS (best effort); empty = unknown
     state: TaskState = TaskState.DRAFT
+    first: RoleConfig = field(default_factory=RoleConfig)
     planner: RoleConfig = field(default_factory=RoleConfig)
     implementer: RoleConfig = field(default_factory=RoleConfig)
     reviewer: RoleConfig = field(default_factory=RoleConfig)
@@ -119,6 +121,7 @@ class Task:
     test_command: str = ""
     create_branch: bool = True
     confirm_plan: bool = False  # in automode, ask for confirmation after the plan
+    first_prompt: str = ""  # first-step instructions; empty = the step is skipped
     final_prompt: str = ""  # extra instructions for the final steps
     hook_command: str = ""  # empty = no task-specific hook
     hook_stages: str = ""   # comma-separated stages; empty = none
@@ -146,7 +149,7 @@ class Task:
     repeat_count: int = 0         # repetitions already executed (0 = first execution)
     last_completed_at: str = ""   # local ISO of the last time it reached DONE
     origin: str = ""              # "" = normal; "trigger" = spawned by a trigger task
-    failed_phase: str = ""        # pipeline phase that failed (plan/implement/review/fix/final); "" = unknown
+    failed_phase: str = ""        # pipeline phase that failed (first/plan/implement/review/fix/final); "" = unknown
     usage_waiting: bool = field(default=False, repr=False)  # transient: waiting for CLI quota
     created_at: str = ""
     updated_at: str = ""
@@ -164,6 +167,7 @@ class Task:
         test_command: str | None = None,
         create_branch: bool | None = None,
         confirm_plan: bool | None = None,
+        first_prompt: str | None = None,
         final_prompt: str | None = None,
         hook_command: str | None = None,
         hook_stages: str | None = None,
@@ -185,6 +189,7 @@ class Task:
             description=description,
             workdir=workdir,
             remote="" if remote is None else remote,
+            first=RoleConfig(config.first.cli, config.first.model, config.first.effort),
             planner=RoleConfig(config.planner.cli, config.planner.model, config.planner.effort),
             implementer=RoleConfig(config.implementer.cli, config.implementer.model, config.implementer.effort),
             reviewer=RoleConfig(config.reviewer.cli, config.reviewer.model, config.reviewer.effort),
@@ -194,6 +199,7 @@ class Task:
             test_command=config.automode.test_command if test_command is None else test_command,
             create_branch=config.automode.create_branch if create_branch is None else create_branch,
             confirm_plan=config.automode.confirm_plan if confirm_plan is None else confirm_plan,
+            first_prompt=config.first_prompt if first_prompt is None else first_prompt,
             final_prompt=config.final_prompt if final_prompt is None else final_prompt,
             hook_command="" if hook_command is None else hook_command,
             hook_stages="" if hook_stages is None else hook_stages,
@@ -294,6 +300,7 @@ class Task:
                 "test_command": self.test_command,
                 "create_branch": self.create_branch,
                 "confirm_plan": self.confirm_plan,
+                "first_prompt": self.first_prompt,
                 "final_prompt": self.final_prompt,
                 "hook_command": self.hook_command,
                 "hook_stages": self.hook_stages,
@@ -316,6 +323,7 @@ class Task:
                 "created_at": self.created_at,
                 "updated_at": self.updated_at,
             },
+            "first": self.first.to_dict(),
             "planner": self.planner.to_dict(),
             "implementer": self.implementer.to_dict(),
             "reviewer": self.reviewer.to_dict(),
@@ -338,6 +346,7 @@ class Task:
             remote=str(raw.get("remote", "")),
             remote_os=str(raw.get("remote_os", "")),
             state=TaskState(raw.get("state", TaskState.DRAFT.value)),
+            first=RoleConfig.from_dict(data.get("first", {}), default_cli="opencode"),
             planner=RoleConfig.from_dict(data.get("planner", {}), default_cli="opencode"),
             implementer=RoleConfig.from_dict(data.get("implementer", {}), default_cli="kimi"),
             reviewer=RoleConfig.from_dict(data.get("reviewer", {}), default_cli="opencode"),
@@ -347,6 +356,7 @@ class Task:
             test_command=str(raw.get("test_command", "")),
             create_branch=bool(raw.get("create_branch", True)),
             confirm_plan=bool(raw.get("confirm_plan", False)),
+            first_prompt=str(raw.get("first_prompt", "")),
             final_prompt=str(raw.get("final_prompt", "")),
             hook_command=str(raw.get("hook_command", "")),
             hook_stages=str(raw.get("hook_stages", "")),
@@ -385,6 +395,7 @@ def save(task: Task) -> None:
     task.updated_at = datetime.now().isoformat(timespec="seconds")
     base = paths.task_dir(task.id)
     base.mkdir(parents=True, exist_ok=True)
+    paths.first_dir(task.id)
     paths.plan_dir(task.id)
     paths.review_dir(task.id)
     paths.final_dir(task.id)
@@ -397,10 +408,10 @@ def reset_to_draft(task: Task) -> None:
 
     Clears the state machine (state, iteration, cycle, sessions and
     extensions), unschedules unattended startup, clears the recorded base
-    commit and deletes the pipeline artifacts (``plan/``, ``review/``,
-    ``final/``) so that the next run re-plans with the current name and
-    description. Keeps tokens, durations, hooks and the already-created git
-    branch.
+    commit and deletes the pipeline artifacts (``first/``, ``plan/``,
+    ``review/``, ``final/``) so that the next run re-plans with the current
+    name and description. Keeps tokens, durations, hooks and the
+    already-created git branch.
     """
     task.state = TaskState.DRAFT
     task.iteration = 0
@@ -411,6 +422,7 @@ def reset_to_draft(task: Task) -> None:
     task.base_commit = ""
     task.failed_phase = ""
     for directory in (
+        paths.first_dir(task.id),
         paths.plan_dir(task.id),
         paths.review_dir(task.id),
         paths.final_dir(task.id),

@@ -38,11 +38,21 @@ _PHASE_ORDER = (
 )
 
 
-def _phase_status(state: TaskState) -> dict[str, str]:
+def _phase_order(has_first: bool) -> tuple[tuple[str, str], ...]:
+    """Phase list to render: prepend the optional first step when enabled."""
+    if has_first:
+        return (("first", "phase.first"),) + _PHASE_ORDER
+    return _PHASE_ORDER
+
+
+def _phase_status(state: TaskState, has_first: bool = False) -> dict[str, str]:
     """Visual state of each phase: pending | active | done."""
     status = {"plan": "pending", "implement": "pending", "review": "pending", "final": "pending", "done": "pending"}
+    if has_first:
+        status["first"] = "pending"
     mapping = {
         TaskState.DRAFT: {},
+        TaskState.FIRST_STEP: {"first": "active"},
         TaskState.PLANNING: {"plan": "active"},
         TaskState.PLANNED: {"plan": "done"},
         TaskState.IMPLEMENTING: {"plan": "done", "implement": "active"},
@@ -56,6 +66,12 @@ def _phase_status(state: TaskState) -> dict[str, str]:
         TaskState.DISCARDED: {},
     }
     status.update(mapping.get(state, {}))
+    if has_first and state in (
+        TaskState.PLANNING, TaskState.PLANNED, TaskState.IMPLEMENTING,
+        TaskState.IMPLEMENTED, TaskState.REVIEWING, TaskState.FIXING,
+        TaskState.FINALIZING, TaskState.DONE,
+    ):
+        status["first"] = "done"
     if state is TaskState.FAILED:
         for key, value in list(status.items()):
             if value == "pending":
@@ -72,12 +88,14 @@ class PhaseBar(Static):
         state: TaskState = TaskState.DRAFT,
         iteration: int = 0,
         waiting: bool = False,
+        has_first: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self._state = state
         self._iteration = iteration
         self._waiting = waiting
+        self._has_first = has_first
 
     def on_mount(self) -> None:
         self._render_bar()
@@ -88,18 +106,24 @@ class PhaseBar(Static):
         self._waiting = waiting
         self._render_bar()
 
+    def set_has_first(self, has_first: bool) -> None:
+        """Toggle the optional first-step phase on the bar."""
+        self._has_first = has_first
+        self._render_bar()
+
     def _render_bar(self) -> None:
-        status = _phase_status(self._state)
+        status = _phase_status(self._state, has_first=self._has_first)
+        phase_order = _phase_order(self._has_first)
         line = Text()
-        for index, (key, label_key) in enumerate(_PHASE_ORDER):
+        for index, (key, label_key) in enumerate(phase_order):
             label = t(label_key)
-            value = status[key]
+            value = status.get(key, "pending")
             icon, style = {"pending": ("○", "dim"), "active": ("◉", "bold yellow"), "done": ("●", "green")}[value]
             if key == "review" and self._iteration > 0:
                 label = f"{label} ×{self._iteration}"
             line.append(f" {icon} ", style=style)
             line.append(label, style=style if value != "pending" else "dim")
-            if index < len(_PHASE_ORDER) - 1:
+            if index < len(phase_order) - 1:
                 line.append(" ─── ", style="dim")
         label = state_label(self._state)
         if self._waiting:

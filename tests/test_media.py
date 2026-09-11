@@ -192,3 +192,17 @@ def test_attach_files_empty_list_is_noop(tmp_path):
     assert media.attach_files(task, [], header="HEADER-X") == []
     assert "HEADER-X" not in task.description
     assert task.description == "base"
+
+
+def test_save_attachment_keeps_audio_suffix(tmp_path):
+    """Audio attachments keep their suffix instead of falling back to .bin."""
+    from grafeno import media
+
+    task_id = "20260101-000000-audio"
+    saved = media.save_attachment(task_id, "voice.ogg", b"OGG")
+    assert saved is not None and saved.suffix == ".ogg"
+    assert saved.read_bytes() == b"OGG"
+    assert media.is_audio_name("voice.ogg")
+    assert media.is_audio_name("NOTE.WAV")
+    assert not media.is_audio_name("photo.png")
+    assert not media.is_audio_name("evil.sh")

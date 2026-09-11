@@ -2,7 +2,7 @@
 
 Orquestador TUI multi-CLI para tareas de programación: pipeline
 **plan -> implementación -> revisión <=> corrección -> pasos finales** usando
-CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex y Claude Code).
+CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex, Claude Code y Cursor).
 
 ## Stack
 
@@ -16,7 +16,7 @@ CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex y Claude Code).
 ```
 src/grafeno/
 ├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas); intercepta el comando CLI `grafeno update` antes del argparse; `--version`/`-v` imprime la versión; arranca el servidor API (worker `api-server`) si `cfg.api.enabled`
-├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo, automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), prompt de pasos finales, sección [telegram] (TelegramConfig), sección [api] (ApiConfig: enabled/host/port/tokens + env GRAFENO_API_TOKEN)
+├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo (incluido `first` para el primer paso), automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), prompt de primer paso (first step, opcional) y de pasos finales, sección [telegram] (TelegramConfig), sección [api] (ApiConfig: enabled/host/port/tokens + env GRAFENO_API_TOKEN)
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict; incluye `failed_phase` (fase del pipeline que fallo, para reanudar)
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME; incluye `api_log_path()`
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
@@ -39,26 +39,26 @@ src/grafeno/
 ├── remotesession.py        # Modo sesión remota (`grafeno [user@]host[:port]`): bootstrap (sondeo de $HOME remoto, mkdir ~/.grafeno, montaje sshfs), activate() exporta GRAFENO_HOME al montaje; spec_for_task/describe_target para el fallback de sesión
 ├── triggers.py             # Tareas trigger: modelo, niveles global/proyecto, fire() y spawn() best-effort
 ├── telegram/               # Bot de Telegram (stdlib, sin dependencias nuevas): voz/texto -> tareas, consultas y respuestas con voz
-│   ├── api.py              #   Cliente Bot API con urllib (long polling, multipart a mano, troceo 4096); transporte inyectable; el token nunca se loguea
+│   ├── api.py              #   Cliente Bot API con urllib (long polling, multipart a mano, troceo 4096 con pacing CHUNK_DELAY entre chunks y reintento ante 429; el reply_markup viaja siempre en el último chunk); transporte inyectable; el token nunca se loguea
 │   ├── stt.py              #   Transcripción vía endpoint OpenAI-compatible (Groq whisper-large-v3-turbo por defecto), best-effort
 │   ├── tts.py              #   Voz generada vía endpoint OpenAI-compatible (Groq orpheus, voz masculina `troy` por defecto), opt-in; el WAV del proveedor se convierte a OGG/OPUS con ffmpeg externo (best effort; sin ffmpeg se envía como sendAudio) y los fallos se registran en telegram.log
 │   ├── intents.py          #   Interpretación del mensaje con un CLI de agente (prompt one-shot -> JSON): crear/listar tareas/listar proyectos (directorios del scope global)/tareas de un proyecto/estado/archivos/preguntar
 │   └── service.py          #   Bucle de polling (worker de la App), whitelist de chats, propuestas con botones inline, creación origin="telegram", notificación de fin
 ├── server/                 # Servidor remoto REST + WS sobre stdlib (asyncio)
 │   ├── service.py          #   Ciclo de vida: bind, eventos push por sondeo (signature) y registro de conexiones WS; logs a ~/.grafeno/api.log (cap 1 MiB) sin el token
-│   ├── httpcore.py         #   HTTP/1.1 parseo/serialización (límites 32 KiB head/1 MiB body, keep-alive)
+│   ├── httpcore.py         #   HTTP/1.1 parseo/serialización (límites 32 KiB head/8 MiB body, keep-alive)
 │   ├── auth.py             #   Bearer/query token; denegar todo cuando no hay tokens
 │   ├── rest.py             #   Router con placeholder {task_id} precompilado (regex fullmatch); dispatch a actions.py
 │   ├── actions.py          #   Operaciones compartidas REST/WS (read y write); ApiError(status, message) -> Response
 │   └── ws.py               #   RFC 6455: handshake (accept key), frames enmascarados de cliente, comandos JSON-RPC {"id","method","params"} y eventos {"event":...,...} con suscripción por topic
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL; expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
-│   ├── opencode.py, kimi.py, codex.py, claude.py#   Dialectos concretos
+│   ├── opencode.py, kimi.py, codex.py, claude.py, cursor.py#   Dialectos concretos
 │   └── __init__.py         #   Registro: get_driver(), available_clis(), fetch_all_models(), fetch_all_variants()
 ├── pipeline/
-│   ├── orchestrator.py     # Orquestador de fases (plan/implementar/revisar/final, automode, ciclos); `_mark_failed` registra la fase fallida, `_review_fix_loop` es el bucle compartido y `run_automode_resume` reanuda desde la fase fallida reaprovechando artefactos (resetea el presupuesto de iteracion solo si estaba agotado)
+│   ├── orchestrator.py     # Orquestador de fases (first opcional/plan/implementar/revisar/final, automode, ciclos); `_mark_failed` registra la fase fallida, `_review_fix_loop` es el bucle compartido y `run_automode_resume` reanuda desde la fase fallida reaprovechando artefactos (resetea el presupuesto de iteracion solo si estaba agotado)
 │   ├── hooks.py            # Hooks de completado por etapa (comando shell o webhook URL; global + por tarea, mejor esfuerzo)
-│   ├── prompts.py          # Prompts por fase, cabecera GRAFENO-EXECUTOR e instrucciones finales personalizables
+│   ├── prompts.py          # Prompts por fase (first, plan, ...), cabecera GRAFENO-EXECUTOR e instrucciones finales personalizables
 │   ├── verdict.py          # Parseo del veredicto del revisor (VERDICT: APPROVED / CHANGES_REQUESTED)
 │   └── gitops.py           # Rama opcional grafeno/<tarea>; diff base (base_commit) y generacion de changes.md del reporte final
 └── tui/
@@ -76,7 +76,7 @@ install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), v
 ```
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
-`task.toml`, `plan/`, `review/`, `final/`, `media/`, `logs/live.jsonl`, `logs/*.jsonl`;
+`task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `logs/live.jsonl`, `logs/*.jsonl`;
 además `config.toml`, `references.toml`, `triggers.toml`, `consoles/`,
 `mounts/`, `telegram-state.toml`, `api.log`); no
 en el repo.
@@ -167,7 +167,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   worker de la App mientras la TUI está abierta: bind sobre `host:port`
   (por defecto `127.0.0.1:8735`) con HTTP/1.1 parseado a mano sobre asyncio
   streams (stdlib, cero dependencias nuevas; misma política que el bot de
-  Telegram). Limites: 32 KiB de cabecera y 1 MiB de cuerpo; sin chunked;
+  Telegram). Limites: 32 KiB de cabecera y 8 MiB de cuerpo; sin chunked;
   keep-alive HTTP/1.1. Autenticación opcional por token: `Authorization: Bearer
   <token>` o `?token=` solo cuando hay tokens configurados; el conjunto vacío
   (defecto) NO exige API key (acceso abierto). La API key es credencial dedicada de
@@ -176,9 +176,15 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   env `GRAFENO_API_TOKEN` (prioridad al env). El router se compila al importar
   con `re.fullmatch` y soporta `{task_id}` como placeholder. Acciones REST
   bajo `/api/v1`: status, tasks (GET/POST con `attachments?` opcional base64
-  máx. 10, `/{id}/start|resume|restart|
+  máx. 10: los adjuntos de audio por nombre de archivo (`AUDIO_SUFFIXES`:
+  ogg/oga/opus/mp3/wav/m4a/flac) se transcriben además con el proveedor STT
+  configurado y el texto se añade a la descripción, devolviendo en la
+  respuesta un array `transcriptions` por adjunto con `{name, text}` o
+  `{name, error}`; `/{id}/start|resume|restart|
   pause|extend|discard|mark-done`, `/{id}/logs`, `/{id}/artifacts?kind=
-  plan|review|final&cycle=`, projects). WebSocket en `/api/v1/ws` con
+  first|plan|review|final&cycle=`, projects, y `/audio/speech` (síntesis
+  TTS bajo demanda con el proveedor configurado: WAV por defecto u OGG/OPUS
+  cuando `format=ogg` y hay `ffmpeg` instalado en el host). WebSocket en `/api/v1/ws` con
   handshake RFC 6455 (cliente enmascarado obligatorio; servidor sin
   máscara), comandos JSON-RPC `{"id","method","params"}` que devuelven
   `{"id","result"|"error"}` y eventos de suscripción `{"event":"task.changed",
@@ -267,7 +273,9 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   la opción `group_all` del config desactiva ese filtro y todo mensaje de
   un grupo whitelisted llega al parser sin necesidad de mención.
   El parser CLI tiene timeout (120s) y sus fallos se contestan en el chat
-  en vez de quedar en silencio. El parser devuelve además el idioma del
+  en vez de quedar en silencio. Si un envío con teclado inline falla, el
+  servicio lo reintenta con un mensaje corto de respaldo (`tg.buttons_fallback`):
+  una propuesta nunca queda sin botones de confirmación. El parser devuelve además el idioma del
   mensaje (`lang`) y el bot contesta en ese idioma (`i18n.t_lang`, por
   chat, sin tocar el idioma global de la TUI). Las claves STT/TTS/token
   se sanealan al resolverlas (toleran prefijos pegados como
@@ -358,8 +366,12 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   corrección ni pasos finales, igual que las referencias). `list_media`
   acepta png/jpg/jpeg (las fotos de Telegram llegan como JPEG) y
   `save_attachment` guarda adjuntos arbitrarios (imagen o video) con el
-  patrón `media-NN<ext>`. `media.attach_files(task, attachments, header)` es
-  el helper compartido que guarda los adjuntos y los referencia en la
+  patrón `media-NN<ext>`; el conjunto de sufijos reconocidos se publica
+  como `IMAGE_SUFFIXES` (png/jpg/jpeg) y `AUDIO_SUFFIXES`
+  (ogg/oga/opus/mp3/wav/m4a/flac), el resto cae a `.bin`. El helper
+  `is_audio_name(filename)` decide si un adjunto entra en la rama de
+  transcripción de audio. `media.attach_files(task, attachments, header)`
+  es el helper compartido que guarda los adjuntos y los referencia en la
   descripción (token `media/...` para imágenes, ruta absoluta para el resto):
   lo usan el bot de Telegram y el servidor API, que acepta `attachments`
   (base64, máx. 10) en la creación de tareas que se guardan igual.

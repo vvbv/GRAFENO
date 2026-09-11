@@ -1,4 +1,4 @@
-"""Pipeline orchestrator: plan -> implementation -> review ⇄ fix -> final steps.
+"""Pipeline orchestrator: optional first step -> plan -> implementation -> review ⇄ fix -> final steps.
 
 It is independent of the TUI: it receives callbacks and can be used in
 headless mode, which makes it testable and reusable. Drivers are injected
@@ -319,8 +319,28 @@ class Orchestrator:
         else:
             self._info(t("orch.agents_md.failed", error=result.error or "?"))
 
+    async def run_first(self) -> None:
+        """Optional first step: runs only when the task defines first_prompt."""
+        if not self.task.first_prompt.strip():
+            return
+        await self._prepare_remote()
+        result = await self._execute(
+            "first",
+            "first",
+            prompts.first_prompt(self.task),
+            "first.jsonl",
+            TaskState.FIRST_STEP,
+            TaskState.DRAFT,
+        )
+        self._normalize_md_files(paths.first_dir(self.task.id, self.task.cycle))
+        first_path = paths.first_dir(self.task.id, self.task.cycle) / "01-first.md"
+        if not first_path.exists() and result.text.strip():
+            # Fallback: the agent did not write the file; we save its output.
+            first_path.write_text(normalize_markdown(result.text), encoding="utf-8")
+
     async def run_plan(self) -> None:
         await self._prepare_remote()
+        await self.run_first()
         self._set_state(TaskState.PLANNING)  # includes AGENTS.md generation
         await self.ensure_agents_md()
         result = await self._execute(

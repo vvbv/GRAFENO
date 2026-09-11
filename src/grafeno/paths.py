@@ -81,6 +81,16 @@ def review_dir(task_id: str, cycle: int = 1) -> Path:
     return path
 
 
+def first_dir(task_id: str, cycle: int = 1) -> Path:
+    """Optional first-step directory for a cycle. Cycle 1 uses the root
+    (backwards compatibility); extension cycles use ``first/ciclo-NN/``."""
+    path = task_dir(task_id) / "first"
+    if cycle > 1:
+        path = path / f"ciclo-{cycle:02d}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def final_dir(task_id: str, cycle: int = 1) -> Path:
     path = task_dir(task_id) / "final"
     if cycle > 1:

@@ -24,7 +24,7 @@ from .pipeline.hooks import HOOK_STAGES
 if TYPE_CHECKING:
     from .models import Task
 
-TRIGGER_STAGES = HOOK_STAGES  # plan, implement, review, fix, final, tests
+TRIGGER_STAGES = HOOK_STAGES  # first, plan, implement, review, fix, final, tests
 TIMINGS = ("before", "after")
 ALL_PHASES = "all"  # value of ``phases`` meaning "every stage"
 ORIGIN_TRIGGER = "trigger"  # Task.origin of tasks spawned by a trigger

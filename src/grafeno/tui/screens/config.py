@@ -1,4 +1,4 @@
-"""Global settings screen (planner / implementer / reviewer / automode)."""
+"""Global settings screen (first / planner / implementer / reviewer / final / automode)."""
 
 from __future__ import annotations
 
@@ -59,6 +59,8 @@ class ConfigScreen(Screen[None]):
                 yield Checkbox(t("cfg.upd.enabled"), id="upd-enabled")
             with Horizontal(classes="automode-row"):
                 yield Checkbox(t("cfg.self_update.enabled"), id="upd-self")
+            yield Label(t("cfg.first_prompt"))
+            yield TextArea(id="cfg-first-prompt")
             yield Label(t("cfg.final_prompt"))
             yield TextArea(id="cfg-final-prompt")
             yield Static(t("cfg.hook"), classes="section-title")
@@ -187,6 +189,7 @@ class ConfigScreen(Screen[None]):
         self.query_one("#upd-self", Checkbox).value = self._config.self_update
         self.query_one("#am-max-iter", Input).value = str(auto.max_iterations)
         self.query_one("#am-tests", Input).value = auto.test_command
+        self.query_one("#cfg-first-prompt", TextArea).text = self._config.first_prompt
         self.query_one("#cfg-final-prompt", TextArea).text = self._config.final_prompt
         self.query_one("#hook-command", Input).value = self._config.hook.command
         for stage in parse_stages(self._config.hook.stages):
@@ -319,6 +322,7 @@ class ConfigScreen(Screen[None]):
         cfg.self_update = self.query_one("#upd-self", Checkbox).value
         cfg.automode.max_iterations = max_iter
         cfg.automode.test_command = self.query_one("#am-tests", Input).value.strip()
+        cfg.first_prompt = self.query_one("#cfg-first-prompt", TextArea).text.strip()
         cfg.final_prompt = self.query_one("#cfg-final-prompt", TextArea).text.strip()
         cfg.hook.command = self.query_one("#hook-command", Input).value.strip()
         cfg.hook.stages = format_stages([

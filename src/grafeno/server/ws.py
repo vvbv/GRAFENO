@@ -327,7 +327,7 @@ async def _tasks_artifacts(service: "ServerService", params: dict, conn: "WsConn
 
 
 async def _tasks_create(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    result = actions.create_task(service, params)
+    result = await actions.create_task(service, params)
     if isinstance(result, tuple):
         return result[1]
     return result

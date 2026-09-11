@@ -160,6 +160,38 @@ def _custom_final_section(task: Task) -> str:
 """
 
 
+def first_prompt(task: Task) -> str:
+    """Prompt del primer paso: instrucciones iniciales definidas por el usuario."""
+    first_dir = paths.first_dir(task.id, task.cycle)
+    return f"""Eres el AGENTE DE PRIMER PASO de una tarea orquestada por GRAFENO.
+Tu trabajo se ejecuta ANTES de la planificación: prepara lo que indiquen las
+instrucciones iniciales de la tarea, ni más ni menos.
+
+# Contexto
+- Tarea: {task.name}
+- Descripción: {task.description or "(sin descripción)"}
+- Proyecto (directorio de trabajo): {task.workdir}
+{_remote_section(task)}
+# Instrucciones del primer paso (definidas por el usuario)
+{task.first_prompt.strip()}
+
+# Tu entrega
+1. Ejecuta las instrucciones del primer paso sin salirte de su alcance.
+2. NO escribas el plan ni implementes la tarea: eso viene después con otros agentes.
+3. Escribe el resultado en el archivo:
+   {first_dir / "01-first.md"}
+   con secciones: Resumen, Acciones realizadas, Observaciones.
+
+{_CODE_RULES}
+
+{_MD_RULES}
+
+Termina tu respuesta con un resumen de las acciones realizadas.
+
+{_COMMON_RULES}
+""".strip()
+
+
 def plan_prompt(task: Task) -> str:
     plan_dir = paths.plan_dir(task.id, task.cycle)
     return f"""Eres un INGENIERO DE SOFTWARE SENIOR actuando como PLANIFICADOR de una

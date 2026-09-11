@@ -1,8 +1,8 @@
 """Modal for configuring the agents (CLI + model) of a specific task.
 
-Edits the planner/implementer/reviewer roles of the task and persists them
-in ``task.toml``. Model loading is cancelable with Esc (first Esc cancels
-the load; the second one closes without saving).
+Edits the first/planner/implementer/reviewer/final roles of the task and
+persists them in ``task.toml``. Model loading is cancelable with Esc
+(first Esc cancels the load; the second one closes without saving).
 """
 
 from __future__ import annotations

@@ -20,7 +20,7 @@ from typing import Awaitable, Callable, Optional
 from urllib.parse import parse_qs, urlsplit
 
 MAX_HEAD = 32 * 1024      # hard cap on a single request head
-MAX_BODY = 1 * 1024 * 1024  # hard cap on a single request body
+MAX_BODY = 8 * 1024 * 1024  # hard cap on a single request body (base64 audio attachments)
 HEAD_READ_TIMEOUT = 15.0  # seconds to receive the request head
 REQUEST_TIMEOUT = 30.0    # seconds for any single read on the request
 
@@ -37,6 +37,7 @@ REASONS: dict[int, str] = {
     413: "Payload Too Large",
     429: "Too Many Requests",
     500: "Internal Server Error",
+    502: "Bad Gateway",
 }
 
 ALLOWED_METHODS = ("GET", "POST", "DELETE", "OPTIONS")

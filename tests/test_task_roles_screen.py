@@ -65,7 +65,8 @@ def test_task_roles_screen_edits_and_saves(monkeypatch):
             app.screen.query_one("#planner-model", Select).value = "kimi-code/k3"
 
             app.screen.query_one("#tr-save").scroll_visible()
-            await pilot.pause()
+            for _ in range(5):
+                await pilot.pause(0.05)
             await pilot.click("#tr-save")
             await pilot.pause()
             assert isinstance(app.screen, TaskDetailScreen)
@@ -97,7 +98,8 @@ def test_task_roles_screen_cancel_keeps_roles(monkeypatch):
             assert isinstance(app.screen, TaskRolesScreen)
 
             app.screen.query_one("#tr-cancel").scroll_visible()
-            await pilot.pause()
+            for _ in range(5):
+                await pilot.pause(0.05)
             await pilot.click("#tr-cancel")
             await pilot.pause()
             assert isinstance(app.screen, TaskDetailScreen)
@@ -176,7 +178,8 @@ def test_task_roles_screen_persists_effort(monkeypatch):
             await pilot.pause()
 
             app.screen.query_one("#tr-save").scroll_visible()
-            await pilot.pause()
+            for _ in range(5):
+                await pilot.pause(0.05)
             await pilot.click("#tr-save")
             await pilot.pause()
             assert isinstance(app.screen, TaskDetailScreen)

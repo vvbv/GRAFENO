@@ -19,6 +19,7 @@ from . import models, paths
 
 MEDIA_TOKEN_PREFIX = "media/"  # token inserted into texts: media/media-01.png
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")  # listed/injected as task images
+AUDIO_SUFFIXES = (".ogg", ".oga", ".opus", ".mp3", ".wav", ".m4a", ".flac")  # transcribed on intake
 
 _PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 _MAC_FALLBACK_PATH = "/tmp/grafeno-clipboard.png"
@@ -167,7 +168,7 @@ def save_attachment(task_id: str, filename: str, data: bytes) -> Path | None:
     """
     directory = paths.media_dir(task_id)
     suffix = Path(filename).suffix.lower()
-    if suffix not in IMAGE_SUFFIXES and suffix not in (".mp4", ".webm"):
+    if suffix not in IMAGE_SUFFIXES + AUDIO_SUFFIXES + (".mp4", ".webm"):
         suffix = ".bin"
     target: Path | None = None
     for n in range(1, 100):
@@ -211,6 +212,11 @@ def attach_files(
         task.description += "\n\n" + header + "\n" + "\n".join(references) + "\n"
         models.save(task)
     return saved_paths
+
+
+def is_audio_name(filename: str) -> bool:
+    """True when ``filename`` ends in a known audio suffix (see AUDIO_SUFFIXES)."""
+    return Path(filename).suffix.lower() in AUDIO_SUFFIXES
 
 
 def open_media(path: Path) -> bool:

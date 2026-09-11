@@ -327,6 +327,45 @@ def test_new_task_final_prompt_inherits_and_overrides():
     asyncio.run(scenario())
 
 
+def test_new_task_first_prompt_inherits_and_can_be_cleared():
+    """The modal preloads the global first_prompt and can be cleared per task."""
+    async def scenario():
+        from grafeno import config as config_module, models
+
+        cfg = config_module.load()
+        cfg.first_prompt = "global"
+        config_module.save(cfg)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            assert isinstance(app.screen, NewTaskScreen)
+
+            area = app.screen.query_one("#nt-first-prompt", TextArea)
+            assert area.text == "global"
+
+            # Clear the textarea: the task should be created without a first step.
+            area.text = ""
+            app.screen.query_one("#nt-name", Input).value = "Sin primer paso"
+            app.screen.query_one("#nt-create").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#nt-create")
+            await pilot.pause()
+
+            from grafeno.tui.screens.detail import TaskDetailScreen
+            assert isinstance(app.screen, TaskDetailScreen)
+            task_id = app.screen.current_task.id
+            assert app.screen.current_task.first_prompt == ""
+
+            reloaded = models.load(task_id)
+            assert reloaded.first_prompt == ""
+
+    asyncio.run(scenario())
+
+
 def test_navigation_does_not_interrupt_pipeline():
     """Volver al listado no interrumpe: el pipeline sigue en la App y la
     lista muestra el indicador ▶; al reabrir se reconecta."""
@@ -405,6 +444,22 @@ def test_phase_status_includes_final():
     assert done["done"] == "done"
 
 
+def test_phase_status_with_first():
+    """has_first=True exposes the `first` phase and marks it done once planning starts."""
+    from grafeno.models import TaskState
+    from grafeno.tui.widgets import _phase_status
+
+    implementing = _phase_status(TaskState.IMPLEMENTING, has_first=True)
+    assert implementing["first"] == "done"
+    assert implementing["implement"] == "active"
+
+    first_step = _phase_status(TaskState.FIRST_STEP, has_first=True)
+    assert first_step["first"] == "active"
+
+    without_first = _phase_status(TaskState.IMPLEMENTING, has_first=False)
+    assert "first" not in without_first
+
+
 def test_detail_screen_has_final_tab_and_binding():
     """The detail screen exposes the #tab-final tab and the `s` binding."""
     from grafeno import models
@@ -428,6 +483,34 @@ def test_detail_screen_has_final_tab_and_binding():
 
             # The final-steps tab exists.
             assert app.screen.query("#tab-final") is not None
+
+    asyncio.run(scenario())
+
+
+def test_detail_screen_has_first_tab_and_widgets():
+    """The detail screen mounts the #tab-first tab with file list and markdown view."""
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task
+    from grafeno.tui.screens.detail import TaskDetailScreen
+    from grafeno.tui.widgets import PhaseBar
+
+    task = Task.create("Demo first ui", "desc", "/tmp", Config(), first_prompt="prep")
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(120, 60)) as pilot:
+            await pilot.pause()
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+
+            assert app.screen.query("#tab-first") is not None
+            assert app.screen.query("#first-files") is not None
+            assert app.screen.query("#first-view") is not None
+            assert app.screen.query("#first-scroll") is not None
+            # The phase bar is configured with has_first=True.
+            assert app.screen.query_one(PhaseBar)._has_first is True
 
     asyncio.run(scenario())
 

@@ -17,6 +17,7 @@ from ..i18n import t
 
 # Pipeline roles (id, i18n key for the title).
 ROLES: tuple[tuple[str, str], ...] = (
+    ("first", "cfg.role.first"),
     ("planner", "cfg.role.planner"),
     ("implementer", "cfg.role.implementer"),
     ("reviewer", "cfg.role.reviewer"),

@@ -410,7 +410,7 @@ def test_config_screen_triggers_form_roundtrip(monkeypatch):
         assert triggers_module.load_global() == []
 
         app = GrafenoApp()
-        async with app.run_test(size=(110, 160)) as pilot:
+        async with app.run_test(size=(110, 200)) as pilot:
             await pilot.pause()
             await pilot.press("c")
             await pilot.pause()
@@ -432,7 +432,8 @@ def test_config_screen_triggers_form_roundtrip(monkeypatch):
             await pilot.pause()
             add_btn = app.screen.query_one("#trig-add")
             add_btn.scroll_visible()
-            await pilot.pause()
+            for _ in range(5):
+                await pilot.pause(0.05)
             await pilot.click("#trig-add")
             await pilot.pause()
             assert [t.name for t in form.triggers()] == ["post-tests"]
@@ -440,7 +441,8 @@ def test_config_screen_triggers_form_roundtrip(monkeypatch):
             # Click Save (the screen is large enough to show the button).
             save_btn = app.screen.query_one("#cfg-save")
             save_btn.scroll_visible()
-            await pilot.pause()
+            for _ in range(5):
+                await pilot.pause(0.05)
             await pilot.click("#cfg-save")
             await pilot.pause()
 

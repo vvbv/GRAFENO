@@ -340,6 +340,55 @@ def test_ping_returns_pong_with_same_payload() -> None:
     _run(scenario())
 
 
+def test_write_frame_length_encoding_boundaries() -> None:
+    """RFC 6455 length tiers: 7-bit, 16-bit (126) and 64-bit (127)."""
+    from grafeno.server.ws import OP_TEXT, write_frame
+
+    assert write_frame(OP_TEXT, b"") == b"\x81\x00"
+    assert write_frame(OP_TEXT, b"a" * 125)[:2] == bytes([0x81, 125])
+    frame = write_frame(OP_TEXT, b"a" * 126)
+    assert frame[:2] == b"\x81\x7e" and int.from_bytes(frame[2:4], "big") == 126
+    frame = write_frame(OP_TEXT, b"a" * 65535)
+    assert frame[:2] == b"\x81\x7e" and int.from_bytes(frame[2:4], "big") == 65535
+    frame = write_frame(OP_TEXT, b"a" * 65536)
+    assert frame[:2] == b"\x81\x7f" and int.from_bytes(frame[2:10], "big") == 65536
+
+
+def test_ws_tasks_artifacts_large_payload(tmp_path) -> None:
+    """A > 1 MiB artifacts reply crosses the 64-bit frame length tier.
+
+    Server-to-client frames are size-capped by nothing; MAX_WS_PAYLOAD
+    only bounds client-to-server commands. The reply must arrive whole.
+    """
+    from grafeno import paths
+
+    task = Task.create("Demo", "desc", str(tmp_path), Config())
+    models_module.save(task)
+    big = "contenido del plan\n" * 100_000  # ~1.8 MB
+    (paths.plan_dir(task.id, 1) / "01-big.md").write_text(big, encoding="utf-8")
+
+    async def scenario():
+        service, srv_task = await _start_service()
+        try:
+            reader, writer = await _ws_handshake(service.port)
+            try:
+                reply = await _rpc(reader, writer, {
+                    "id": 7,
+                    "method": "tasks.artifacts",
+                    "params": {"task_id": task.id, "kind": "plan"},
+                })
+                files = reply["result"]["files"]
+                assert len(files) == 1
+                assert files[0]["content"] == big
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+
 def test_subscribe_and_task_changed_event(tmp_path) -> None:
     async def scenario():
         service, srv_task = await _start_service()

@@ -11,6 +11,7 @@ from grafeno.drivers import available_clis, get_driver
 from grafeno.drivers.base import CLIDriver, EventKind, RunRequest, read_lines
 from grafeno.drivers.claude import ClaudeDriver
 from grafeno.drivers.codex import CodexDriver
+from grafeno.drivers.cursor import CursorDriver
 from grafeno.drivers.kimi import KimiDriver
 from grafeno.drivers.opencode import OpenCodeDriver
 
@@ -469,6 +470,125 @@ def test_claude_user_events_are_noise():
 
 
 # ---------------------------------------------------------------------- #
+# Cursor
+# ---------------------------------------------------------------------- #
+def test_cursor_command_full():
+    driver = CursorDriver()
+    cmd = driver.build_command(_request(model="gpt-5.2", session_id="c-1"))
+    assert cmd[0] == "cursor-agent"
+    assert "hola" not in cmd  # the prompt travels via stdin, not argv
+    assert "-p" in cmd
+    assert cmd[cmd.index("--output-format") + 1] == "stream-json"
+    assert "--trust" in cmd
+    assert "-f" in cmd
+    assert cmd[cmd.index("--model") + 1] == "gpt-5.2"
+    assert cmd[cmd.index("--resume") + 1] == "c-1"
+
+
+def test_cursor_command_minimal():
+    cmd = CursorDriver().build_command(_request())
+    assert "--model" not in cmd
+    assert "--resume" not in cmd
+
+
+def test_cursor_command_ignores_effort():
+    """Cursor encodes effort in the model ids: no extra flag is added."""
+    base = CursorDriver().build_command(_request())
+    with_effort = CursorDriver().build_command(_request(effort="high"))
+    assert base == with_effort
+    assert "high" not in with_effort
+
+
+def test_cursor_decode_real_event_shapes():
+    """Events captured from ``cursor-agent -p --output-format stream-json``."""
+    driver = CursorDriver()
+    event, session, _ = driver.decode_line(
+        '{"type":"system","subtype":"init","session_id":"s-9","model":"Auto"}'
+    )
+    assert event is None
+    assert session == "s-9"
+    event, _, _ = driver.decode_line(
+        '{"type":"user","session_id":"s-9","message":{"role":"user","content":[]}}'
+    )
+    assert event is None  # prompt echo: raw log only
+    event, _, _ = driver.decode_line(
+        '{"type":"thinking","subtype":"delta","text":"hmm","session_id":"s-9"}'
+    )
+    assert event is None  # thinking deltas: raw log only
+    event, _, _ = driver.decode_line(json.dumps({
+        "type": "assistant",
+        "message": {"role": "assistant", "content": [{"type": "text", "text": "hola"}]},
+    }))
+    assert event.kind is EventKind.TEXT
+    assert event.text == "hola"
+    event, session, _ = driver.decode_line(json.dumps({
+        "type": "tool_call", "subtype": "started", "session_id": "s-9",
+        "tool_call": {"shellToolCall": {"args": {"command": "echo hi"}, "description": "Echo hi"}},
+    }))
+    assert session == "s-9"
+    assert event.kind is EventKind.TOOL
+    assert "shell" in event.text and "echo hi" in event.text
+    event, _, _ = driver.decode_line(json.dumps({
+        "type": "tool_call", "subtype": "completed",
+        "tool_call": {"shellToolCall": {"args": {"command": "echo hi"}}},
+    }))
+    assert event is None  # completed duplicates the started summary
+    event, _, usage = driver.decode_line(json.dumps({
+        "type": "result", "subtype": "success", "is_error": False, "result": "PONG",
+        "usage": {"inputTokens": 7, "outputTokens": 3, "cacheReadTokens": 99},
+    }))
+    assert event is None
+    assert usage is not None and (usage.input, usage.output) == (7, 3)
+    event, _, _ = driver.decode_line(json.dumps({
+        "type": "result", "subtype": "error_during_execution", "is_error": True,
+        "result": "fallo",
+    }))
+    assert event.kind is EventKind.ERROR
+    assert "fallo" in event.text
+
+
+def test_cursor_extract_usage_absent_and_snake_fallback():
+    driver = CursorDriver()
+    _, _, usage = driver.decode_line(json.dumps({"type": "assistant", "message": {"content": []}}))
+    assert usage is None
+    _, _, usage = driver.decode_line(json.dumps({"usage": {"input_tokens": 4, "output_tokens": 2}}))
+    assert usage is not None and (usage.input, usage.output) == (4, 2)
+
+
+def test_cursor_tool_call_defensive():
+    """Malformed tool_call payloads never raise and still produce a TOOL event."""
+    driver = CursorDriver()
+    event, _, _ = driver.decode_line('{"type":"tool_call","subtype":"started"}')
+    assert event.kind is EventKind.TOOL
+    event, _, _ = driver.decode_line(
+        '{"type":"tool_call","subtype":"started","tool_call":{"readToolCall":"no-dict"}}'
+    )
+    assert event.kind is EventKind.TOOL
+    assert "read" in event.text
+
+
+def test_cursor_list_models(monkeypatch):
+    driver = CursorDriver()
+    sample = "Available models\n\nauto - Auto (current, default)\ngpt-5.2 - GPT-5.2\n"
+    monkeypatch.setattr(driver, "_run_sync", lambda cmd: sample)
+    assert driver.list_models() == ["auto", "gpt-5.2"]
+
+
+def test_cursor_list_models_failure(monkeypatch):
+    driver = CursorDriver()
+    monkeypatch.setattr(driver, "_run_sync", lambda cmd: None)
+    assert driver.list_models() == []
+
+
+def test_cursor_variants_use_base_defaults():
+    """Cursor exposes no variants command: base defaults apply."""
+    driver = CursorDriver()
+    assert driver.variants_command() == []
+    assert driver.parse_variants("cualquier cosa") == {}
+    assert asyncio.run(driver.list_variants_async()) == {}
+
+
+# ---------------------------------------------------------------------- #
 # Executable resolution (Windows .cmd shims)
 # ---------------------------------------------------------------------- #
 def test_resolve_command_uses_absolute_path(monkeypatch):
@@ -522,6 +642,7 @@ def test_stdin_prompt_flags():
     assert OpenCodeDriver().stdin_prompt() is True
     assert ClaudeDriver().stdin_prompt() is True
     assert CodexDriver().stdin_prompt() is True
+    assert CursorDriver().stdin_prompt() is True
 
     class BareDriver(CLIDriver):
         name = "bare"
@@ -575,6 +696,7 @@ def test_registry():
     assert get_driver("kimi").name == "kimi"
     assert get_driver("codex").name == "codex"
     assert get_driver("claude").name == "claude"
+    assert get_driver("cursor").name == "cursor"
     try:
         get_driver("inexistente")
         raise AssertionError("debió lanzar KeyError")
@@ -782,6 +904,7 @@ def test_update_commands():
     assert OpenCodeDriver().update_command() == ["opencode", "upgrade"]
     assert KimiDriver().update_command() == ["kimi", "update"]
     assert ClaudeDriver().update_command() == ["claude", "update"]
+    assert CursorDriver().update_command() == ["cursor-agent", "update"]
     assert CodexDriver().update_command() == []  # no self-update command known
 
 

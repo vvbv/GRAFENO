@@ -57,7 +57,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         # app / comunes
         "app.subtitle": "v{version} · multi-CLI orchestrator",
         "app.bind.theme": "Theme",
-        "app.no_clis": "No supported agent CLI detected (opencode, kimi, codex, claude). You can configure GRAFENO, but no task can run until you install one.",
+        "app.no_clis": "No supported agent CLI detected (opencode, kimi, codex, claude, cursor). You can configure GRAFENO, but no task can run until you install one.",
         "common.quit": "Quit",
         "common.cancel": "Cancel",
         "common.back": "Back",
@@ -65,6 +65,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "common.create": "Create",
         # estados de tarea
         "state.draft": "Draft",
+        "state.first_step": "First step…",
         "state.planning": "Planning…",
         "state.planned": "Plan ready",
         "state.implementing": "Implementing…",
@@ -78,6 +79,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "state.discarded": "Discarded",
         "state.waiting": "Waiting",
         # fases del pipeline
+        "phase.first": "First step",
         "phase.plan": "Plan",
         "phase.implement": "Implementation",
         "phase.review": "Review",
@@ -148,6 +150,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "nt.error.bad_schedule": "Invalid date/time. Use YYYY-MM-DD HH:MM",
         "nt.error.bad_interval": "The interval must be an integer >= 1.",
         "nt.final_prompt": "Final steps instructions (optional)",
+        "nt.first_prompt": "First step instructions (optional; emptied = no first step)",
         "nt.hook": "Completion hook for this task (optional)",
         "nt.hook.placeholder": "e.g. https://.../sendMessage?chat_id=1&text={message}",
         "nt.hook.both": "Also run the global hook (instead of replacing it)",
@@ -161,6 +164,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cfg.role.planner": "Planner",
         "cfg.role.implementer": "Implementer",
         "cfg.role.reviewer": "Reviewer",
+        "cfg.role.first": "First step",
         "cfg.role.final": "Final steps",
         "cfg.model.prompt": "Default CLI model",
         "cfg.model.filter": "Filter models...",
@@ -180,11 +184,13 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "app.update_available": "(v{version} available)",
         "cfg.tests": "Test command",
         "cfg.final_prompt": "Final steps prompt (extra instructions, optional)",
+        "cfg.first_prompt": "First step prompt (instructions; empty = disabled)",
         "cfg.hook": "Completion hook (global, optional)",
         "cfg.hook.command": "Hook command",
         "cfg.hook.stages": "Run hook on stages:",
         "hook.placeholder": "e.g. https://.../sendMessage?chat_id=1&text={message}",
         "hook.help": "Shell command, or an http(s) URL: GRAFENO sends a GET with the message in {message} or in the 'text' param.",
+        "hook.stage.first": "First step",
         "hook.stage.plan": "Plan",
         "hook.stage.implement": "Implementation",
         "hook.stage.review": "Review",
@@ -300,6 +306,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "media.open_failed": "Could not open {name}",
         "media.empty": "(no images)",
         "media.pasted": "Image saved: {name}",
+        "det.tab.first": "First",
         "det.tab.plan": "Plan",
         "det.tab.review": "Reviews",
         "det.tab.final": "Final",
@@ -318,7 +325,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "det.warn.need_review": "There is no review to fix yet ([r]).",
         "det.warn.need_done": "Final steps require an approved review first ([r]).",
         "det.warn.no_tests": "This task defines no test command.",
-        "det.no_clis": "No agent CLI installed: install opencode, kimi, codex or claude to run tasks.",
+        "det.no_clis": "No agent CLI installed: install opencode, kimi, codex, claude or cursor to run tasks.",
         "det.mark.done.title": "Force-complete this task?",
         "det.mark.done.body": "The task will be marked as completed (done) without further review. You can still run the final steps afterwards.",
         "det.mark.discard.title": "Discard this task?",
@@ -541,6 +548,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tg.btn.cancel": "Cancel",
         "tg.btn.chain_none": "None (parallel)",
         "tg.btn.chain_last": "To the latest of the project",
+        "tg.buttons_fallback": "The previous message may have arrived incomplete. Please answer using these buttons:",
         "tg.chain.ask": (
             "Should the new task(s) be chained?\n"
             "• None: parallel task, not chained to any other\n"
@@ -610,12 +618,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cfg.api.enabled": "Enable",
         "cfg.api.host": "Host",
         "cfg.api.port": "Port",
-        "cfg.api.tokens": "API tokens (comma-separated)",
-        "cfg.api.tokens.placeholder": "GRAFENO_API_TOKEN adds tokens",
+        "cfg.api.tokens": "API keys (comma-separated)",
+        "cfg.api.tokens.placeholder": "GRAFENO_API_TOKEN adds keys",
         "cfg.api.tokens.help": (
             "Optional API key(s) for the REST + WebSocket server. Empty = no auth "
             "(open access). When set, requests need 'Authorization: Bearer <token>' "
-            "(or '?token='). GRAFENO_API_TOKEN adds tokens without writing them to "
+            "(or '?token='). GRAFENO_API_TOKEN adds keys without writing them to "
             "disk. Independent from the Telegram credentials."
         ),
         "api.started": "API server listening on {host}:{port}",
@@ -626,13 +634,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "es": {
         "app.subtitle": "v{version} · orquestador multi-CLI",
         "app.bind.theme": "Tema",
-        "app.no_clis": "No se detecta ningún CLI de agente soportado (opencode, kimi, codex, claude). Puedes configurar GRAFENO, pero ninguna tarea podrá ejecutarse hasta que instales alguno.",
+        "app.no_clis": "No se detecta ningún CLI de agente soportado (opencode, kimi, codex, claude, cursor). Puedes configurar GRAFENO, pero ninguna tarea podrá ejecutarse hasta que instales alguno.",
         "common.quit": "Salir",
         "common.cancel": "Cancelar",
         "common.back": "Volver",
         "common.save": "Guardar",
         "common.create": "Crear",
         "state.draft": "Borrador",
+        "state.first_step": "Primer paso…",
         "state.planning": "Planificando…",
         "state.planned": "Plan listo",
         "state.implementing": "Implementando…",
@@ -645,6 +654,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "state.paused": "Pausada",
         "state.discarded": "Descartada",
         "state.waiting": "En espera",
+        "phase.first": "Primer paso",
         "phase.plan": "Plan",
         "phase.implement": "Implementación",
         "phase.review": "Revisión",
@@ -713,6 +723,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "nt.error.bad_schedule": "Fecha/hora no válida. Usa AAAA-MM-DD HH:MM",
         "nt.error.bad_interval": "El intervalo debe ser un entero >= 1.",
         "nt.final_prompt": "Instrucciones para los pasos finales (opcional)",
+        "nt.first_prompt": "Instrucciones del primer paso (opcional; vacío = sin primer paso)",
         "nt.hook": "Hook de completado de esta tarea (opcional)",
         "nt.hook.placeholder": "p. ej. https://.../sendMessage?chat_id=1&text={message}",
         "nt.hook.both": "Ejecutar también el hook global (en vez de sustituirlo)",
@@ -725,6 +736,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cfg.role.planner": "Planificador",
         "cfg.role.implementer": "Implementador",
         "cfg.role.reviewer": "Revisor",
+        "cfg.role.first": "Primer paso",
         "cfg.role.final": "Pasos finales",
         "cfg.model.prompt": "Modelo por defecto del CLI",
         "cfg.model.filter": "Filtrar modelos...",
@@ -744,11 +756,13 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "app.update_available": "(v{version} disponible)",
         "cfg.tests": "Comando de tests",
         "cfg.final_prompt": "Prompt de pasos finales (instrucciones extra, opcional)",
+        "cfg.first_prompt": "Prompt del primer paso (instrucciones; vacío = desactivado)",
         "cfg.hook": "Hook de completado (global, opcional)",
         "cfg.hook.command": "Comando del hook",
         "cfg.hook.stages": "Ejecutar el hook en las etapas:",
         "hook.placeholder": "p. ej. https://.../sendMessage?chat_id=1&text={message}",
         "hook.help": "Comando shell, o una URL http(s): GRAFENO envía un GET con el mensaje en {message} o en el parámetro 'text'.",
+        "hook.stage.first": "Primer paso",
         "hook.stage.plan": "Plan",
         "hook.stage.implement": "Implementación",
         "hook.stage.review": "Revisión",
@@ -863,6 +877,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "media.open_failed": "No se pudo abrir {name}",
         "media.empty": "(sin imágenes)",
         "media.pasted": "Imagen guardada: {name}",
+        "det.tab.first": "Primer paso",
         "det.tab.plan": "Plan",
         "det.tab.review": "Revisiones",
         "det.tab.final": "Pasos finales",
@@ -880,7 +895,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "det.warn.need_review": "Aún no hay revisión que corregir ([r]).",
         "det.warn.need_done": "Los pasos finales requieren una revisión aprobada ([r]).",
         "det.warn.no_tests": "Esta tarea no define comando de tests.",
-        "det.no_clis": "No hay ningún CLI de agente instalado: instala opencode, kimi, codex o claude para ejecutar tareas.",
+        "det.no_clis": "No hay ningún CLI de agente instalado: instala opencode, kimi, codex, claude o cursor para ejecutar tareas.",
         "det.mark.done.title": "¿Completar la tarea de forma forzada?",
         "det.mark.done.body": "La tarea quedará marcada como completada (done) sin más revisión. Después aún podrás lanzar los pasos finales.",
         "det.mark.discard.title": "¿Descartar esta tarea?",
@@ -1095,6 +1110,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "tg.btn.cancel": "Cancelar",
         "tg.btn.chain_none": "Ninguna (paralela)",
         "tg.btn.chain_last": "A la última del proyecto",
+        "tg.buttons_fallback": "Puede que el mensaje anterior haya llegado incompleto. Responde usando estos botones:",
         "tg.chain.ask": (
             "¿La nueva tarea debe encadenarse?\n"
             "• Ninguna: tarea paralela, no encadenada a ninguna otra\n"
@@ -1163,13 +1179,13 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cfg.api.enabled": "Activar",
         "cfg.api.host": "Host",
         "cfg.api.port": "Puerto",
-        "cfg.api.tokens": "Tokens de API (separados por comas)",
-        "cfg.api.tokens.placeholder": "GRAFENO_API_TOKEN añade tokens",
+        "cfg.api.tokens": "Claves de API (separadas por comas)",
+        "cfg.api.tokens.placeholder": "GRAFENO_API_TOKEN añade claves",
         "cfg.api.tokens.help": (
             "Clave(s) de API opcionales del servidor REST + WebSocket. Vacío = sin "
-            "autenticación (acceso abierto). Si hay tokens, toda petición exige "
+            "autenticación (acceso abierto). Si hay claves, toda petición exige "
             "'Authorization: Bearer <token>' (o '?token='). GRAFENO_API_TOKEN añade "
-            "tokens sin escribirlos en disco. Independiente de las credenciales de "
+            "claves sin escribirlas en disco. Independiente de las credenciales de "
             "Telegram."
         ),
         "api.started": "Servidor API escuchando en {host}:{port}",

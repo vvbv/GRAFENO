@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import os
@@ -10,12 +11,14 @@ from typing import TYPE_CHECKING
 
 from .. import media, models, paths, scheduler
 from ..models import Task, TaskState, task_state_label
+from ..telegram import stt, tts
 
 if TYPE_CHECKING:
     from .service import ServerService
 
 
 MAX_CREATE_ATTACHMENTS = 10  # decoded entries per create call
+AUDIO_TRANSCRIPTION_HEADER = "Transcription of audio attachment"  # description section per audio file
 
 
 class ApiError(Exception):
@@ -128,6 +131,7 @@ def get_logs(service: "ServerService", task_id: str, limit: int = 200) -> dict:
 
 
 _KINDS = {
+    "first": paths.first_dir,
     "plan": paths.plan_dir,
     "review": paths.review_dir,
     "final": paths.final_dir,
@@ -135,7 +139,7 @@ _KINDS = {
 
 
 def get_artifacts(service: "ServerService", task_id: str, kind: str, cycle: int = 1) -> dict:
-    """Return every .md file of a plan/review/final phase of a task."""
+    """Return every .md file of a first/plan/review/final phase of a task."""
     if kind not in _KINDS:
         raise ApiError(400, f"unknown kind: {kind}")
     if cycle < 1:
@@ -192,7 +196,7 @@ def _decode_attachments(payload: dict) -> list[tuple[str, bytes]]:
 
     Each entry must be an object with ``data`` (base64 string) and an
     optional ``name`` (defaults to "attachment"). Raises ``ApiError(400)``
-    on any malformed entry; the body cap (MAX_BODY, 1 MiB) already bounds
+    on any malformed entry; the body cap (MAX_BODY, 8 MiB) already bounds
     the total size.
     """
     raw = payload.get("attachments")
@@ -215,7 +219,42 @@ def _decode_attachments(payload: dict) -> list[tuple[str, bytes]]:
     return decoded
 
 
-def create_task(service: "ServerService", payload: dict) -> dict:
+async def _transcribe_audio_attachments(
+    service: "ServerService",
+    telegram_cfg,
+    attachments: list[tuple[str, bytes]],
+) -> list[dict]:
+    """Transcribe audio attachments with the configured STT provider.
+
+    Best effort: an entry without ``text`` means the audio was kept as a
+    file but could not be transcribed (reason under ``error``). Never
+    raises; failures are logged to the API log.
+    """
+    key = telegram_cfg.resolve_stt_key()
+    if not key:
+        return [{"name": name, "error": "stt not configured"} for name, _ in attachments]
+    results: list[dict] = []
+    for name, data in attachments:
+        reasons: list[str] = []
+        text = await asyncio.to_thread(
+            stt.transcribe,
+            url=telegram_cfg.stt_url,
+            api_key=key,
+            model=telegram_cfg.stt_model,
+            data=data,
+            filename=name or "audio.ogg",
+            on_error=reasons.append,
+        )
+        if text:
+            results.append({"name": name, "text": text})
+        else:
+            reason = reasons[0] if reasons else "unknown"
+            service._log(f"stt failed for attachment {name!r}: {reason}")
+            results.append({"name": name, "error": reason})
+    return results
+
+
+async def create_task(service: "ServerService", payload: dict) -> dict:
     """Create a new task from a JSON payload and return its summary."""
     from .. import config as config_module
 
@@ -264,7 +303,18 @@ def create_task(service: "ServerService", payload: dict) -> dict:
     models.save(task)
     if attachments:
         media.attach_files(task, attachments, header="Attachments received via the API:")
-    return 201, {"task": task_summary(task)}
+    transcriptions: list[dict] = []
+    audio_attachments = [(name, data) for name, data in attachments if media.is_audio_name(name)]
+    if audio_attachments:
+        transcriptions = await _transcribe_audio_attachments(service, cfg.telegram, audio_attachments)
+        for item in transcriptions:
+            if item.get("text"):
+                task.description += (
+                    f"\n\n{AUDIO_TRANSCRIPTION_HEADER} '{item['name']}':\n{item['text']}\n"
+                )
+        if any(item.get("text") for item in transcriptions):
+            models.save(task)
+    return 201, {"task": task_summary(task), "transcriptions": transcriptions}
 
 
 def _load_or_404(task_id: str) -> Task:
@@ -342,3 +392,47 @@ def mark_done(service: "ServerService", task_id: str) -> dict:
     task.state = TaskState.DONE
     models.save(task)
     return {"ok": True, "state": "done"}
+
+
+async def synthesize_speech(
+    service: "ServerService", text: str, fmt: str = "wav"
+) -> tuple[bytes, str]:
+    """Synthesize ``text`` with the configured TTS provider.
+
+    Returns ``(audio_bytes, mime)``. Raises ``ApiError`` on validation
+    errors (400), missing configuration (503), provider failures (502) and
+    unavailable OGG conversion (503). Explicit on-demand synthesis: it only
+    requires a configured TTS/STT key, not ``telegram.tts_enabled`` (that
+    flag gates the automatic voice replies of the Telegram bot).
+    """
+    from .. import config as config_module
+
+    text = (text or "").strip()
+    if not text:
+        raise ApiError(400, "text is required")
+    if fmt not in ("wav", "ogg"):
+        raise ApiError(400, "format must be wav or ogg")
+    telegram_cfg = config_module.load().telegram
+    key = telegram_cfg.resolve_tts_key()
+    if not key:
+        raise ApiError(503, "tts not configured")
+    reasons: list[str] = []
+    audio = await asyncio.to_thread(
+        tts.synthesize,
+        url=telegram_cfg.tts_url,
+        api_key=key,
+        model=telegram_cfg.tts_model,
+        voice=telegram_cfg.tts_voice,
+        text=text,
+        on_error=reasons.append,
+    )
+    if not audio:
+        detail = reasons[0] if reasons else "unknown"
+        service._log(f"tts synthesis failed: {detail}")
+        raise ApiError(502, f"tts provider error: {detail}")
+    if fmt == "wav":
+        return audio, "audio/wav"
+    voice = await asyncio.to_thread(tts.to_ogg, audio)
+    if voice is None:
+        raise ApiError(503, "ogg conversion unavailable (ffmpeg missing or failed)")
+    return voice, "audio/ogg"

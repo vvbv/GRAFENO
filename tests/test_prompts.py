@@ -322,3 +322,16 @@ def test_prompts_inject_media_paths(tmp_path):
     for prompt in (review, fix, final):
         assert "Imágenes adjuntas" not in prompt
         assert absolute not in prompt
+
+
+def test_first_prompt_contract(tmp_path):
+    """The first-step prompt points to the artifact file and embeds the user instructions."""
+    task = _task(tmp_path, first_prompt="Prepara el entorno")
+    prompt = prompts.first_prompt(task)
+    assert task.first_prompt in prompt
+    assert str(paths.first_dir(task.id)) in prompt
+    assert "01-first.md" in prompt
+    assert task.name in prompt
+    assert "AGENTE DE PRIMER PASO" in prompt
+    assert "emotes" in prompt
+    assert "INGLÉS" in prompt

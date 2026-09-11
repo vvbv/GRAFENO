@@ -104,6 +104,9 @@ class NewTaskScreen(ModalScreen[Task | None]):
             yield Label(t("nt.tests"))
             yield Input(placeholder=t("nt.tests.placeholder"), id="nt-tests")
             with Horizontal(classes="final-prompt-row"):
+                yield Label(t("nt.first_prompt"))
+                yield TextArea(id="nt-first-prompt")
+            with Horizontal(classes="final-prompt-row"):
                 yield Label(t("nt.final_prompt"))
                 yield TextArea(id="nt-final-prompt")
             yield Checkbox(t("nt.automode"), id="nt-automode")
@@ -127,6 +130,7 @@ class NewTaskScreen(ModalScreen[Task | None]):
     def on_mount(self) -> None:
         cfg = config_module.load()
         self.query_one("#nt-tests", Input).value = cfg.automode.test_command
+        self.query_one("#nt-first-prompt", TextArea).text = cfg.first_prompt
         self.query_one("#nt-final-prompt", TextArea).text = cfg.final_prompt
         self.query_one("#nt-automode", Checkbox).value = cfg.automode.enabled
         self.query_one("#nt-confirm-plan", Checkbox).value = cfg.automode.confirm_plan
@@ -254,6 +258,7 @@ class NewTaskScreen(ModalScreen[Task | None]):
             test_command=self.query_one("#nt-tests", Input).value.strip(),
             create_branch=self.query_one("#nt-branch", Checkbox).value,
             confirm_plan=self.query_one("#nt-confirm-plan", Checkbox).value,
+            first_prompt=self.query_one("#nt-first-prompt", TextArea).text.strip(),
             final_prompt=self.query_one("#nt-final-prompt", TextArea).text.strip(),
             hook_command=self.query_one("#nt-hook-command", Input).value.strip(),
             hook_stages=format_stages([

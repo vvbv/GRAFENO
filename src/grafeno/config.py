@@ -10,7 +10,7 @@ from typing import Any
 
 from . import _toml, paths
 
-KNOWN_CLIS = ("opencode", "kimi", "codex", "claude")
+KNOWN_CLIS = ("opencode", "kimi", "codex", "claude", "cursor")
 PROJECT_CONFIG_FILE = ".grafeno.toml"
 
 # Telegram integration defaults (OpenAI-compatible endpoints; Groq by default).
@@ -278,6 +278,7 @@ class ApiConfig:
 @dataclass
 class Config:
     language: str = "en"
+    first: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
     planner: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
     implementer: RoleConfig = field(default_factory=lambda: RoleConfig(cli="kimi"))
     reviewer: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
@@ -285,6 +286,7 @@ class Config:
     automode: AutomodeConfig = field(default_factory=AutomodeConfig)
     hook: HookConfig = field(default_factory=HookConfig)
     editor: EditorConfig = field(default_factory=EditorConfig)
+    first_prompt: str = ""  # first-step instructions; empty = the step is skipped
     final_prompt: str = ""  # extra instructions for the final-steps phase
     theme: str = ""  # Textual palette; empty = default theme
     auto_update: bool = False  # update agent CLIs on TUI startup (native commands)
@@ -299,6 +301,7 @@ class Config:
     def to_dict(self) -> dict[str, Any]:
         return {
             "language": self.language,
+            "first": self.first.to_dict(),
             "planner": self.planner.to_dict(),
             "implementer": self.implementer.to_dict(),
             "reviewer": self.reviewer.to_dict(),
@@ -306,6 +309,7 @@ class Config:
             "automode": self.automode.to_dict(),
             "hook": self.hook.to_dict(),
             "editor": self.editor.to_dict(),
+            "first_prompt": self.first_prompt,
             "final_prompt": self.final_prompt,
             "theme": self.theme,
             "auto_update": self.auto_update,
@@ -319,6 +323,7 @@ class Config:
     def from_dict(cls, data: dict[str, Any]) -> "Config":
         return cls(
             language=str(data.get("language", "en")),
+            first=RoleConfig.from_dict(data.get("first", {}), default_cli="opencode"),
             planner=RoleConfig.from_dict(data.get("planner", {}), default_cli="opencode"),
             implementer=RoleConfig.from_dict(data.get("implementer", {}), default_cli="kimi"),
             reviewer=RoleConfig.from_dict(data.get("reviewer", {}), default_cli="opencode"),
@@ -326,6 +331,7 @@ class Config:
             automode=AutomodeConfig.from_dict(data.get("automode", {})),
             hook=HookConfig.from_dict(data.get("hook", {})),
             editor=EditorConfig.from_dict(data.get("editor", {})),
+            first_prompt=str(data.get("first_prompt", "")),
             final_prompt=str(data.get("final_prompt", "")),
             theme=str(data.get("theme", "")),
             auto_update=bool(data.get("auto_update", False)),

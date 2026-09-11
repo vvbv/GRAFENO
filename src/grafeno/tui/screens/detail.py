@@ -100,6 +100,7 @@ class PlanConfirmScreen(ModalScreen[bool]):
 
 # Description of each phase for the confirmation modal.
 _PHASE_INFO = {
+    "first": {"role": "first"},
     "plan": {"role": "planner"},
     "implement": {"role": "implementer"},
     "review": {"role": "reviewer"},
@@ -346,6 +347,7 @@ class TaskDetailScreen(Screen[None]):
             self.current_task.state,
             self.current_task.iteration,
             waiting=self.current_task.usage_waiting,
+            has_first=bool(self.current_task.first_prompt.strip()),
             id="phase-bar",
         )
         yield Static("", id="agents-bar")
@@ -360,6 +362,11 @@ class TaskDetailScreen(Screen[None]):
                     with VerticalScroll(id="media-scroll"):
                         yield Static("", id="media-preview")
                 yield Static("", id="media-path")
+            with TabPane(t("det.tab.first"), id="tab-first"):
+                with Horizontal():
+                    yield FileList(id="first-files")
+                    with VerticalScroll(id="first-scroll"):
+                        yield Markdown("", id="first-view")
             with TabPane(t("det.tab.plan"), id="tab-plan"):
                 with Horizontal():
                     yield FileList(id="plan-files")
@@ -403,6 +410,7 @@ class TaskDetailScreen(Screen[None]):
         # Focusable Markdown viewers: the keyboard (arrows, PgDn...) scrolls.
         for scroll_id in (
             "#desc-scroll",
+            "#first-scroll",
             "#plan-scroll",
             "#review-scroll",
             "#final-scroll",
@@ -558,6 +566,8 @@ class TaskDetailScreen(Screen[None]):
         if "fix" in by_phase:
             phases.append("fix")  # fix uses the implementer role; only if there were fixes
         phases.append("final")
+        if task.first_prompt.strip():
+            phases.insert(0, "first")
         line = Text()
         for index, phase in enumerate(phases):
             role = task.role(_PHASE_INFO[phase]["role"])
@@ -576,7 +586,9 @@ class TaskDetailScreen(Screen[None]):
 
     def _state_changed(self, task: Task) -> None:
         self.current_task = task  # live object from the runtime (orchestrator mutates it)
-        self.query_one(PhaseBar).set_state(task.state, task.iteration, waiting=task.usage_waiting)
+        phase_bar = self.query_one(PhaseBar)
+        phase_bar.set_has_first(bool(task.first_prompt.strip()))
+        phase_bar.set_state(task.state, task.iteration, waiting=task.usage_waiting)
         self._render_title()
         self._reload_files()  # artifacts appear at the end of each phase
         self._render_tokens()
@@ -606,6 +618,7 @@ class TaskDetailScreen(Screen[None]):
         self.query_one("#location-bar", LocationBar).set_task(self.current_task)
 
     def _reload_files(self) -> None:
+        self.query_one("#first-files", FileList).load_dir(paths.first_dir(self.current_task.id))
         self.query_one("#plan-files", FileList).load_dir(paths.plan_dir(self.current_task.id))
         self.query_one("#review-files", FileList).load_dir(paths.review_dir(self.current_task.id))
         self.query_one("#final-files", FileList).load_dir(paths.final_dir(self.current_task.id))
@@ -615,7 +628,12 @@ class TaskDetailScreen(Screen[None]):
 
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         list_id = event.list_view.id
-        views = {"plan-files": "#plan-view", "review-files": "#review-view", "final-files": "#final-view"}
+        views = {
+            "first-files": "#first-view",
+            "plan-files": "#plan-view",
+            "review-files": "#review-view",
+            "final-files": "#final-view",
+        }
         if list_id in views and isinstance(event.item, FileItem):
             target = event.item.file_path
             view_id = views[list_id]

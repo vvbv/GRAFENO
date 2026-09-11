@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GRAFENO Remote API
-  version: 1.1.0
+  version: 1.2.0
   summary: REST API of the GRAFENO remote server (optional token authentication).
   description: |
     REST control API exposed by the GRAFENO TUI while it is running
@@ -31,6 +31,8 @@ tags:
     description: Task lifecycle, logs and artifacts.
   - name: projects
     description: Project list with task counts.
+  - name: audio
+    description: Audio synthesis (TTS) endpoint.
 paths:
   /api/v1/status:
     get:
@@ -185,7 +187,7 @@ paths:
   /api/v1/tasks/{task_id}/artifacts:
     get:
       tags: [tasks]
-      summary: Every `.md` file of a plan/review/final phase.
+      summary: Every `.md` file of a first/plan/review/final phase.
       operationId: getTaskArtifacts
       parameters:
         - $ref: "#/components/parameters/TaskId"
@@ -464,6 +466,57 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/v1/audio/speech:
+    post:
+      tags: [audio]
+      summary: Synthesize speech (TTS) with the configured provider and download the audio file.
+      operationId: synthesizeSpeech
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: {type: string}
+                format:
+                  type: string
+                  enum: [wav, ogg]
+                  default: wav
+                  description: ogg requires ffmpeg on the host.
+              required: [text]
+      responses:
+        "200":
+          description: Audio file (provider WAV, or OGG/OPUS when `format=ogg`).
+          content:
+            audio/wav:
+              schema: {type: string, format: binary}
+            audio/ogg:
+              schema: {type: string, format: binary}
+        "400":
+          description: Missing text or unknown format.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token (only enforced when tokens are configured).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: TTS provider error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: TTS not configured or OGG conversion unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
 components:
   securitySchemes:
@@ -508,7 +561,7 @@ components:
       description: Artifact kind.
       schema:
         type: string
-        enum: [plan, review, final]
+        enum: [first, plan, review, final]
     CycleQuery:
       name: cycle
       in: query
@@ -527,7 +580,7 @@ components:
       required: [error]
     TaskState:
       type: string
-      enum: [draft, planning, planned, implementing, implemented, reviewing, fixing, finalizing, done, failed, paused, discarded]
+      enum: [draft, first_step, planning, planned, implementing, implemented, reviewing, fixing, finalizing, done, failed, paused, discarded]
     RoleConfig:
       type: object
       properties:
@@ -579,6 +632,7 @@ components:
         test_command: {type: string}
         create_branch: {type: boolean}
         confirm_plan: {type: boolean}
+        first_prompt: {type: string}
         final_prompt: {type: string}
         hook_command: {type: string}
         hook_stages: {type: string}
@@ -611,6 +665,8 @@ components:
       properties:
         task:
           $ref: "#/components/schemas/TaskRaw"
+        first:
+          $ref: "#/components/schemas/RoleConfig"
         planner:
           $ref: "#/components/schemas/RoleConfig"
         implementer:
@@ -659,14 +715,17 @@ components:
           description: >-
             Optional attachments persisted into the task's media dir and
             referenced from its description (image tokens for image suffixes,
-            absolute paths otherwise). Max 10 entries; each `data` is standard
-            base64. Total request body is capped at 1 MiB.
+            absolute paths otherwise). Audio files (ogg/oga/opus/mp3/wav/m4a/flac
+            by file name) are additionally transcribed with the configured STT
+            provider and their text is appended to the task description (see
+            `transcriptions` in the response). Max 10 entries; each `data` is
+            standard base64. Total request body is capped at 8 MiB.
           items:
             type: object
             properties:
               name:
                 type: string
-                description: Original file name; only its extension is honored (png/jpg/jpeg/mp4/webm, else .bin).
+                description: Original file name; only its extension is honored (png/jpg/jpeg/mp4/webm/ogg/oga/opus/mp3/wav/m4a/flac, else .bin).
               data:
                 type: string
                 format: byte
@@ -678,6 +737,11 @@ components:
       properties:
         task:
           $ref: "#/components/schemas/TaskSummary"
+        transcriptions:
+          type: array
+          description: Per audio attachment, either {name, text} or {name, error}.
+          items:
+            type: object
     TaskListResponse:
       type: object
       properties:
@@ -740,7 +804,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [plan, review, final]
+          enum: [first, plan, review, final]
         cycle:
           type: integer
         files:

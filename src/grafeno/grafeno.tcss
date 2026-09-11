@@ -108,7 +108,7 @@ Footer {
     border: round #30363d;
 }
 
-#cfg-final-prompt {
+#cfg-first-prompt, #cfg-final-prompt {
     height: 3;
     border: round #30363d;
 }

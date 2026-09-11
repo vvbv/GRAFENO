@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import threading
+import urllib.error
 from collections import deque
 from pathlib import Path
 
@@ -12,8 +14,9 @@ from grafeno import models, paths
 from grafeno.config import Config, TelegramConfig
 from grafeno.models import TaskState
 from grafeno.drivers.base import CLIDriver, RunResult
+from grafeno.telegram import api as api_module
 from grafeno.telegram import service as service_module
-from grafeno.telegram.api import TelegramError, TgMessage, Update
+from grafeno.telegram.api import TelegramBotClient, TelegramError, TgMessage, Update
 from grafeno.telegram.intents import TaskSpec
 from grafeno.telegram.service import (
     ORIGIN_TELEGRAM,
@@ -73,6 +76,31 @@ class FakeClient:
             if path == file_path:
                 return data
         raise TelegramError("not found", status=404)
+
+
+class FakeHTTP:
+    """Injectable opener for the real TelegramBotClient: queued responses."""
+
+    def __init__(self, responses=()):
+        self.responses = deque(responses)
+        self.requests: list = []
+
+    def __call__(self, request, timeout):
+        self.requests.append(request)
+        if not self.responses:
+            raise AssertionError("unexpected request")
+        item = self.responses.popleft()
+        if isinstance(item, Exception):
+            raise item
+        status, payload = item
+        body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+        if status == 200:
+            return body
+        raise urllib.error.HTTPError(request.full_url, status, "error", {}, io.BytesIO(body))
+
+
+def _ok(result):
+    return (200, {"ok": True, "result": result})
 
 
 class FakeDriver(CLIDriver):
@@ -258,6 +286,99 @@ def test_multiple_tasks_created(tmp_path, monkeypatch):
 
     assert sorted(task.name for task in models.list_all()) == ["A", "B"]
     assert all(task.parent_id == "" for task in models.list_all())
+
+
+def test_long_voice_note_multi_task_proposal_keeps_buttons_on_last_chunk(tmp_path, monkeypatch):
+    """Reported scenario: a long voice note split into several tasks.
+
+    The proposal text exceeds 4096 chars and is chunked by the REAL
+    client; the final chunk must always carry the Create/Cancel markup.
+    """
+    long_description = "Detalle exhaustivo del requisito. " * 50  # ~1700 chars each
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [
+            {"name": f"Tarea {index}", "description": long_description}
+            for index in range(1, 5)
+        ],
+        "lang": "es",
+    })])
+    transcript = "palabra " * 600  # ~4800 chars: the heard notice also splits
+    http = FakeHTTP(
+        [_ok(True), _ok({"file_path": "voice/file_1.oga"}), (200, b"AUDIO"), _ok(True)]
+        + [_ok({})] * 20
+    )
+    tg = TelegramConfig(
+        enabled=True, bot_token="TOKEN", allowed_chat_ids="555",
+        stt_key="STT-KEY", default_workdir=str(tmp_path),
+    )
+    monkeypatch.setattr(service_module, "get_driver", lambda name: driver)
+    monkeypatch.setattr(service_module.stt, "transcribe", lambda **kwargs: transcript)
+    monkeypatch.setattr(api_module, "_pause", lambda seconds: None)
+    service = TelegramService(
+        tg,
+        client=TelegramBotClient("TOKEN", opener=http),
+        default_workdir=tg.default_workdir,
+        parser_cli="fake",
+        parser_model="",
+    )
+
+    _run(service._handle_message(_msg(voice_file_id="vf")))
+
+    sends = [r for r in http.requests if "/sendMessage" in r.full_url]
+    bodies = [json.loads(r.data.decode()) for r in sends]
+    assert len(bodies) >= 3  # heard (2 chunks) + proposal (2+ chunks)
+    assert all(len(body["text"]) <= 4096 for body in bodies)
+    for body in bodies[:-1]:
+        assert "reply_markup" not in body  # markup never in an intermediate chunk
+    markup = bodies[-1].get("reply_markup")
+    assert markup is not None  # the FINAL message always carries the buttons
+    callback = markup["inline_keyboard"][0][0]["callback_data"]
+    assert callback.startswith("tg:c:")
+    full_text = "".join(body["text"] for body in bodies)
+    for index in range(1, 5):
+        assert f"Tarea {index}" in full_text
+    # The proposal stays answerable end to end: confirm and chain as parallel.
+    pid = callback.split(":")[-1]
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:n:{pid}")))
+    assert sorted(task.name for task in models.list_all()) == [
+        "Tarea 1", "Tarea 2", "Tarea 3", "Tarea 4"
+    ]
+
+
+def test_markup_fallback_resends_buttons_when_send_fails(tmp_path, monkeypatch):
+    """A failed proposal send re-delivers the keyboard in a short message."""
+
+    class FlakyClient(FakeClient):
+        def __init__(self):
+            super().__init__()
+            self.fail_next_markup = True
+
+        def send_message(self, chat_id, text, *, reply_markup=None):
+            if reply_markup is not None and self.fail_next_markup:
+                self.fail_next_markup = False
+                raise TelegramError("boom", status=0)
+            super().send_message(chat_id, text, reply_markup=reply_markup)
+
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Saludar", "description": "añade un saludo"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    flaky = FlakyClient()
+    service.client = flaky
+    infos: list[str] = []
+    service._on_info = infos.append
+
+    _run(service._parse_and_reply(555, "crea una tarea que salude"))
+
+    assert len(flaky.sent) == 1  # only the fallback message was recorded
+    text, markup = flaky.sent[0][1], flaky.sent[0][2]
+    assert "buttons" in text.lower()  # tg.buttons_fallback (English catalog)
+    assert markup is not None
+    assert markup["inline_keyboard"][0][0]["callback_data"].startswith("tg:c:")
+    assert any("could not send" in message.lower() for message in infos)
 
 
 def test_create_with_bad_workdir_reports_error(tmp_path, monkeypatch):
@@ -1203,7 +1324,7 @@ def test_filter_picker_toggles_and_shows(tmp_path, monkeypatch):
         for button in row
         if button["callback_data"].startswith("tg:ft:")
     ]
-    assert len(state_buttons) == 12
+    assert len(state_buttons) == 13  # one per TaskState value, including first_step
     assert all(button["text"].startswith("[ ] ") for button in state_buttons)
     show_buttons = [
         button

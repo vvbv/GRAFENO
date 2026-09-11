@@ -7,6 +7,7 @@ from typing import Iterable
 from .base import CLIDriver, EventKind, RunEvent, RunRequest, RunResult
 from .claude import ClaudeDriver
 from .codex import CodexDriver
+from .cursor import CursorDriver
 from .kimi import KimiDriver
 from .opencode import OpenCodeDriver
 
@@ -24,7 +25,7 @@ __all__ = [
 
 _DRIVERS: dict[str, CLIDriver] = {
     driver.name: driver
-    for driver in (OpenCodeDriver(), KimiDriver(), CodexDriver(), ClaudeDriver())
+    for driver in (OpenCodeDriver(), KimiDriver(), CodexDriver(), CursorDriver(), ClaudeDriver())
 }
 
 

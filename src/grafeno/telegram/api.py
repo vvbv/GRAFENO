@@ -12,6 +12,7 @@ import json
 import os
 import secrets
 import ssl
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -22,6 +23,10 @@ API_BASE = "https://api.telegram.org"
 MAX_MESSAGE_LEN = 4096       # Telegram message text limit
 MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024  # bots may download files up to 20 MB
 POLL_TIMEOUT = 30.0          # long polling timeout (seconds)
+CHUNK_DELAY = 0.5            # seconds between chunks of a split message (flood control)
+SEND_MAX_ATTEMPTS = 3        # per chunk: 1 initial send + up to 2 retries on HTTP 429
+RETRY_AFTER_CAP = 10.0       # never sleep longer than this honoring retry_after
+RETRY_AFTER_DEFAULT = 1.0    # wait when a 429 carries no retry_after hint
 CA_BUNDLE_ENV = "GRAFENO_SSL_CA_BUNDLE"  # custom CA bundle (corporate proxies)
 # urllib's default UA ("Python-urllib/3.x") is blocked by Cloudflare on some
 # providers (e.g. Groq: HTTP 403 error 1010); a product UA goes through.
@@ -236,6 +241,11 @@ def split_message(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
     return chunks
 
 
+def _pause(seconds: float) -> None:
+    """Blocking sleep wrapper so tests can monkeypatch pacing/retry waits away."""
+    time.sleep(seconds)
+
+
 def _encode_multipart(
     fields: dict[str, str],
     files: dict[str, tuple[str, bytes, str]],
@@ -375,14 +385,35 @@ class TelegramBotClient:
         *,
         reply_markup: dict[str, Any] | None = None,
     ) -> None:
-        """Send a text message, splitting it over the 4096-char limit."""
+        """Send a text message, splitting it over the 4096-char limit.
+
+        The optional inline keyboard travels on the LAST chunk (Telegram
+        attaches a reply_markup to exactly one message). Chunks are paced
+        (CHUNK_DELAY) and each chunk is retried on HTTP 429 honoring
+        retry_after, so a long multi-chunk reply never loses its final
+        chunk — and its buttons — to flood control.
+        """
         chunks = split_message(text)
+        last = len(chunks) - 1
         for index, chunk in enumerate(chunks):
-            markup = reply_markup if index == len(chunks) - 1 else None
-            self._call(
-                "sendMessage",
-                {"chat_id": chat_id, "text": chunk, "reply_markup": markup},
-            )
+            markup = reply_markup if index == last else None
+            self._send_chunk(chat_id, chunk, markup)
+            if index < last:
+                _pause(CHUNK_DELAY)
+
+    def _send_chunk(self, chat_id: int, text: str, reply_markup: dict[str, Any] | None) -> None:
+        """Send one chunk, retrying on Telegram flood control (HTTP 429)."""
+        for attempt in range(SEND_MAX_ATTEMPTS):
+            try:
+                self._call(
+                    "sendMessage",
+                    {"chat_id": chat_id, "text": text, "reply_markup": reply_markup},
+                )
+                return
+            except TelegramError as exc:
+                if exc.status != 429 or attempt == SEND_MAX_ATTEMPTS - 1:
+                    raise
+                _pause(min(exc.retry_after or RETRY_AFTER_DEFAULT, RETRY_AFTER_CAP))
 
     def send_document(self, chat_id: int, path: Path, *, caption: str = "") -> None:
         """Send a file (e.g. a task .md artifact) as a document."""

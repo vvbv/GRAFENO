@@ -164,7 +164,8 @@ def test_get_updates_sends_offset_and_parses():
     assert f"bot{TOKEN}/getUpdates" in http.requests[0].full_url
 
 
-def test_send_message_splits_and_markup_goes_last():
+def test_send_message_splits_and_markup_goes_last(monkeypatch):
+    monkeypatch.setattr(api, "_pause", lambda seconds: None)
     text = "z" * 5000
     markup = {"inline_keyboard": [[{"text": "Crear", "callback_data": "tg:c:1"}]]}
     http = FakeHTTP([_ok({}), _ok({})])
@@ -183,6 +184,137 @@ def test_send_message_api_error_raises():
         _client(http).send_message(555, "hola")
     assert excinfo.value.status == 400
     assert "bad" in str(excinfo.value)
+
+
+@pytest.fixture
+def no_pause(monkeypatch):
+    """Neutralize the inter-chunk pacing and 429 retry waits."""
+    monkeypatch.setattr(api, "_pause", lambda seconds: None)
+
+
+def test_send_message_markup_only_on_last_of_three_chunks(no_pause):
+    """Three chunks: the markup goes only on the last one."""
+    text = "a" * 9000
+    markup = {"inline_keyboard": [[{"text": "ok", "callback_data": "tg:x"}]]}
+    http = FakeHTTP([_ok({}), _ok({}), _ok({})])
+    _client(http).send_message(555, text, reply_markup=markup)
+    bodies = [json.loads(req.data.decode()) for req in http.requests]
+    assert len(bodies) == 3
+    assert all(len(body["text"]) <= api.MAX_MESSAGE_LEN for body in bodies)
+    for body in bodies[:-1]:
+        assert "reply_markup" not in body
+    assert bodies[-1]["reply_markup"] == markup
+
+
+def test_send_message_exact_limit_is_single_chunk_with_markup(no_pause):
+    """Exactly MAX_MESSAGE_LEN chars fits in a single chunk (and carries markup)."""
+    text = "b" * api.MAX_MESSAGE_LEN
+    markup = {"inline_keyboard": [[{"text": "ok", "callback_data": "tg:x"}]]}
+    http = FakeHTTP([_ok({})])
+    _client(http).send_message(555, text, reply_markup=markup)
+    bodies = [json.loads(req.data.decode()) for req in http.requests]
+    assert len(bodies) == 1
+    assert bodies[0]["reply_markup"] == markup
+
+
+def test_send_message_one_char_over_limit_splits(no_pause):
+    """MAX_MESSAGE_LEN + 1 forces two chunks; the last one carries the markup."""
+    text = "c" * (api.MAX_MESSAGE_LEN + 1)
+    markup = {"inline_keyboard": [[{"text": "ok", "callback_data": "tg:x"}]]}
+    http = FakeHTTP([_ok({}), _ok({})])
+    _client(http).send_message(555, text, reply_markup=markup)
+    bodies = [json.loads(req.data.decode()) for req in http.requests]
+    assert len(bodies) == 2
+    assert len(bodies[0]["text"]) == api.MAX_MESSAGE_LEN
+    assert len(bodies[1]["text"]) == 1
+    assert "reply_markup" not in bodies[0]
+    assert bodies[1]["reply_markup"] == markup
+
+
+def test_send_message_retries_chunk_on_429(no_pause):
+    """HTTP 429 on the first chunk triggers one retry, the second chunk keeps markup."""
+    payload_429 = {
+        "ok": False,
+        "error_code": 429,
+        "description": "Too Many Requests",
+        "parameters": {"retry_after": 0},
+    }
+    text = "d" * 5000
+    markup = {"inline_keyboard": [[{"text": "ok", "callback_data": "tg:x"}]]}
+    http = FakeHTTP([(429, payload_429), _ok({}), _ok({})])
+    _client(http).send_message(555, text, reply_markup=markup)
+    assert len(http.requests) == 3
+    first = json.loads(http.requests[0].data.decode())
+    second = json.loads(http.requests[1].data.decode())
+    third = json.loads(http.requests[2].data.decode())
+    assert first["text"] == second["text"]  # retried the same chunk
+    assert "reply_markup" not in second
+    assert third["reply_markup"] == markup
+
+
+def test_send_message_retries_markup_chunk_on_429(no_pause):
+    """Regression: a 429 on the chunk that carries the markup does not lose the buttons."""
+    payload_429 = {
+        "ok": False,
+        "error_code": 429,
+        "description": "Too Many Requests",
+        "parameters": {"retry_after": 0},
+    }
+    markup = {"inline_keyboard": [[{"text": "ok", "callback_data": "tg:x"}]]}
+    http = FakeHTTP([_ok({}), (429, payload_429), _ok({})])
+    _client(http).send_message(555, "e" * 5000, reply_markup=markup)
+    assert len(http.requests) == 3
+    third = json.loads(http.requests[2].data.decode())
+    assert third["reply_markup"] == markup
+
+
+def test_send_message_gives_up_after_max_attempts(no_pause):
+    """After SEND_MAX_ATTEMPTS 429s in a row TelegramError is raised."""
+    payload_429 = {
+        "ok": False,
+        "error_code": 429,
+        "description": "Too Many Requests",
+        "parameters": {"retry_after": 0},
+    }
+    http = FakeHTTP([(429, payload_429)] * api.SEND_MAX_ATTEMPTS)
+    with pytest.raises(TelegramError) as excinfo:
+        _client(http).send_message(555, "hola")
+    assert excinfo.value.status == 429
+    assert len(http.requests) == api.SEND_MAX_ATTEMPTS
+
+
+def test_send_message_does_not_retry_other_errors(no_pause):
+    """Non-429 errors propagate without retrying."""
+    http = FakeHTTP([(400, {"ok": False, "error_code": 400, "description": "bad"})])
+    with pytest.raises(TelegramError):
+        _client(http).send_message(555, "hola")
+    assert len(http.requests) == 1
+
+
+def test_send_message_paces_between_chunks(monkeypatch):
+    """A CHUNK_DELAY pause is inserted between chunks (never after the last)."""
+    pauses: list[float] = []
+    monkeypatch.setattr(api, "_pause", pauses.append)
+    http = FakeHTTP([_ok({}), _ok({}), _ok({})])
+    _client(http).send_message(555, "f" * 9000)
+    assert pauses == [api.CHUNK_DELAY, api.CHUNK_DELAY]
+
+
+def test_split_message_exact_boundaries():
+    """Boundary cases around the limit: equality, one over, exact multiples."""
+    limit = 100
+    # exactly at the limit stays a single chunk
+    assert api.split_message("g" * limit, limit=limit) == ["g" * limit]
+    # one over the limit splits into two: limit and 1
+    chunks = api.split_message("h" * (limit + 1), limit=limit)
+    assert len(chunks) == 2
+    assert len(chunks[0]) == limit
+    assert len(chunks[1]) == 1
+    # an exact multiple splits in two pieces of length limit
+    chunks = api.split_message("i" * (2 * limit), limit=limit)
+    assert len(chunks) == 2
+    assert all(len(chunk) == limit for chunk in chunks)
+    assert "".join(chunks) == "i" * (2 * limit)
 
 
 def test_http_error_includes_retry_after():

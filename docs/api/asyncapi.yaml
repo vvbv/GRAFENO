@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: GRAFENO Remote WebSocket API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Bidirectional JSON-RPC channel exposed on `/api/v1/ws` (implemented by
     hand on RFC 6455, see `src/grafeno/server/ws.py`). The HTTP GET upgrade
@@ -125,7 +125,7 @@ components:
         remote: {type: string}
         state:
           type: string
-          enum: [draft, planning, planned, implementing, implemented, reviewing, fixing, finalizing, done, failed, paused, discarded]
+          enum: [draft, first_step, planning, planned, implementing, implemented, reviewing, fixing, finalizing, done, failed, paused, discarded]
         state_label: {type: string}
         automode: {type: boolean}
         origin: {type: string}

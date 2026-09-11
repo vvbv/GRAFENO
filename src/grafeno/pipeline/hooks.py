@@ -22,7 +22,7 @@ from ..drivers.base import EventKind, RunEvent
 from ..i18n import t
 from ..models import Task
 
-HOOK_STAGES = ("plan", "implement", "review", "fix", "final", "tests")
+HOOK_STAGES = ("first", "plan", "implement", "review", "fix", "final", "tests")
 HOOK_TIMEOUT_S = 120  # a hung hook must not block the pipeline
 WEBHOOK_TIMEOUT_S = 30  # notifications should be fast
 MESSAGE_PLACEHOLDER = "{message}"  # marker in the URL where the text goes

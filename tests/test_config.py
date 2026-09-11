@@ -71,6 +71,36 @@ def test_final_prompt_roundtrip():
     assert loaded.final_prompt == "Revisa el CHANGELOG\ny actualiza README"
 
 
+def test_first_role_defaults_to_opencode():
+    assert Config().first.cli == "opencode"
+
+
+def test_first_role_roundtrip():
+    cfg = Config()
+    cfg.first.cli = "kimi"
+    cfg.first.model = "kimi-code/k3"
+    cfg.first.effort = "low"
+    config.save(cfg)
+
+    loaded = config.load()
+    assert loaded.first.cli == "kimi"
+    assert loaded.first.model == "kimi-code/k3"
+    assert loaded.first.effort == "low"
+
+
+def test_first_prompt_defaults_to_empty():
+    assert Config().first_prompt == ""
+
+
+def test_first_prompt_roundtrip():
+    cfg = Config()
+    cfg.first_prompt = "Prepara el entorno\ny limpia temporales"
+    config.save(cfg)
+
+    loaded = config.load()
+    assert loaded.first_prompt == "Prepara el entorno\ny limpia temporales"
+
+
 def test_hook_roundtrip():
     cfg = Config()
     cfg.hook.command = "make notify"

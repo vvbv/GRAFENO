@@ -155,6 +155,102 @@ def test_missing_cli_marks_failed(tmp_path):
     assert task.state is TaskState.FAILED
 
 
+def test_run_first_omitted_when_first_prompt_empty(tmp_path):
+    """Without first_prompt the orchestrator does not invoke the first role."""
+    task = _make_task(tmp_path)
+    task.first.cli = "fake-first"
+    drivers = {
+        "fake-first": FakeDriver("fake-first", []),
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", []),
+        "fake-rev": FakeDriver("fake-rev", []),
+        "fake-final": FakeDriver("fake-final", []),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_plan())
+    assert task.state is TaskState.PLANNED
+    assert drivers["fake-first"].prompts == []
+
+
+def test_run_first_executes_before_planner(tmp_path):
+    """With first_prompt set, the first role runs before the planner."""
+    task = _make_task(tmp_path, first_prompt="Prepara el entorno")
+    task.first.cli = "fake-first"
+    drivers = {
+        "fake-first": FakeDriver("fake-first", [_ok("first ok")]),
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", [_ok("v1")]),
+        "fake-rev": FakeDriver("fake-rev", [_ok("bien\nVERDICT: APPROVED")]),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
+    }
+    call_order: list[str] = []
+
+    def _wrap(name: str, driver: FakeDriver):
+        original = driver.run
+
+        async def wrapped(request, on_event=None, on_activity=None):
+            call_order.append(name)
+            return await original(request, on_event=on_event, on_activity=on_activity)
+
+        driver.run = wrapped  # type: ignore[assignment]
+
+    _wrap("first", drivers["fake-first"])
+    _wrap("planner", drivers["fake-planner"])
+    _wrap("impl", drivers["fake-impl"])
+    _wrap("rev", drivers["fake-rev"])
+    _wrap("final", drivers["fake-final"])
+
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_automode())
+
+    assert task.state is TaskState.DONE
+    # First must run before planner (in fact before everything else).
+    assert call_order[0] == "first"
+    assert "first" in call_order and "planner" in call_order
+    assert call_order.index("first") < call_order.index("planner")
+    # The user instructions reached the agent.
+    assert "Prepara el entorno" in drivers["fake-first"].prompts[0]
+    # Fallback materialised the output as 01-first.md.
+    first_path = paths.first_dir(task.id) / "01-first.md"
+    assert first_path.exists()
+    assert "first ok" in first_path.read_text(encoding="utf-8")
+
+
+def test_run_first_failure_marks_failed_with_phase(tmp_path):
+    """A failing first step leaves the task FAILED with failed_phase='first'."""
+    task = _make_task(tmp_path, first_prompt="Prepara el entorno")
+    task.first.cli = "fake-first"
+    drivers = {
+        "fake-first": FakeDriver("fake-first", [RunResult(ok=False, error="boom")]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    with pytest.raises(PhaseError):
+        _run(orch.run_plan())
+    assert task.state is TaskState.FAILED
+    assert task.failed_phase == "first"
+
+
+def test_run_first_records_tokens_under_first_phase(tmp_path):
+    """Tokens emitted by the first step land under the 'first' phase key."""
+    task = _make_task(tmp_path, first_prompt="Prepara el entorno")
+    task.first.cli = "fake-first"
+    drivers = {
+        "fake-first": FakeDriver(
+            "fake-first",
+            [RunResult(ok=True, text="listo", tokens=TokenUsage(input=7, output=3))],
+        ),
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", []),
+        "fake-rev": FakeDriver("fake-rev", []),
+        "fake-final": FakeDriver("fake-final", []),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_plan())
+    by_phase = task.tokens_by_phase()
+    assert "first" in by_phase
+    assert by_phase["first"] == (7, 3)
+
+
 def test_unknown_cli_marks_failed(tmp_path):
     task = _make_task(tmp_path)
     task.planner.cli = "inexistente"  # unknown CLI: the orchestrator fails

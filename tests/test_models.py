@@ -17,18 +17,24 @@ def test_slugify():
 
 def test_task_create_snapshots_config(tmp_path):
     cfg = Config()
+    cfg.first.cli = "kimi"
+    cfg.first.model = "k-model"
     cfg.planner.model = "p-model"
     cfg.final.model = "f-model"
     cfg.automode.enabled = True
     cfg.automode.test_command = "make test"
     cfg.automode.confirm_plan = True
+    cfg.first_prompt = "primer paso global"
     cfg.final_prompt = "instrucciones globales"
     task = Task.create("Demo", "desc", str(tmp_path), cfg)
+    assert task.first.cli == "kimi"
+    assert task.first.model == "k-model"
     assert task.planner.model == "p-model"
     assert task.final.model == "f-model"
     assert task.automode is True
     assert task.test_command == "make test"
     assert task.confirm_plan is True
+    assert task.first_prompt == "primer paso global"
     assert task.final_prompt == "instrucciones globales"
     assert task.state is TaskState.DRAFT
 
@@ -38,6 +44,38 @@ def test_task_final_prompt_override(tmp_path):
     assert task.final_prompt == "override"
     models.save(task)
     assert models.load(task.id).final_prompt == "override"
+
+
+def test_task_first_prompt_override(tmp_path):
+    task = Task.create("Demo", "desc", str(tmp_path), Config(), first_prompt="propio")
+    assert task.first_prompt == "propio"
+    models.save(task)
+    assert models.load(task.id).first_prompt == "propio"
+
+
+def test_task_first_prompt_override_to_empty(tmp_path):
+    """The task can clear the global prompt by passing an empty string."""
+    cfg = Config()
+    cfg.first_prompt = "global"
+    task = Task.create("Demo", "desc", str(tmp_path), cfg, first_prompt="")
+    assert task.first_prompt == ""
+    models.save(task)
+    assert models.load(task.id).first_prompt == ""
+
+
+def test_task_first_role_legacy_default(tmp_path):
+    """A legacy task.toml without [first] loads with the opencode defaults."""
+    task = models.Task.create("Demo", "desc", str(tmp_path), Config())
+    models.save(task)
+    meta = paths.task_meta_path(task.id)
+    with meta.open("rb") as handle:
+        data = tomllib.load(handle)
+    data.pop("first", None)
+    meta.write_text(_toml.dumps(data), encoding="utf-8")
+    legacy = models.load(task.id)
+    assert legacy.first.cli == "opencode"
+    assert legacy.first.model == ""
+    assert legacy.first_prompt == ""
 
 
 def test_task_confirm_plan_override(tmp_path):
@@ -185,6 +223,12 @@ def test_discarded_state_roundtrip():
     assert state_label(loaded.state) == "Discarded"
 
 
+def test_first_step_state_roundtrip():
+    """The new FIRST_STEP state survives a string roundtrip."""
+    assert TaskState("first_step") is TaskState.FIRST_STEP
+    assert state_label(TaskState.FIRST_STEP) == "First step\u2026"
+
+
 def test_reset_to_draft_limpia_estado_y_artefactos(tmp_path):
     """reset_to_draft devuelve la tarea a DRAFT y borra plan/review/final."""
     task = Task.create("Reinicio", "desc", str(tmp_path), Config())
@@ -197,6 +241,7 @@ def test_reset_to_draft_limpia_estado_y_artefactos(tmp_path):
     task.scheduled_at = "2030-01-01T10:00"
     models.save(task)
     # Artefactos del ciclo 1 y de una ampliación.
+    (paths.first_dir(task.id) / "01-first.md").write_text("first", encoding="utf-8")
     (paths.plan_dir(task.id) / "01-plan.md").write_text("plan", encoding="utf-8")
     (paths.review_dir(task.id) / "01-review.md").write_text("rev", encoding="utf-8")
     (paths.final_dir(task.id) / "01-final.md").write_text("fin", encoding="utf-8")
@@ -213,6 +258,7 @@ def test_reset_to_draft_limpia_estado_y_artefactos(tmp_path):
     assert persisted.extensions == {}
     assert persisted.scheduled_at == ""
     # Los artefactos desaparecen; los directorios quedan recreados vacíos.
+    assert list(paths.first_dir(task.id).glob("**/*.md")) == []
     assert list(paths.plan_dir(task.id).glob("**/*.md")) == []
     assert list(paths.review_dir(task.id).glob("**/*.md")) == []
     assert list(paths.final_dir(task.id).glob("**/*.md")) == []

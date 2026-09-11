@@ -279,6 +279,34 @@ def test_artifacts_with_content(tmp_path) -> None:
     _run(scenario())
 
 
+def test_artifacts_large_content_round_trip(tmp_path) -> None:
+    """A multi-MB artifact round-trips intact through the REST endpoint.
+
+    Guards long-response coherence: Content-Length is exact and the body
+    is not truncated (the request-side caps do not apply to responses).
+    """
+    from grafeno import models
+
+    task = _make_task(tmp_path)
+    models.save(task)
+    big = "linea del plan con contenido\n" * 60_000  # ~1.7 MB
+    (paths.plan_dir(task.id, 1) / "01-big.md").write_text(big, encoding="utf-8")
+
+    async def scenario():
+        service, srv_task = await _start_service()
+        try:
+            status, payload = await _request(
+                service, "GET", f"/api/v1/tasks/{task.id}/artifacts?kind=plan"
+            )
+            assert status == 200
+            assert len(payload["files"]) == 1
+            assert payload["files"][0]["content"] == big
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+
 def test_artifacts_invalid_kind(tmp_path) -> None:
     from grafeno import models
 
@@ -293,6 +321,32 @@ def test_artifacts_invalid_kind(tmp_path) -> None:
             )
             assert status == 400
             assert payload["error"] == "unknown kind: bogus"
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+
+def test_artifacts_first_kind(tmp_path) -> None:
+    """kind=first exposes the optional first-step directory."""
+    from grafeno import models
+
+    task = _make_task(tmp_path, first_prompt="instrucciones")
+    models.save(task)
+    first_path = paths.first_dir(task.id, 1) / "01-first.md"
+    first_path.write_text("# primer paso\nok", encoding="utf-8")
+
+    async def scenario():
+        service, srv_task = await _start_service()
+        try:
+            status, payload = await _request(
+                service, "GET", f"/api/v1/tasks/{task.id}/artifacts?kind=first"
+            )
+            assert status == 200
+            assert payload["kind"] == "first"
+            assert len(payload["files"]) == 1
+            assert payload["files"][0]["name"] == "01-first.md"
+            assert "primer paso" in payload["files"][0]["content"]
         finally:
             _stop(service, srv_task)
 
