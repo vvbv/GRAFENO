@@ -34,6 +34,10 @@ def triggers_path() -> Path:
     return home() / "triggers.toml"
 
 
+def profiles_path() -> Path:
+    return home() / "profiles.toml"
+
+
 def telegram_state_path() -> Path:
     """Bot state file: last update offset + task_id -> chat_id mapping."""
     return home() / "telegram-state.toml"

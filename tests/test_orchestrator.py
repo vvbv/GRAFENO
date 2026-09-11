@@ -14,7 +14,7 @@ from grafeno.config import Config
 from grafeno.drivers.base import CLIDriver, RunResult, TokenUsage
 from grafeno.models import Task, TaskState
 from grafeno.pipeline import prompts
-from grafeno.pipeline.orchestrator import Orchestrator, PhaseError
+from grafeno.pipeline.orchestrator import INTERRUPTED_PHASE, Orchestrator, PhaseError
 
 
 class FakeDriver(CLIDriver):
@@ -979,40 +979,50 @@ def test_usage_limit_explicit_wait_is_used(tmp_path, monkeypatch):
     assert task.usage_waiting is False
 
 
-def test_usage_limit_gives_up_after_max_attempts(tmp_path, monkeypatch):
-    """A driver that always fails with usage_limit eventually marks the task FAILED."""
+def test_usage_limit_enters_passive_mode_after_max_attempts(tmp_path, monkeypatch):
+    """After the quick attempts the phase retries every PASSIVE_WAIT_SECONDS forever."""
+    waits: list[float] = []
+
     async def fake_sleep(seconds):
-        return None
+        waits.append(seconds)
 
     monkeypatch.setattr(asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(ratelimit, "MAX_ATTEMPTS", 3)
     task = _make_task(tmp_path)
-    # A separate driver for AGENTS.md so the planner count is predictable.
-    agents_md_driver = FakeDriver("fake-agents-md", [_ok("init")])
-    planner = AlwaysRateLimitedDriver("fake-planner", [])
-    task.planner.cli = "fake-planner"
-    drivers = {
-        "fake-planner": planner,
-        "fake-impl": FakeDriver("fake-impl", []),
-        "fake-rev": FakeDriver("fake-rev", []),
-        "fake-final": FakeDriver("fake-final", []),
-        "fake-agents-md": agents_md_driver,
-    }
-    # ensure_agents_md picks the planner by role, so swap the workdir to use
-    # a different driver through a project-specific trick: patch the helper
-    # by overriding ensure_agents_md via a wrapper on the orchestrator.
-    orch = Orchestrator(task, drivers=drivers)
+    planner = FakeDriver(
+        "fake-planner",
+        [_ok("init")]
+        + [RunResult(ok=False, error="429", usage_wait=0.0)] * 5
+        + [_ok("plan tras espera")],
+    )
+    orch = Orchestrator(task, drivers={"fake-planner": planner})
+    _run(orch.run_plan())
 
-    async def _fake_ensure():
+    assert task.state is TaskState.PLANNED  # never FAILED on usage exhaustion
+    assert waits == [60.0, 60.0, 60.0, 900.0, 900.0]
+    assert task.usage_waiting is False  # flag cleared after the run
+
+
+def test_usage_limit_passive_mode_logs_message(tmp_path, monkeypatch):
+    """Passive retries are logged with the dedicated i18n message."""
+    infos: list[str] = []
+
+    async def fake_sleep(seconds):
         return None
 
-    orch.ensure_agents_md = _fake_ensure  # type: ignore[assignment]
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(ratelimit, "MAX_ATTEMPTS", 1)
+    task = _make_task(tmp_path)
+    planner = FakeDriver(
+        "fake-planner",
+        [_ok("init"), RunResult(ok=False, error="429", usage_wait=0.0),
+         RunResult(ok=False, error="429", usage_wait=0.0), _ok("plan")],
+    )
+    orch = Orchestrator(task, drivers={"fake-planner": planner}, on_info=infos.append)
+    _run(orch.run_plan())
 
-    _run(orch.run_automode())
-
-    assert task.state is TaskState.FAILED
-    assert len(planner.requests) >= ratelimit.MAX_ATTEMPTS + 1
-    assert task.usage_waiting is False  # flag cleared after the run
+    assert task.state is TaskState.PLANNED
+    assert any("passive wait mode" in message and "15m 00s" in message for message in infos)
 
 
 def test_usage_waiting_flag_is_not_persisted(tmp_path):
@@ -1508,6 +1518,132 @@ def test_resume_resets_exhausted_budget(tmp_path):
 
     assert task.state is TaskState.DONE
     assert task.iteration == 0  # budget restarted, the review approved
+
+
+# ---------------------------------------------------------------------- #
+# Continue of interrupted tasks
+# ---------------------------------------------------------------------- #
+def test_continue_failed_delegates_to_resume(tmp_path):
+    """FAILED tasks reuse the existing resume logic (failed_phase)."""
+    task = _make_task(tmp_path, state=TaskState.FAILED, failed_phase="review")
+    models.save(task)
+    _write_plan(task)
+    drivers = _resume_drivers()
+    _run(Orchestrator(task, drivers=drivers).run_continue())
+
+    assert task.state is TaskState.DONE
+    assert drivers["fake-impl"].prompts == []  # implementation skipped
+    assert len(drivers["fake-rev"].prompts) == 1
+
+
+def test_continue_from_stuck_implementing(tmp_path):
+    """A crash mid-implementation leaves IMPLEMENTING; continue reruns it."""
+    task = _make_task(tmp_path, state=TaskState.IMPLEMENTING)
+    models.save(task)
+    _write_plan(task)
+    drivers = _resume_drivers()
+    _run(Orchestrator(task, drivers=drivers).run_continue())
+
+    assert task.state is TaskState.DONE
+    assert drivers["fake-planner"].prompts == []  # plan reused, no replan
+    assert drivers["fake-impl"].prompts[0] == prompts.implement_prompt(task)
+    assert drivers["fake-final"].prompts
+    assert task.failed_phase == ""  # cleared once the phase advanced
+
+
+def test_continue_from_stuck_reviewing(tmp_path):
+    task = _make_task(tmp_path, state=TaskState.REVIEWING)
+    models.save(task)
+    _write_plan(task)
+    drivers = _resume_drivers()
+    _run(Orchestrator(task, drivers=drivers).run_continue())
+
+    assert task.state is TaskState.DONE
+    assert drivers["fake-impl"].prompts == []
+    assert len(drivers["fake-rev"].prompts) == 1
+
+
+def test_continue_from_stuck_fixing(tmp_path):
+    """The interrupted fix is redone with the same iteration numbering."""
+    task = _make_task(tmp_path, state=TaskState.FIXING)
+    models.save(task)
+    _write_plan(task)
+    (paths.review_dir(task.id, task.cycle) / "01-review.md").write_text(
+        "faltan cosas", encoding="utf-8"
+    )
+    drivers = _resume_drivers()
+    _run(Orchestrator(task, drivers=drivers).run_continue())
+
+    assert task.state is TaskState.DONE
+    assert "01-review.md" in drivers["fake-impl"].prompts[0]
+    assert task.iteration == 1
+
+
+def test_continue_from_stuck_finalizing(tmp_path):
+    task = _make_task(tmp_path, state=TaskState.FINALIZING)
+    models.save(task)
+    _write_plan(task)
+    drivers = _resume_drivers()
+    _run(Orchestrator(task, drivers=drivers).run_continue())
+
+    assert task.state is TaskState.DONE
+    assert drivers["fake-impl"].prompts == []
+    assert drivers["fake-rev"].prompts == []
+    assert len(drivers["fake-final"].prompts) == 1
+
+
+def test_continue_from_stuck_planning_reuses_plan(tmp_path):
+    """PLANNING without failed_phase: full pipeline, plan files reused."""
+    task = _make_task(tmp_path, state=TaskState.PLANNING)
+    models.save(task)
+    _write_plan(task)
+    drivers = _resume_drivers()
+    _run(Orchestrator(task, drivers=drivers).run_continue())
+
+    assert task.state is TaskState.DONE
+    assert drivers["fake-planner"].prompts == []  # plan reused
+    assert drivers["fake-impl"].prompts
+
+
+def test_continue_from_stuck_first_step(tmp_path):
+    """FIRST_STEP without failed_phase: full pipeline from scratch."""
+    task = _make_task(tmp_path, state=TaskState.FIRST_STEP)
+    models.save(task)
+    drivers = _resume_drivers(
+        **{
+            "fake-planner": FakeDriver(
+                "fake-planner", [_ok("init"), _ok("contenido del plan")]
+            )
+        }
+    )
+    _run(Orchestrator(task, drivers=drivers).run_continue())
+
+    assert task.state is TaskState.DONE
+    assert drivers["fake-impl"].prompts
+
+
+def test_continue_nothing_to_continue(tmp_path):
+    """DRAFT/PAUSED/DONE... have no interrupted phase: no driver runs."""
+    task = _make_task(tmp_path, state=TaskState.DRAFT)
+    models.save(task)
+    drivers = _resume_drivers()
+    _run(Orchestrator(task, drivers=drivers).run_continue())
+
+    assert task.state is TaskState.DRAFT
+    assert drivers["fake-planner"].prompts == []
+    assert drivers["fake-impl"].prompts == []
+
+
+def test_interrupted_phase_map_covers_every_running_state(tmp_path):
+    """The map covers exactly the transient running states (not PAUSED)."""
+    assert set(INTERRUPTED_PHASE) == {
+        TaskState.FIRST_STEP,
+        TaskState.PLANNING,
+        TaskState.IMPLEMENTING,
+        TaskState.REVIEWING,
+        TaskState.FIXING,
+        TaskState.FINALIZING,
+    }
 
 
 def test_max_iterations_marks_review_phase(tmp_path):

@@ -1771,3 +1771,149 @@ def test_run_processes_updates_and_persists_offset(tmp_path, monkeypatch):
     assert "999" not in texts[555]
     assert len(driver.prompts) == 1  # parser only ran for the allowed chat
     assert _load_state().offset == 79
+
+
+# ---------------------------------------------------------------------- #
+# Profile question (tg:p:<id>:<idx>) at task creation
+# ---------------------------------------------------------------------- #
+def test_profile_question_asked_when_profiles_exist(tmp_path, monkeypatch):
+    """With global profiles, the bot asks the user to pick one before chaining."""
+    from grafeno import profiles as profiles_module
+    from grafeno.config import RoleConfig
+    from grafeno.profiles import Profile
+
+    profiles_module.save_global([
+        Profile(name="calidad"),
+        Profile(name="rapido"),
+    ])
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Con perfil"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "crea una tarea con perfil"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+
+    markup = client.sent[-1][2]
+    assert markup is not None
+    callbacks = [
+        button["callback_data"]
+        for row in markup["inline_keyboard"]
+        for button in row
+    ]
+    profile_callbacks = [data for data in callbacks if data.startswith(f"tg:p:{pid}:")]
+    assert len(profile_callbacks) == 3  # 2 profiles + default (-1)
+    assert f"tg:p:{pid}:-1" in profile_callbacks
+
+
+def test_profile_pick_applies_roles(tmp_path, monkeypatch):
+    """Picking a profile writes the chosen name + its roles into the new task."""
+    from grafeno import profiles as profiles_module
+    from grafeno.config import RoleConfig
+    from grafeno.profiles import Profile
+
+    profile = Profile(name="calidad")
+    profile.implementer = RoleConfig(cli="kimi", model="kimi-code/k3", effort="max")
+    profiles_module.save_global([profile])
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Con perfil"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "crea una tarea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:p:{pid}:0")))
+    _run(service._handle_update(_callback_update(f"tg:n:{pid}")))
+
+    created = models.list_all()
+    assert len(created) == 1
+    task = created[0]
+    assert task.profile == "calidad"
+    assert task.implementer.cli == "kimi"
+    assert task.implementer.model == "kimi-code/k3"
+    assert task.implementer.effort == "max"
+
+
+def test_profile_default_keeps_global_roles(tmp_path, monkeypatch):
+    """Picking 'Default' leaves the task with the global Config roles."""
+    from grafeno import config as config_module
+    from grafeno import profiles as profiles_module
+    from grafeno.profiles import Profile
+
+    cfg = config_module.Config()
+    cfg.implementer.cli = "opencode"  # distinct from the profile value
+    config_module.save(cfg)
+    profiles_module.save_global([Profile(name="calidad")])
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Sin perfil"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "crea una tarea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+    _run(service._handle_update(_callback_update(f"tg:p:{pid}:-1")))
+    _run(service._handle_update(_callback_update(f"tg:n:{pid}")))
+
+    created = models.list_all()
+    assert len(created) == 1
+    assert created[0].profile == ""
+    assert created[0].implementer.cli == "opencode"
+
+
+def test_no_profiles_skips_question(tmp_path, monkeypatch):
+    """Without global profiles the chaining question goes out directly."""
+    from grafeno import profiles as profiles_module
+
+    assert profiles_module.load_global() == []
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Directa"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+
+    _run(service._parse_and_reply(555, "crea una tarea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:c:{pid}")))
+
+    markup = client.sent[-1][2]
+    callbacks = [
+        button["callback_data"]
+        for row in markup["inline_keyboard"]
+        for button in row
+    ]
+    assert any(data.startswith(f"tg:n:{pid}") for data in callbacks)
+    assert any(data.startswith(f"tg:l:{pid}") for data in callbacks)
+    assert not any(data.startswith(f"tg:p:{pid}") for data in callbacks)
+
+
+def test_confirm_create_false_still_asks_profile(tmp_path, monkeypatch):
+    """With confirm_create=False the profile question is the first thing shown."""
+    from grafeno import profiles as profiles_module
+    from grafeno.profiles import Profile
+
+    profiles_module.save_global([Profile(name="calidad")])
+    cfg = TelegramConfig(
+        enabled=True, bot_token="T", allowed_chat_ids="555",
+        confirm_create=False, default_workdir=str(tmp_path),
+    )
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks",
+        "tasks": [{"name": "Directa"}],
+    })])
+    service, client = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
+
+    _run(service._parse_and_reply(555, "crea una tarea"))
+
+    markup = client.sent[-1][2]
+    callbacks = [
+        button["callback_data"]
+        for row in markup["inline_keyboard"]
+        for button in row
+    ]
+    assert any(data.startswith("tg:p:") for data in callbacks)

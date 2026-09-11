@@ -25,7 +25,7 @@ from textual.widgets import (
 
 from ... import config as config_module, scheduler
 from ... import gh as gh_module
-from ... import media, models, remote, remotesession
+from ... import media, models, profiles as profiles_module, remote, remotesession
 from ...i18n import t
 from ...models import Task, task_state_label
 from ...pipeline.hooks import HOOK_STAGES, format_stages
@@ -60,6 +60,8 @@ class NewTaskScreen(ModalScreen[Task | None]):
             yield MediaTextArea(id="nt-description")
             yield Label(t("nt.issue"), id="nt-issue-label")
             yield Select([], id="nt-issue", allow_blank=True)
+            yield Label(t("nt.profile"), id="nt-profile-label")
+            yield Select([], id="nt-profile", allow_blank=True)
             if remotesession.active():
                 # In session mode the workdir is a remote absolute path
                 # (the remote comes from the session, not the form).
@@ -145,6 +147,19 @@ class NewTaskScreen(ModalScreen[Task | None]):
         # The issue selector starts hidden until the background load finishes.
         self.query_one("#nt-issue-label", Label).display = False
         self.query_one("#nt-issue", Select).display = False
+        # The profile selector starts hidden until we know if there are any.
+        self._profiles = profiles_module.load_global()
+        profile_label = self.query_one("#nt-profile-label", Label)
+        profile_select = self.query_one("#nt-profile", Select)
+        if self._profiles:
+            profile_select.set_options(
+                [(t("nt.profile.default"), "")]
+                + [(p.name, p.name) for p in self._profiles]
+            )
+            profile_select.value = ""
+        else:
+            profile_label.display = False
+            profile_select.display = False
         if not remotesession.active():
             # Session mode: issues live on the remote host; the cwd here
             # is the local sshfs mount, no gh context to query.
@@ -241,6 +256,12 @@ class NewTaskScreen(ModalScreen[Task | None]):
                 return
             repeat_minutes = int(repeat_minutes_raw)
         plan_reuse = str(self.query_one("#nt-plan-reuse", Select).value)
+        profile_value = self.query_one("#nt-profile", Select).value
+        profile_obj = (
+            profiles_module.find(str(profile_value), self._profiles)
+            if profile_value
+            else None
+        )
         cfg = config_module.load()
         automode_value = self.query_one("#nt-automode", Checkbox).value
         # Repetitive tasks run in automode: if the user left it off, we turn
@@ -274,6 +295,7 @@ class NewTaskScreen(ModalScreen[Task | None]):
             use_global_references=self.query_one("#nt-use-global-refs", Checkbox).value,
             use_project_references=self.query_one("#nt-use-project-refs", Checkbox).value,
             references=self.query_one("#nt-refs", ReferencesForm).references(),
+            profile=profile_obj,
         )
         models.save(task)
         desc_area = self.query_one("#nt-description", MediaTextArea)

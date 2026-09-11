@@ -19,9 +19,10 @@ import tomllib
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from .. import _toml, media, models, paths, scheduler
+from .. import profiles as profiles_module
 from .. import workspaces as workspaces_module
 from ..config import TelegramConfig
 from ..drivers import get_driver
@@ -33,12 +34,15 @@ from . import intents, stt, tts
 from .api import TelegramBotClient, TelegramError, TgMessage, Update
 from .intents import Intent, TaskSpec
 
+if TYPE_CHECKING:
+    from ..profiles import Profile
+
 ORIGIN_TELEGRAM = "telegram"   # Task.origin of bot-created tasks
 PROPOSAL_TTL = 1800.0          # seconds a Create/Cancel proposal stays valid
 ATTACHMENT_TTL = 600.0         # seconds a buffered photo/video stays pending
 MAX_ATTACHMENTS = 5            # per chat
 ASK_CONTEXT_CHARS = 20000      # artifact context budget for the "ask" action
-CALLBACK_PREFIX = "tg:"        # callback_data prefix: tg:c|x|n|l:<id> (proposals), tg:m:<id>:<idx> (chain-specific pick), tg:fa|fn|fp|fd:<id> / tg:ft:<id>:<state> (list filters)
+CALLBACK_PREFIX = "tg:"        # callback_data prefix: tg:c|x|n|l:<id> (proposals), tg:m:<id>:<idx> (chain-specific pick), tg:p:<id>:<idx> (profile pick), tg:fa|fn|fp|fd:<id> / tg:ft:<id>:<state> (list filters)
 TYPING_REFRESH = 4.0           # chat actions last ~5s on the clients
 UNAUTHORIZED_COOLDOWN = 300.0  # seconds between "not authorized" notices
 LOG_MAX_BYTES = 1_000_000      # telegram.log is truncated past this size
@@ -135,6 +139,7 @@ class PendingProposal:
     chain_selected: dict[str, str] = field(default_factory=dict)      # workdir -> parent id ("" = parallel chosen)
     chain_options: dict[str, list[Task]] = field(default_factory=dict)  # workdir -> ambiguous candidates
     chain_queue: list[str] = field(default_factory=list)              # workdirs awaiting a chain-specific pick
+    profile: "Profile | None" = None  # chosen profile snapshot; None = global roles
 
     @property
     def expired(self) -> bool:
@@ -749,8 +754,8 @@ class TelegramService:
         proposal = PendingProposal(id=secrets.token_hex(4), chat_id=chat_id, specs=specs)
         self._proposals[proposal.id] = proposal
         if not self.cfg.confirm_create:
-            # No Create/Cancel step, but the chaining question is mandatory.
-            await self._ask_chaining(chat_id, proposal, include_proposal=True)
+            # No Create/Cancel step, but the profile and chaining questions are mandatory.
+            await self._ask_profile(chat_id, proposal, include_proposal=True)
             return
         markup = {
             "inline_keyboard": [
@@ -761,6 +766,47 @@ class TelegramService:
             ]
         }
         await self._send(chat_id, self._format_proposal(chat_id, specs), reply_markup=markup)
+
+    async def _ask_profile(
+        self, chat_id: int, proposal: PendingProposal, *, include_proposal: bool = False
+    ) -> None:
+        """Ask which processing profile dispatches the task(s); skipped when
+        no profiles are defined (the global roles apply silently)."""
+        profiles = profiles_module.load_global()
+        if not profiles:
+            await self._ask_chaining(chat_id, proposal, include_proposal=include_proposal)
+            return
+        rows: list[list[dict[str, str]]] = []
+        for index, profile in enumerate(profiles):
+            rows.append([
+                {"text": profile.name,
+                 "callback_data": f"{CALLBACK_PREFIX}p:{proposal.id}:{index}"},
+            ])
+        rows.append([
+            {"text": self._tt(chat_id, "tg.btn.profile_default"),
+             "callback_data": f"{CALLBACK_PREFIX}p:{proposal.id}:-1"},
+        ])
+        text = self._tt(chat_id, "tg.profile.ask")
+        if include_proposal:
+            text = self._format_proposal(chat_id, proposal.specs) + "\n" + text
+        await self._send(chat_id, text, reply_markup={"inline_keyboard": rows})
+
+    async def _handle_profile_pick(
+        self, chat_id: int, proposal: PendingProposal, extra: str
+    ) -> None:
+        """Resolve the profile pick (-1 = global roles) and move to chaining."""
+        try:
+            index = int(extra)
+        except ValueError:
+            return  # malformed callback: keep the question alive
+        if index < 0:
+            proposal.profile = None
+        else:
+            profiles = profiles_module.load_global()
+            if index >= len(profiles):
+                return  # stale tap after the list shrank: ignore
+            proposal.profile = profiles[index]
+        await self._ask_chaining(chat_id, proposal)
 
     async def _ask_chaining(
         self, chat_id: int, proposal: PendingProposal, *, include_proposal: bool = False
@@ -840,8 +886,8 @@ class TelegramService:
             await self._send(chat_id, self._tt(chat_id, "tg.proposal.cancelled"))
             return
         if action == "c":
-            # Confirmed creation: now ask the mandatory chaining question.
-            await self._ask_chaining(chat_id, proposal)
+            # Confirmed creation: now ask the mandatory profile and chaining questions.
+            await self._ask_profile(chat_id, proposal)
             return
         if action in ("n", "l"):
             chain_mode = "last" if action == "l" else "none"
@@ -857,6 +903,7 @@ class TelegramService:
             created, errors, unchained = self._create_tasks(
                 chat_id, proposal.specs, chain_mode=chain_mode,
                 chain_parent=proposal.chain_selected or None,
+                profile=proposal.profile,
             )
             await self._send(
                 chat_id, self._format_created(chat_id, created, errors, unchained)
@@ -864,6 +911,9 @@ class TelegramService:
             return
         if action == "m":
             await self._handle_chain_pick(chat_id, proposal, extra)
+            return
+        if action == "p":
+            await self._handle_profile_pick(chat_id, proposal, extra)
             return
         return
 
@@ -999,6 +1049,7 @@ class TelegramService:
         created, errors, unchained = self._create_tasks(
             chat_id, proposal.specs, chain_mode="last",
             chain_parent=proposal.chain_selected,
+            profile=proposal.profile,
         )
         await self._send(
             chat_id, self._format_created(chat_id, created, errors, unchained)
@@ -1011,6 +1062,7 @@ class TelegramService:
         *,
         chain_mode: str = "none",
         chain_parent: dict[str, str] | None = None,
+        profile: "Profile | None" = None,
     ) -> tuple[list[Task], list[str], list[str]]:
         """Create the confirmed tasks; the scheduler tick starts them.
 
@@ -1021,7 +1073,9 @@ class TelegramService:
         there were several ends); the rest chain sequentially within the
         batch. When there is no chainable candidate (or the position is
         invalid) the task is created parallel and its name is returned in
-        the third list.
+        the third list. ``profile`` is the snapshot chosen via the inline
+        picker (its roles override the global ``Config`` roles for these
+        tasks); ``None`` keeps the global roles.
         """
         from .. import config as config_module
 
@@ -1060,6 +1114,7 @@ class TelegramService:
                     test_command=spec.test_command.strip() or None,
                     scheduled_at=datetime.now().isoformat(timespec="minutes"),
                     parent_id=parent_id or None,
+                    profile=profile,
                 )
                 if task.parent_id:
                     by_id = {item.id: item for item in known_tasks}

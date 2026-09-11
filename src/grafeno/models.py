@@ -18,6 +18,7 @@ from .references import Reference
 
 if TYPE_CHECKING:
     from .drivers.base import TokenUsage
+    from .profiles import Profile
 
 
 class TaskState(str, Enum):
@@ -149,6 +150,7 @@ class Task:
     repeat_count: int = 0         # repetitions already executed (0 = first execution)
     last_completed_at: str = ""   # local ISO of the last time it reached DONE
     origin: str = ""              # "" = normal; "trigger" = spawned by a trigger task
+    profile: str = ""             # name of the applied processing profile; "" = global config roles
     failed_phase: str = ""        # pipeline phase that failed (first/plan/implement/review/fix/final); "" = unknown
     usage_waiting: bool = field(default=False, repr=False)  # transient: waiting for CLI quota
     created_at: str = ""
@@ -181,19 +183,22 @@ class Task:
         use_project_references: bool | None = None,
         references: list[Reference] | None = None,
         remote: str | None = None,
+        profile: "Profile | None" = None,
     ) -> "Task":
         now = datetime.now().isoformat(timespec="seconds")
+        roles_source = profile if profile is not None else config
         return cls(
             id=new_task_id(name),
             name=name,
             description=description,
             workdir=workdir,
             remote="" if remote is None else remote,
-            first=RoleConfig(config.first.cli, config.first.model, config.first.effort),
-            planner=RoleConfig(config.planner.cli, config.planner.model, config.planner.effort),
-            implementer=RoleConfig(config.implementer.cli, config.implementer.model, config.implementer.effort),
-            reviewer=RoleConfig(config.reviewer.cli, config.reviewer.model, config.reviewer.effort),
-            final=RoleConfig(config.final.cli, config.final.model, config.final.effort),
+            first=RoleConfig(roles_source.first.cli, roles_source.first.model, roles_source.first.effort),
+            planner=RoleConfig(roles_source.planner.cli, roles_source.planner.model, roles_source.planner.effort),
+            implementer=RoleConfig(roles_source.implementer.cli, roles_source.implementer.model, roles_source.implementer.effort),
+            reviewer=RoleConfig(roles_source.reviewer.cli, roles_source.reviewer.model, roles_source.reviewer.effort),
+            final=RoleConfig(roles_source.final.cli, roles_source.final.model, roles_source.final.effort),
+            profile="" if profile is None else profile.name,
             automode=config.automode.enabled if automode is None else automode,
             max_iterations=config.automode.max_iterations,
             test_command=config.automode.test_command if test_command is None else test_command,
@@ -317,6 +322,7 @@ class Task:
                 "repeat_count": self.repeat_count,
                 "last_completed_at": self.last_completed_at,
                 "origin": self.origin,
+                "profile": self.profile,
                 "failed_phase": self.failed_phase,
                 "use_global_references": self.use_global_references,
                 "use_project_references": self.use_project_references,
@@ -373,6 +379,7 @@ class Task:
             repeat_count=int(raw.get("repeat_count", 0)),
             last_completed_at=str(raw.get("last_completed_at", "")),
             origin=str(raw.get("origin", "")),
+            profile=str(raw.get("profile", "")),
             failed_phase=str(raw.get("failed_phase", "")),
             sessions={str(k): str(v) for k, v in data.get("sessions", {}).items()},
             durations={str(k): int(v) for k, v in data.get("durations", {}).items()},

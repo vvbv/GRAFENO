@@ -25,7 +25,7 @@ info:
     | projects.list       | -                                                | GET /api/v1/projects               |
     | tasks.logs          | `task_id`, `limit?` (1..1000, default 200)      | GET /api/v1/tasks/{id}/logs        |
     | tasks.artifacts     | `task_id`, `kind`, `cycle?` (default 1)         | GET /api/v1/tasks/{id}/artifacts   |
-    | tasks.create        | `name`, `workdir`, `description?`, `automode?`, `parent_id?`, `scheduled_at?`, `origin?`, `attachments?` (optional list of {name, data-base64}, max 10) | POST /api/v1/tasks |
+    | tasks.create        | `name`, `workdir`, `description?`, `automode?`, `parent_id?`, `scheduled_at?`, `origin?`, `profile?`, `attachments?` (optional list of {name, data-base64}, max 10) | POST /api/v1/tasks |
     | tasks.start         | `task_id`                                        | POST /api/v1/tasks/{id}/start      |
     | tasks.resume        | `task_id` (FAILED only)                          | POST /api/v1/tasks/{id}/resume     |
     | tasks.restart       | `task_id`                                        | POST /api/v1/tasks/{id}/restart    |
@@ -129,6 +129,7 @@ components:
         state_label: {type: string}
         automode: {type: boolean}
         origin: {type: string}
+        profile: {type: string}
         scheduled_at: {type: string}
         parent_id: {type: string}
       required: [id, name, workdir, state, automode]

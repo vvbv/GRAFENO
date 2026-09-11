@@ -389,3 +389,61 @@ def test_create_task_parses_string_automode_off(tmp_path) -> None:
             _stop(service, srv_task)
 
     _run(scenario())
+
+
+def test_create_task_with_profile_applies_roles(tmp_path) -> None:
+    """POST /tasks with a profile name writes its roles into the new task."""
+    from grafeno import models as models_module
+    from grafeno import profiles as profiles_module
+    from grafeno.config import RoleConfig
+    from grafeno.profiles import Profile
+
+    profile = Profile(name="calidad")
+    profile.implementer = RoleConfig(cli="kimi", model="kimi-code/k3", effort="max")
+    profiles_module.save_global([profile])
+
+    async def scenario():
+        service, srv_task = await _start_service(app=FakeApp())
+        try:
+            status, payload = await _request(
+                service, "POST", "/api/v1/tasks",
+                json.dumps({
+                    "name": "Con perfil",
+                    "workdir": str(tmp_path),
+                    "profile": "calidad",
+                }).encode(),
+            )
+            assert status == 201, payload
+            assert payload["task"]["profile"] == "calidad"
+            created = models_module.load(payload["task"]["id"])
+            assert created.profile == "calidad"
+            assert created.implementer.cli == "kimi"
+            assert created.implementer.model == "kimi-code/k3"
+            assert created.implementer.effort == "max"
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+
+def test_create_task_unknown_profile_returns_400(tmp_path) -> None:
+    async def scenario():
+        from grafeno import models as models_module
+
+        service, srv_task = await _start_service(app=FakeApp())
+        try:
+            status, payload = await _request(
+                service, "POST", "/api/v1/tasks",
+                json.dumps({
+                    "name": "Sin perfil",
+                    "workdir": str(tmp_path),
+                    "profile": "no-existe",
+                }).encode(),
+            )
+            assert status == 400
+            assert "unknown profile" in payload["error"]
+            assert models_module.list_all() == []
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())

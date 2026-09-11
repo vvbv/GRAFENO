@@ -34,6 +34,18 @@ class PhaseError(Exception):
     """A pipeline phase failed (the state has already been set to FAILED)."""
 
 
+# Transient running states left behind by a catastrophic exit (app killed,
+# power loss, CLI crash), mapped to the pipeline phase that was running.
+INTERRUPTED_PHASE: dict[TaskState, str] = {
+    TaskState.FIRST_STEP: "first",
+    TaskState.PLANNING: "plan",
+    TaskState.IMPLEMENTING: "implement",
+    TaskState.REVIEWING: "review",
+    TaskState.FIXING: "fix",
+    TaskState.FINALIZING: "final",
+}
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -154,22 +166,30 @@ class Orchestrator:
                     task.sessions[role_name] = result.session_id
                     request.session_id = result.session_id  # retry continues the session
                     models.save(task)  # persist: a crash mid-wait keeps the session
-                if result.usage_wait is None or attempt >= ratelimit.MAX_ATTEMPTS:
+                if result.usage_wait is None:
                     break
                 attempt += 1
-                wait = result.usage_wait or ratelimit.PROBE_SECONDS
+                if attempt <= ratelimit.MAX_ATTEMPTS:
+                    wait = result.usage_wait or ratelimit.PROBE_SECONDS
+                    message = t(
+                        "orch.usage_wait.retry",
+                        wait=format_duration(wait), attempt=attempt, max=ratelimit.MAX_ATTEMPTS,
+                    )
+                else:
+                    # Passive mode: fixed 15-minute probes, retried forever; a
+                    # usage-limit exhaustion never fails the phase.
+                    wait = ratelimit.PASSIVE_WAIT_SECONDS
+                    message = t(
+                        "orch.usage_wait.passive",
+                        wait=format_duration(wait), attempt=attempt,
+                    )
                 self._set_usage_waiting(True)
-                self._info(
-                    t("orch.usage_wait.retry",
-                      wait=format_duration(wait), attempt=attempt, max=ratelimit.MAX_ATTEMPTS)
-                )
+                self._info(message)
                 await asyncio.sleep(wait)
         finally:
             self._set_usage_waiting(False)
         self._record_duration(phase, time.monotonic() - started_at)
         if not result.ok:
-            if result.usage_wait is not None:
-                self._info(t("orch.usage_wait.giving_up", max=ratelimit.MAX_ATTEMPTS))
             self._mark_failed(phase)
             await self._run_hooks(phase, "failed")
             raise PhaseError(result.error or t("orch.phase_failed", phase=phase_label(phase)))
@@ -619,6 +639,34 @@ class Orchestrator:
                 await self.run_final()
         except PhaseError as exc:
             self._info(str(exc))
+
+    async def run_continue(self) -> None:
+        """Continue an interrupted task from the phase where it stopped.
+
+        Two cases are covered:
+
+        - FAILED tasks: delegates to ``run_automode_resume`` (uses the
+          persisted ``failed_phase``).
+        - Tasks stuck in a transient running state after a catastrophic
+          exit (TUI killed, power loss, CLI crash, unexpected worker
+          exception): the phase is derived from the persisted state and
+          recorded as ``failed_phase`` so the shared resume logic reuses
+          every artifact already on disk (plan files, reviews, fixes,
+          git branch, base commit and session ids).
+
+        Anything else (DRAFT, PLANNED, IMPLEMENTED, DONE, PAUSED,
+        DISCARDED) has nothing to continue and is only reported.
+        """
+        if self.task.state is TaskState.FAILED:
+            await self.run_automode_resume()
+            return
+        phase = INTERRUPTED_PHASE.get(self.task.state)
+        if phase is None:
+            self._info(t("orch.continue.nothing"))
+            return
+        self.task.failed_phase = phase
+        models.save(self.task)
+        await self.run_automode_resume()
 
     # ------------------------------------------------------------------ #
     def _ensure_branch(self) -> None:

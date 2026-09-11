@@ -25,7 +25,7 @@ src/grafeno/
 ├── media.py                # Imágenes del portapapeles: lectura (wl-paste/xclip/pngpaste/osascript), guardado en media/ de la tarea, listado y apertura con el visor del SO; preview inline opcional vía textual-image
 ├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
 ├── timefmt.py              # Formateo de duraciones (42s, 3m 05s, 1h 02m 03s)
-├── ratelimit.py            # Detección de usage agotado en CLIs: patrones de error, pista de espera (retry-after, duración relativa u hora absoluta de reseteo con zona horaria) y constantes de sondeo/reintento
+├── ratelimit.py            # Detección de usage agotado en CLIs: patrones de error, pista de espera (retry-after, duración relativa u hora absoluta de reseteo con zona horaria) y constantes de sondeo/reintento (PROBE_SECONDS, MAX_ATTEMPTS, PASSIVE_WAIT_SECONDS)
 ├── scheduler.py            # Lógica pura: programación horaria, encadenamiento padre/hija y repetición de tareas
 ├── updater.py              # Auto-actualización best-effort de los CLIs de agentes (comando nativo de cada uno) al arrancar la TUI si auto_update está activado en el config
 ├── selfupdate.py           # Auto-actualización de GRAFENO desde las releases de GitHub: chequeo de versión (API releases/latest), comparación semver y comando pipx/pip; comando CLI `grafeno update`
@@ -34,6 +34,7 @@ src/grafeno/
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
 ├── gh.py                   # Integración con GitHub CLI: detección de disponibilidad (repo + gh + acceso) y listado de issues abiertos (best-effort, nunca lanza)
 ├── references.py           # Modelo `Reference` y niveles global/proyecto/tarea con `resolve()`
+├── profiles.py             # Perfiles de procesamiento con nombre: Profile (5 RoleConfig), ~/.grafeno/profiles.toml, find() por nombre
 ├── consoles.py             # Consolas del proyecto: ConsoleSpec (nombre/comando/color), paleta CONSOLE_COLORS y persistencia por proyecto bajo ~/.grafeno/consoles/<slug>-<hash8>.toml (migra el [[consoles]] legacy del .grafeno.toml)
 ├── remote.py               # Proyectos remotos por SSH: parseo del spec, montaje sshfs bajo ~/.grafeno/mounts/ y espejo de datos de la tarea con rsync (best-effort), sondeo del SO destino (detect_os)
 ├── remotesession.py        # Modo sesión remota (`grafeno [user@]host[:port]`): bootstrap (sondeo de $HOME remoto, mkdir ~/.grafeno, montaje sshfs), activate() exporta GRAFENO_HOME al montaje; spec_for_task/describe_target para el fallback de sesión
@@ -56,7 +57,7 @@ src/grafeno/
 │   ├── opencode.py, kimi.py, codex.py, claude.py, cursor.py#   Dialectos concretos
 │   └── __init__.py         #   Registro: get_driver(), available_clis(), fetch_all_models(), fetch_all_variants()
 ├── pipeline/
-│   ├── orchestrator.py     # Orquestador de fases (first opcional/plan/implementar/revisar/final, automode, ciclos); `_mark_failed` registra la fase fallida, `_review_fix_loop` es el bucle compartido y `run_automode_resume` reanuda desde la fase fallida reaprovechando artefactos (resetea el presupuesto de iteracion solo si estaba agotado)
+│   ├── orchestrator.py     # Orquestador de fases (first opcional/plan/implementar/revisar/final, automode, ciclos); `_mark_failed` registra la fase fallida, `_review_fix_loop` es el bucle compartido, `run_automode_resume` reanuda desde la fase fallida reaprovechando artefactos (resetea el presupuesto de iteracion solo si estaba agotado) y `run_continue` hace lo mismo desde estados transitorios huérfanos (tarea interrumpida por TUI matada, apagón o crash del CLI) usando el mapa `INTERRUPTED_PHASE`
 │   ├── hooks.py            # Hooks de completado por etapa (comando shell o webhook URL; global + por tarea, mejor esfuerzo)
 │   ├── prompts.py          # Prompts por fase (first, plan, ...), cabecera GRAFENO-EXECUTOR e instrucciones finales personalizables
 │   ├── verdict.py          # Parseo del veredicto del revisor (VERDICT: APPROVED / CHANGES_REQUESTED)
@@ -66,10 +67,11 @@ src/grafeno/
     ├── console_pty.py      #   Proceso shell sobre PTY (POSIX): start/read/write/interrupt/close, sin shell=True; lectura no bloqueante; eco del kernel desactivado (la pantalla ecoa localmente)
     ├── dirpicker.py        # Autocompletado de rutas en el formulario
     ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol; incluye filtro de texto sobre el selector de modelos
+    ├── profilesform.py     # Editor reutilizable de perfiles de procesamiento (tabla + alta/edición vía ProfileEditScreen)
     ├── refform.py          # Editor reutilizable de referencias (tabla + añadir/borrar)
     ├── trigform.py         # Editor reutilizable de triggers globales (tabla + añadir/borrar)
-    ├── widgets.py          # Widgets comunes (cabecera GrafenoHeader con reloj fecha/hora, LocationBar con la ruta actual y la de la tarea + distintivo SSH, barra de fases, helpers Markdown, MediaTextArea que guarda imágenes pegadas e inserta tokens media/media-NN.png)
-    └── screens/            # tasks (lista), detail (detalle+acciones: `u` reanuda una tarea FAILED reusando artefactos, `R` reinicia desde cero borrandolos), config, roles, consoles (tabs de shells del proyecto)
+    ├── widgets.py          # Widgets comunes (cabecera GrafenoHeader con reloj fecha/hora (refresco alineado al cambio de minuto, sin segundos), LocationBar con la ruta actual y la de la tarea + distintivo SSH, barra de fases, helpers Markdown, MediaTextArea que guarda imágenes pegadas e inserta tokens media/media-NN.png)
+    └── screens/            # tasks (lista), detail (detalle+acciones: `u` reanuda una tarea FAILED reusando artefactos, `c` continúa una tarea fallida o interrumpida (estado transitorio huérfano) desde la fase donde paró vía `run_continue`, `R` reinicia desde cero borrandolos), config, roles, profileedit (modal nombre + RolesForm, clon de roles.py), consoles (tabs de shells del proyecto)
 tests/                      # pytest; conftest aísla GRAFENO_HOME e idioma por test
 docs/screenshot.png         # captura de la lista de tareas usada en el README
 install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), vía pipx; la ausencia de CLIs de agente es siempre un warning (nunca un error)
@@ -77,7 +79,7 @@ install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), v
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
 `task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `logs/live.jsonl`, `logs/*.jsonl`;
-además `config.toml`, `references.toml`, `triggers.toml`, `consoles/`,
+además `config.toml`, `references.toml`, `triggers.toml`, `profiles.toml`, `consoles/`,
 `mounts/`, `telegram-state.toml`, `api.log`); no
 en el repo.
 
@@ -128,9 +130,11 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   en segundo plano al arrancar la TUI si `Config.auto_update` está
   activado. `RunResult.usage_wait` propaga al orquestador la pista de
   espera cuando se detecta uso agotado en el run (reintenta la fase con
-  la espera indicada o sondea cada `PROBE_SECONDS` hasta `MAX_ATTEMPTS`;
-  durante la espera la TUI muestra el sufijo i18n `state.waiting` en la
-  lista de tareas y en `PhaseBar`). La rama de errores de cada driver
+  la espera indicada o sondea cada `PROBE_SECONDS` hasta `MAX_ATTEMPTS`
+  intentos rapidos; agotados, entra en modo de espera pasiva reintentando
+  cada `PASSIVE_WAIT_SECONDS` —15 minutos— de forma indefinida: la tarea
+  nunca falla por usage agotado; durante la espera la TUI muestra el
+  sufijo i18n `state.waiting` en la lista de tareas y en `PhaseBar`). La rama de errores de cada driver
   normaliza su texto con `format_error_message(payload, ...)` de
   `base.py` (nunca `str(payload)`: los campos dict del CLI se traducen a
   `name: message (ref)` y el fallback es `json.dumps`, nunca el repr de
@@ -299,6 +303,15 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   combina los tres niveles en orden y los inyecta en los prompts de plan,
   reevaluación e implementación (nunca en revisión, corrección ni pasos
   finales, para acotar el consumo de tokens).
+- **Perfiles de procesamiento**: conjuntos con nombre de asignación
+  CLI+modelo+esfuerzo por rol (`profiles.py`, `~/.grafeno/profiles.toml`,
+  claves aplanadas `planner_cli`... porque `_toml` solo serializa escalares
+  en arrays de tablas). Se eligen al crear la tarea (selector en el
+  formulario, pregunta inline en el bot de Telegram tras la confirmación —
+  solo si hay perfiles definidos — y campo `profile` opcional en la API) y
+  la tarea guarda el nombre (`Task.profile`) y una foto de los roles: el
+  pipeline no cambia, el perfil solo elige la fuente del copiado en
+  `Task.create`. Borrar un perfil no afecta a tareas ya creadas.
 - **Workspaces**: carpetas raíz configurables (global `Config.workspaces`
   en `~/.grafeno/config.toml` + `workspaces` en `.grafeno.toml` de
   proyecto; `workspaces.resolve` las combina). `workspaces.discover`
@@ -414,10 +427,14 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
 
 ## Versionado y releases
 
-- La versión se declara en DOS sitios que deben quedar SIEMPRE
-  sincronizados: `pyproject.toml` (`[project].version`) y
-  `src/grafeno/__init__.py` (`__version__`). Cualquier cambio de versión
-  actualiza ambos en el mismo commit.
+- La versión se declara en UN ÚNICO sitio (fuente única de verdad):
+  `src/grafeno/__init__.py` (`__version__`). Todo cambio de versión
+  modifica SOLO ese archivo. `pyproject.toml` NO lleva versión estática:
+  declara `dynamic = ["version"]` en `[project]` y la deriva de
+  `__init__.py` en build con `[tool.setuptools.dynamic]`
+  (`version = {attr = "grafeno.__version__"}`), de modo que el paquete
+  siempre se construye con la versión correcta. Nunca añadas una línea
+  `version = "..."` a `pyproject.toml`.
 - Toda modificación del proyecto (feature, fix, refactor, docs relevantes)
   incrementa la versión siguiendo semver:
   - **patch** (X.Y.Z+1): correcciones y cambios menores sin cambio de
@@ -429,8 +446,11 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
 - Releases: se generan automáticamente al hacer push a `main` con el bump
   de versión (commit `chore(release): bump a X.Y.Z`). El workflow
   `.github/workflows/release.yml` se dispara cuando cambian
-  `src/grafeno/__init__.py` o `pyproject.toml`, detecta si la versión se
-  incrementó respecto al commit anterior, valida que ambos archivos
-  coinciden, construye el paquete y crea el GitHub Release con el tag
+  `src/grafeno/__init__.py` o `pyproject.toml`, detecta si la versión de
+  `__init__.py` se incrementó respecto al commit anterior, construye el
+  paquete (cuya versión se deriva de `__init__.py` vía
+  `tool.setuptools.dynamic`), valida que los artefactos construidos
+  (`dist/grafeno-X.Y.Z.tar.gz` y `dist/grafeno-X.Y.Z-py3-none-any.whl`)
+  llevan exactamente esa versión y crea el GitHub Release con el tag
   `vX.Y.Z`. Si la versión no cambió, no publica nada. No hace falta crear
   tags a mano.

@@ -32,7 +32,7 @@ from ... import media, models, paths, remote, remotesession, scheduler
 from ...i18n import t
 from ...mdnorm import normalize_markdown
 from ...models import Task, TaskState
-from ...pipeline.orchestrator import Orchestrator, phase_label
+from ...pipeline.orchestrator import INTERRUPTED_PHASE, Orchestrator, phase_label
 from ...timefmt import format_duration
 from ...tokenfmt import format_tokens
 from ..widgets import GrafenoHeader, LocationBar, MediaTextArea, PhaseBar, markdown_set
@@ -322,6 +322,7 @@ class TaskDetailScreen(Screen[None]):
         Binding("d", "mark_done", t("det.bind.complete")),
         Binding("R", "restart", t("det.bind.restart")),
         Binding("u", "resume", t("det.bind.resume")),
+        Binding("c", "continue_task", t("det.bind.continue")),
         Binding("D", "mark_discard", t("det.bind.discard")),
         Binding("x", "cancel", t("det.bind.cancel")),
         Binding("escape", "back", t("common.back")),
@@ -569,6 +570,10 @@ class TaskDetailScreen(Screen[None]):
         if task.first_prompt.strip():
             phases.insert(0, "first")
         line = Text()
+        if task.profile:
+            line.append(f"{t('det.profile')}: ", style="dim")
+            line.append(task.profile, style="magenta")
+            line.append("  ·  ", style="dim")
         for index, phase in enumerate(phases):
             role = task.role(_PHASE_INFO[phase]["role"])
             label = models.cli_model_label(role.cli, role.model or "default")
@@ -860,6 +865,34 @@ class TaskDetailScreen(Screen[None]):
 
         self.app.push_screen(
             StatusConfirmScreen(t("det.resume.title"), t("det.resume.body")),
+            decide,
+        )
+
+    def action_continue_task(self) -> None:
+        """Continue a FAILED or interrupted task from the phase where the
+        pipeline stopped, reusing every artifact already on disk."""
+        if self.runtime.running:
+            self.notify(t("det.warn.running"), severity="warning")
+            return
+        if self.current_task.state is TaskState.DISCARDED:
+            self.notify(t("det.warn.discarded"), severity="warning")
+            return
+        if (
+            self.current_task.state is not TaskState.FAILED
+            and self.current_task.state not in INTERRUPTED_PHASE
+        ):
+            self.notify(t("det.warn.not_interrupted"), severity="warning")
+            return
+
+        def decide(accepted: bool) -> None:
+            if accepted:
+                self._start(
+                    lambda orch: orch.run_continue(),
+                    t("det.continue.label"),
+                )
+
+        self.app.push_screen(
+            StatusConfirmScreen(t("det.continue.title"), t("det.continue.body")),
             decide,
         )
 

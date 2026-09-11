@@ -2,7 +2,9 @@
 
 Pure logic, no I/O: the driver base scans the error output of a failed run
 with ``detect_usage_wait`` to decide whether the orchestrator should wait
-and retry instead of failing the phase.
+and retry instead of failing the phase. After ``MAX_ATTEMPTS`` quick retries
+the phase switches to passive mode (``PASSIVE_WAIT_SECONDS`` between probes)
+and never fails on quota.
 """
 
 from __future__ import annotations
@@ -13,8 +15,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # Default wait between probes when the CLI does not say when quota resets.
 PROBE_SECONDS = 60.0
-# Maximum consecutive usage-limit retries before giving up (per phase run).
+# Maximum consecutive usage-limit quick attempts before switching to passive mode.
 MAX_ATTEMPTS = 30
+# Fixed wait between retries once the quick attempts are exhausted: the phase
+# enters passive mode and probes every 15 minutes forever (it never fails).
+PASSIVE_WAIT_SECONDS = 900.0
 # Parsed waits are capped so a bogus "retry after 999999s" cannot stall a task.
 MAX_WAIT_SECONDS = 3600.0
 

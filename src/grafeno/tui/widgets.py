@@ -140,14 +140,28 @@ async def markdown_set(widget: Markdown, text: str) -> None:
 
 
 class DateTimeClock(Static):
-    """Clock with date and time (seconds included) for the app header."""
+    """Clock with date and time (minute precision) for the app header.
+
+    Refreshes once per minute, aligned to the wall-clock minute change,
+    so the per-second repaint no longer yanks the scroll position.
+    """
 
     def on_mount(self) -> None:
         self._update_clock()
-        self.set_interval(1.0, self._update_clock)
+        self.set_timer(self._seconds_to_next_minute(), self._start_minute_interval)
+
+    def _start_minute_interval(self) -> None:
+        self._update_clock()
+        self.set_interval(60.0, self._update_clock)
 
     def _update_clock(self) -> None:
-        self.update(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        self.update(datetime.now().strftime("%Y-%m-%d %H:%M"))
+
+    @staticmethod
+    def _seconds_to_next_minute() -> float:
+        """Seconds left until the next wall-clock minute boundary."""
+        now = datetime.now()
+        return 60.0 - now.second - now.microsecond / 1_000_000
 
 
 class GrafenoHeader(Header):

@@ -166,6 +166,71 @@ def test_phase_actions_require_confirmation():
     asyncio.run(scenario())
 
 
+def test_continue_action_opens_confirm_for_failed():
+    """Pressing 'c' on a FAILED task opens the StatusConfirmScreen and accept returns to the detail."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task, TaskState
+        from grafeno.tui.screens.detail import StatusConfirmScreen, TaskDetailScreen
+
+        task = Task.create("Continue failed", "desc", "/tmp", Config())
+        task.state = TaskState.FAILED
+        task.failed_phase = "implement"
+        models.save(task)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, StatusConfirmScreen)
+
+            # Cancelling returns to the detail screen.
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, TaskDetailScreen)
+
+            # Opening the modal again and accepting must not raise and returns to the detail.
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, StatusConfirmScreen)
+            app.screen.query_one("#pc-accept").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#pc-accept")
+            await pilot.pause()
+            assert isinstance(app.screen, TaskDetailScreen)
+
+    asyncio.run(scenario())
+
+
+def test_continue_action_rejects_draft():
+    """Pressing 'c' on a DRAFT task notifies and does not open any modal."""
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task
+        from grafeno.tui.screens.detail import StatusConfirmScreen, TaskDetailScreen
+
+        task = Task.create("Continue draft", "desc", "/tmp", Config())
+        models.save(task)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            app.push_screen(TaskDetailScreen(models.load(task.id)))
+            await pilot.pause()
+
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, TaskDetailScreen)
+            assert not isinstance(app.screen, StatusConfirmScreen)
+
+    asyncio.run(scenario())
+
+
 def test_ask_more_starts_new_cycle():
     """'Ask for more' records the extension and starts the cycle with the same logic."""
     async def scenario():
@@ -985,7 +1050,7 @@ def test_detail_agents_bar_reflects_role_changes():
 
 
 def test_task_list_clock_shows_current_time():
-    """The list shows a clock formatted as YYYY-MM-DD HH:MM:SS."""
+    """The list shows a clock formatted as YYYY-MM-DD HH:MM."""
     import re
 
     async def scenario():
@@ -997,7 +1062,7 @@ def test_task_list_clock_shows_current_time():
 
             clock = app.screen.query_one("#clock", Static).render()
             text = clock.plain if hasattr(clock, "plain") else str(clock)
-            assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$", text)
+            assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$", text)
 
     asyncio.run(scenario())
 
@@ -1411,7 +1476,7 @@ def test_new_task_issue_selector_hidden_without_gh(monkeypatch):
 
 
 def test_header_clock_visible_on_all_screens():
-    """The header clock (date + time with seconds) is on every main screen."""
+    """The header clock (date + time, minute precision) is on every main screen."""
     import re
 
     from grafeno import models
@@ -1428,7 +1493,7 @@ def test_header_clock_visible_on_all_screens():
         app = GrafenoApp()
         async with app.run_test(size=(100, 50)) as pilot:
             await pilot.pause()
-            pattern = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
+            pattern = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$"
 
             def assert_clock():
                 clock = app.screen.query_one("#clock", DateTimeClock)
@@ -1887,3 +1952,11 @@ def test_task_list_toggle_hides_done_but_keeps_pending_chains():
             assert len(row_names(screen)) == 3
 
     asyncio.run(scenario())
+
+
+def test_clock_seconds_to_next_minute():
+    """The helper returns the remaining time until the next minute boundary."""
+    from grafeno.tui.widgets import DateTimeClock
+
+    remaining = DateTimeClock._seconds_to_next_minute()
+    assert 0.0 < remaining <= 60.0

@@ -232,6 +232,20 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "refs.error.path_required": "The reference needs a path or URL",
         "cfg.triggers": "Trigger tasks (global)",
         "trig.help": "Tasks spawned automatically before/after a pipeline phase. Project-level triggers go in <project>/.grafeno.toml ([[triggers]]).",
+        "cfg.profiles": "Processing profiles",
+        "cfg.profiles.help": "Named CLI+model sets per role; choosing one at task creation overrides the global roles for that task only.",
+        "prof.col.roles": "Roles (cli/model)",
+        "prof.edit": "Edit selected",
+        "prof.error.name_required": "The profile needs a name.",
+        "prof.error.duplicate": "A profile named {name} already exists.",
+        "profedit.title_new": "New profile",
+        "profedit.title_edit": "Edit profile · {name}",
+        "profedit.name": "Profile name",
+        "nt.profile": "Processing profile",
+        "nt.profile.default": "Global configuration (no profile)",
+        "roles.profile": "Apply profile",
+        "roles.profile.none": "Custom (no profile)",
+        "det.profile": "Profile",
         "trig.name": "Trigger name (new task name)",
         "trig.description": "Task description",
         "trig.workdir": "Working directory (empty = same as the firing task)",
@@ -260,6 +274,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "det.bind.edit": "Edit",
         "det.bind.restart": "Restart",
         "det.bind.resume": "Resume",
+        "det.bind.continue": "Continue",
         # consolas del proyecto
         "consoles.title": "Consoles · {path}",
         "consoles.new": "New",
@@ -352,6 +367,15 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Use [R] to restart from scratch instead."
         ),
         "det.resume.label": "Resume from failure",
+        "det.continue.title": "Continue this interrupted task?",
+        "det.continue.body": (
+            "The pipeline continues from the phase where it stopped (failed or "
+            "interrupted by an external cause), keeping everything already on "
+            "disk: plan files, reviews, fixes, sessions and the git branch. "
+            "Use [u] to resume a failed task or [R] to restart from scratch."
+        ),
+        "det.continue.label": "Continue from interruption",
+        "det.warn.not_interrupted": "Continue only applies to failed tasks or tasks interrupted mid-phase (use [R] to restart from scratch).",
         "det.warn.not_failed": "Resume only applies to failed tasks (use [R] to restart from scratch).",
         "det.warn.discarded": "Task is discarded: pipeline actions are blocked.",
         "det.warn.already_done": "Task is already done.",
@@ -445,6 +469,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "orch.tests.exit": "[Tests] Exit code: {code} ({duration})",
         "orch.plan_reused": "Plan already exists; reusing it.",
         "orch.resume_from": "Resuming from the failed phase: {phase}. Reusing artifacts already on disk.",
+        "orch.continue.nothing": "Nothing to continue: the task is not failed or interrupted mid-phase.",
         "orch.no_plan_files": "There are no plan files; generate the plan first ([p]).",
         "orch.max_iterations": "Maximum iterations reached ({max}). Check the review files.",
         "orch.not_git": "The directory is not a git repository; working without a dedicated branch.",
@@ -453,7 +478,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "orch.agents_md.no_file": "[AGENTS.md] The CLI finished but no file was created; continuing without it.",
         "orch.agents_md.failed": "[AGENTS.md] Could not generate it ({error}); continuing without it.",
         "orch.usage_wait.retry": "Usage limit reached; waiting {wait} before retrying (attempt {attempt}/{max})",
-        "orch.usage_wait.giving_up": "Usage limit persists after {max} attempts; failing the phase",
+        "orch.usage_wait.passive": "Usage limit persists; passive wait mode: retrying every {wait} until the quota resets (attempt {attempt})",
         "orch.changes_md": "Changes report written: changes.md",
         "orch.changes_md.fail": "Could not write changes.md: {error}",
         # hook de completado
@@ -560,6 +585,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "tg.chain.no_parent": "No chainable task found in the project: '{name}' was created as a parallel task.",
         "tg.chain.ask_which": "The project {workdir} has more than one chain. After which task should the new one(s) start?",
+        "tg.profile.ask": "Which processing profile should the new task(s) use?",
+        "tg.btn.profile_default": "Default (global roles)",
         "tg.proposal.expired": "That proposal expired or was already handled.",
         "tg.proposal.cancelled": "Cancelled: no task was created.",
         "tg.created": "Created {count} task(s); the scheduler will start them shortly:\n{items}",
@@ -807,6 +834,20 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "refs.error.path_required": "La referencia necesita una ruta o URL",
         "cfg.triggers": "Tareas trigger (globales)",
         "trig.help": "Tareas que se crean automáticamente antes/después de una fase del pipeline. Las de proyecto van en <proyecto>/.grafeno.toml ([[triggers]]).",
+        "cfg.profiles": "Perfiles de procesamiento",
+        "cfg.profiles.help": "Conjuntos con nombre de CLI+modelo por rol; al elegir uno al crear la tarea se sobreescriben los roles globales solo para esa tarea.",
+        "prof.col.roles": "Roles (cli/modelo)",
+        "prof.edit": "Editar seleccionado",
+        "prof.error.name_required": "El perfil necesita un nombre.",
+        "prof.error.duplicate": "Ya existe un perfil llamado {name}.",
+        "profedit.title_new": "Nuevo perfil",
+        "profedit.title_edit": "Editar perfil · {name}",
+        "profedit.name": "Nombre del perfil",
+        "nt.profile": "Perfil de procesamiento",
+        "nt.profile.default": "Configuración global (sin perfil)",
+        "roles.profile": "Aplicar perfil",
+        "roles.profile.none": "Personalizado (sin perfil)",
+        "det.profile": "Perfil",
         "trig.name": "Nombre del trigger (nombre de la nueva tarea)",
         "trig.description": "Descripción de la tarea",
         "trig.workdir": "Directorio de trabajo (vacío = el de la tarea que dispara)",
@@ -834,6 +875,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "det.bind.edit": "Editar",
         "det.bind.restart": "Reiniciar",
         "det.bind.resume": "Reanudar",
+        "det.bind.continue": "Continuar",
         # consolas del proyecto
         "consoles.title": "Consolas · {path}",
         "consoles.new": "Nueva",
@@ -925,6 +967,16 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "(base commit). Usa [R] para reiniciar desde cero."
         ),
         "det.resume.label": "Reanudar desde el fallo",
+        "det.continue.title": "¿Continuar esta tarea interrumpida?",
+        "det.continue.body": (
+            "El pipeline continúa desde la fase donde se detuvo (fallida o "
+            "interrumpida por una causa externa), conservando todo lo ya "
+            "existente en disco: plan, revisiones, correcciones, sesiones y la "
+            "rama git. Usa [u] para reanudar una tarea fallida o [R] para "
+            "reiniciar desde cero."
+        ),
+        "det.continue.label": "Continuar desde la interrupción",
+        "det.warn.not_interrupted": "Continuar solo aplica a tareas fallidas o interrumpidas a mitad de fase (usa [R] para reiniciar desde cero).",
         "det.warn.not_failed": "La reanudación solo aplica a tareas fallidas (usa [R] para reiniciar desde cero).",
         "det.warn.discarded": "La tarea está descartada: las acciones del pipeline están bloqueadas.",
         "det.warn.already_done": "La tarea ya está completada.",
@@ -1013,6 +1065,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "orch.tests.exit": "[Tests] Código de salida: {code} ({duration})",
         "orch.plan_reused": "Plan ya existente; se reutiliza.",
         "orch.resume_from": "Reanudando desde la fase fallida: {phase}. Reaprovechando los artefactos en disco.",
+        "orch.continue.nothing": "Nada que continuar: la tarea no está fallida ni interrumpida a mitad de fase.",
         "orch.no_plan_files": "No hay archivos de plan; genera el plan primero ([p]).",
         "orch.max_iterations": "Se alcanzó el máximo de iteraciones ({max}). Revisa los archivos de revisión.",
         "orch.not_git": "El directorio no es un repositorio git; se trabaja sin rama dedicada.",
@@ -1021,7 +1074,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "orch.agents_md.no_file": "[AGENTS.md] El CLI terminó pero no creó el archivo; se continúa sin él.",
         "orch.agents_md.failed": "[AGENTS.md] No se pudo generar ({error}); se continúa sin él.",
         "orch.usage_wait.retry": "Límite de uso alcanzado; esperando {wait} antes de reintentar (intento {attempt}/{max})",
-        "orch.usage_wait.giving_up": "El límite de uso persiste tras {max} intentos; la fase falla",
+        "orch.usage_wait.passive": "El límite de uso persiste; modo de espera pasiva: reintentando cada {wait} hasta que se restablezca la cuota (intento {attempt})",
         "orch.changes_md": "Informe de cambios generado: changes.md",
         "orch.changes_md.fail": "No se pudo generar changes.md: {error}",
         # hook de completado
@@ -1124,6 +1177,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "tg.chain.no_parent": "No hay ninguna tarea encadenable en el proyecto: '{name}' se creó como tarea paralela.",
         "tg.chain.ask_which": "El proyecto {workdir} tiene más de una cadena. ¿Después de qué tarea deben arrancar las nuevas?",
+        "tg.profile.ask": "¿Qué perfil de procesamiento debe usar la(s) nueva(s) tarea(s)?",
+        "tg.btn.profile_default": "Por defecto (roles globales)",
         "tg.proposal.expired": "Esa propuesta expiró o ya fue gestionada.",
         "tg.proposal.cancelled": "Cancelado: no se creó ninguna tarea.",
         "tg.created": "Creada(s) {count} tarea(s); el planificador las arrancará en breve:\n{items}",

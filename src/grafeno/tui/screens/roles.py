@@ -11,9 +11,10 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label, Static
+from textual.widgets import Button, Label, Select, Static
 
 from ... import models
+from ... import profiles as profiles_module
 from ...config import KNOWN_CLIS
 from ...drivers import fetch_all_models, fetch_all_variants
 from ...i18n import t
@@ -38,6 +39,8 @@ class TaskRolesScreen(ModalScreen[bool]):
                 t("roles.body"),
                 classes="pc-detail",
             )
+            yield Label(t("roles.profile"), id="tr-profile-label")
+            yield Select([], id="tr-profile", allow_blank=True)
             yield RolesForm()
             yield Static(t("cfg.models.loading"), id="roles-status")
             with Horizontal(id="nt-buttons"):
@@ -49,6 +52,18 @@ class TaskRolesScreen(ModalScreen[bool]):
         for role, _ in ROLES:
             role_cfg = self._gtask.role(role)
             form.set_role(role, role_cfg.cli, role_cfg.model, role_cfg.effort)
+        self._profiles = profiles_module.load_global()
+        select = self.query_one("#tr-profile", Select)
+        if not self._profiles:
+            self.query_one("#tr-profile-label", Label).display = False
+            select.display = False
+        else:
+            select.set_options(
+                [(t("roles.profile.none"), "")]
+                + [(p.name, p.name) for p in self._profiles]
+            )
+            current = profiles_module.find(self._gtask.profile, self._profiles)
+            select.value = current.name if current is not None else ""
         self._load_models()
 
     # ------------------------------------------------------------------ #
@@ -107,12 +122,37 @@ class TaskRolesScreen(ModalScreen[bool]):
             return
         self._save()
 
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id != "tr-profile":
+            return
+        profile = profiles_module.find(str(event.value), self._profiles)
+        if profile is None:
+            return
+        form = self.query_one(RolesForm)
+        for role, _ in ROLES:
+            cfg = profile.role(role)
+            form.set_role(role, cfg.cli, cfg.model, cfg.effort)
+
+    def _form_matches(self, profile) -> bool:
+        form = self.query_one(RolesForm)
+        return all(
+            form.role_values(role) == (cfg.cli, cfg.model, cfg.effort)
+            for role, _ in ROLES
+            for cfg in (profile.role(role),)
+        )
+
     def _save(self) -> None:
         self._cancel_loading()
         form = self.query_one(RolesForm)
         for role, _ in ROLES:
             role_cfg = self._gtask.role(role)
             role_cfg.cli, role_cfg.model, role_cfg.effort = form.role_values(role)
+        chosen = profiles_module.find(
+            str(self.query_one("#tr-profile", Select).value), self._profiles
+        )
+        self._gtask.profile = (
+            chosen.name if chosen is not None and self._form_matches(chosen) else ""
+        )
         models.save(self._gtask)
         self.notify(t("roles.saved"))
         self.dismiss(True)

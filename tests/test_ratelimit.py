@@ -116,3 +116,12 @@ def test_seconds_until_clock_12am_and_12pm():
 def test_parses_wall_clock_reset_24h_without_timezone():
     wait = parse_wait_seconds("quota exceeded; resets 23:59")
     assert wait is not None and 0 < wait <= MAX_WAIT_SECONDS
+
+
+def test_detect_usage_wait_token_plan_message():
+    """The exact observed CLI message is detected as usage exhaustion."""
+    message = (
+        "APIError: Token Plan usage limit reached: Upgrade your Token Plan "
+        "or purchase Credits for more usage. (2056)"
+    )
+    assert detect_usage_wait(message) == 0.0

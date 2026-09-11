@@ -610,6 +610,8 @@ components:
           type: boolean
         origin:
           type: string
+        profile:
+          type: string
         scheduled_at:
           type: string
         parent_id:
@@ -649,6 +651,7 @@ components:
         repeat_count: {type: integer}
         last_completed_at: {type: string}
         origin: {type: string}
+        profile: {type: string}
         failed_phase: {type: string}
         use_global_references: {type: boolean}
         use_project_references: {type: boolean}
@@ -710,6 +713,11 @@ components:
         parent_id: {type: string}
         scheduled_at: {type: string}
         origin: {type: string}
+        profile:
+          type: string
+          description: >-
+            Optional processing profile name; its roles override the global
+            ones for this task only. Returns 400 if the profile is unknown.
         attachments:
           type: array
           description: >-

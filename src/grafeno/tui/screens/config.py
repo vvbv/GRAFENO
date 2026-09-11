@@ -20,12 +20,14 @@ from textual.widgets import (
 from ... import config as config_module
 from ... import editor as editor_module
 from ... import paths
+from ... import profiles as profiles_module
 from ... import references as references_module
 from ... import triggers as triggers_module
 from ...config import DEFAULT_API_HOST, DEFAULT_API_PORT, KNOWN_CLIS, Config
 from ...drivers import fetch_all_models, fetch_all_variants
 from ...i18n import LANGUAGES, set_language, t
 from ...pipeline.hooks import HOOK_STAGES, format_stages, parse_stages
+from ..profilesform import ProfilesForm
 from ..refform import ReferencesForm
 from ..rolesform import ROLES, RolesForm
 from ..trigform import TriggersForm
@@ -111,6 +113,9 @@ class ConfigScreen(Screen[None]):
             yield Static(t("cfg.triggers"), classes="section-title")
             yield Static(t("trig.help"))
             yield TriggersForm(id="cfg-triggers")
+            yield Static(t("cfg.profiles"), classes="section-title")
+            yield Static(t("cfg.profiles.help"))
+            yield ProfilesForm(id="cfg-profiles")
             yield Static(t("cfg.telegram"), classes="section-title")
             with Horizontal(classes="automode-row"):
                 yield Checkbox(t("cfg.tg.enabled"), id="tg-enabled")
@@ -215,6 +220,9 @@ class ConfigScreen(Screen[None]):
         )
         self.query_one("#cfg-triggers", TriggersForm).set_triggers(
             triggers_module.load_global()
+        )
+        self.query_one("#cfg-profiles", ProfilesForm).set_profiles(
+            profiles_module.load_global()
         )
         tg = self._config.telegram
         self.query_one("#tg-enabled", Checkbox).value = tg.enabled
@@ -377,6 +385,9 @@ class ConfigScreen(Screen[None]):
         )
         triggers_module.save_global(
             self.query_one("#cfg-triggers", TriggersForm).triggers()
+        )
+        profiles_module.save_global(
+            self.query_one("#cfg-profiles", ProfilesForm).profiles()
         )
         set_language(cfg.language)
         self.notify(t("cfg.saved"))

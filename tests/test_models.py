@@ -510,9 +510,34 @@ def test_reset_to_draft_limpia_failed_phase(tmp_path):
 
 def test_start_new_cycle_limpia_failed_phase(tmp_path):
     """Un ciclo nuevo no arrastra la fase fallida anterior."""
-    task = Task.create("Ampliar", "desc", str(tmp_path), Config())
+    task = models.Task.create("Ampliar", "desc", str(tmp_path), Config())
     task.state = TaskState.FAILED
     task.failed_phase = "final"
     task.start_new_cycle("mas cosas")
     assert task.failed_phase == ""
     assert task.state is TaskState.DRAFT
+
+
+def test_task_create_with_profile_overrides_roles(tmp_path):
+    from grafeno.config import Config, RoleConfig
+    from grafeno.profiles import Profile
+
+    profile = Profile(name="calidad")
+    profile.implementer = RoleConfig(cli="claude", model="opus", effort="max")
+    task = models.Task.create(
+        name="T", description="", workdir="/tmp", config=Config(), profile=profile,
+    )
+    assert task.profile == "calidad"
+    assert task.implementer.cli == "claude"
+    assert task.implementer.model == "opus"
+    assert task.implementer.effort == "max"
+
+
+def test_task_profile_field_persists(tmp_path):
+    from grafeno.config import Config
+
+    task = models.Task.create(name="T", description="", workdir="/tmp", config=Config())
+    assert task.profile == ""
+    task.profile = "calidad"
+    models.save(task)
+    assert models.load(task.id).profile == "calidad"

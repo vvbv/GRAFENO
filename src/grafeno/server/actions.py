@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .. import media, models, paths, scheduler
+from .. import media, models, paths, profiles as profiles_module, scheduler
 from ..models import Task, TaskState, task_state_label
 from ..telegram import stt, tts
 
@@ -41,6 +41,7 @@ def task_summary(task: Task) -> dict:
         "state_label": task_state_label(task),
         "automode": task.automode,
         "origin": task.origin,
+        "profile": task.profile,
         "scheduled_at": task.scheduled_at,
         "parent_id": task.parent_id,
     }
@@ -270,6 +271,12 @@ async def create_task(service: "ServerService", payload: dict) -> dict:
     attachments = _decode_attachments(payload)  # 400 before creating the task
     cfg = config_module.load()
     parent_id = str(payload.get("parent_id") or "").strip()
+    profile_name = str(payload.get("profile") or "").strip()
+    profile_obj = None
+    if profile_name:
+        profile_obj = profiles_module.find(profile_name)
+        if profile_obj is None:
+            raise ApiError(400, f"unknown profile: {profile_name}")
     automode = _coerce_bool(payload.get("automode"), True)
     if parent_id:
         # Validate the proposed position using the same rule the TUI uses.
@@ -280,6 +287,7 @@ async def create_task(service: "ServerService", payload: dict) -> dict:
             config=cfg,
             automode=automode,
             parent_id=parent_id or None,
+            profile=profile_obj,
         )
         by_id = {item.id: item for item in models.list_all()}
         error = scheduler.rechain_error(task, parent_id, by_id)
@@ -292,6 +300,7 @@ async def create_task(service: "ServerService", payload: dict) -> dict:
             workdir=workdir,
             config=cfg,
             automode=automode,
+            profile=profile_obj,
         )
     scheduled_at = payload.get("scheduled_at")
     if scheduled_at:

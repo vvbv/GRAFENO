@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "grafeno"
-version = "1.57.0"
+dynamic = ["version"]
 description = "Multi-CLI TUI orchestrator for programming tasks (plan -> implementation -> review -> final steps)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -29,6 +29,9 @@ grafeno = "grafeno.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "grafeno.__version__"}
 
 [tool.setuptools.package-data]
 grafeno = ["*.tcss"]
