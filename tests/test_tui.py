@@ -1839,3 +1839,51 @@ def test_resume_blocked_when_discarded():
             assert started == []
 
     asyncio.run(scenario())
+
+
+def test_task_list_toggle_hides_done_but_keeps_pending_chains():
+    """The h toggle hides DONE tasks, but never cuts a chain with pending work."""
+    import os
+
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task, TaskState
+
+    solo = Task.create("Solo hecha", "desc", os.getcwd(), Config())
+    solo.state = TaskState.DONE
+    models.save(solo)
+    parent = Task.create("Padre cadena", "desc", os.getcwd(), Config())
+    parent.state = TaskState.DONE
+    models.save(parent)
+    child = Task.create("Hija cadena", "desc", os.getcwd(), Config())
+    child.parent_id = parent.id
+    models.save(child)
+
+    def row_names(screen):
+        table = screen.query_one(DataTable)
+        return [str(table.get_row_at(i)[0]) for i in range(table.row_count)]
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            await pilot.pause()  # let on_mount's _reload run
+            screen = app.screen
+            assert isinstance(screen, TaskListScreen)
+            assert len(row_names(screen)) == 3
+
+            await pilot.press("h")
+            await pilot.pause()
+            names = row_names(screen)
+            assert len(names) == 2  # solo DONE task hidden
+            assert any("Padre cadena" in name for name in names)
+            assert any("Hija cadena" in name for name in names)
+            assert not any("Solo hecha" in name for name in names)
+            label = str(screen.query_one("#done-toggle").label)
+            assert "Show completed" in label
+
+            await pilot.press("h")
+            await pilot.pause()
+            assert len(row_names(screen)) == 3
+
+    asyncio.run(scenario())

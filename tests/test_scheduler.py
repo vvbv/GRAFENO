@@ -267,6 +267,91 @@ def test_children_keeps_input_order(tmp_path):
     assert [t.name for t in found] == ["A", "B"]
 
 
+def test_done_hidden_ids_single_done_task(tmp_path):
+    task = _task(tmp_path)
+    task.id = "solo"
+    task.state = TaskState.DONE
+    assert scheduler.done_hidden_ids([task]) == {"solo"}
+
+
+def test_done_hidden_ids_fully_done_chain(tmp_path):
+    parent = _task(tmp_path)
+    parent.id = "p"
+    parent.state = TaskState.DONE
+    child = _task(tmp_path)
+    child.id = "c"
+    child.parent_id = parent.id
+    child.state = TaskState.DONE
+    assert scheduler.done_hidden_ids([parent, child]) == {"p", "c"}
+
+
+def test_done_hidden_ids_chain_with_pending_child_stays_visible(tmp_path):
+    parent = _task(tmp_path)
+    parent.id = "p"
+    parent.state = TaskState.DONE
+    child = _task(tmp_path)
+    child.id = "c"
+    child.parent_id = parent.id
+    child.state = TaskState.DRAFT
+    assert scheduler.done_hidden_ids([parent, child]) == set()
+
+
+def test_done_hidden_ids_chain_with_pending_parent_stays_visible(tmp_path):
+    parent = _task(tmp_path)
+    parent.id = "p"
+    parent.state = TaskState.DRAFT
+    child = _task(tmp_path)
+    child.id = "c"
+    child.parent_id = parent.id
+    child.state = TaskState.DONE
+    assert scheduler.done_hidden_ids([parent, child]) == set()
+
+
+def test_done_hidden_ids_discarded_member_keeps_chain_visible(tmp_path):
+    parent = _task(tmp_path)
+    parent.id = "p"
+    parent.state = TaskState.DONE
+    child = _task(tmp_path)
+    child.id = "c"
+    child.parent_id = parent.id
+    child.state = TaskState.DISCARDED
+    assert scheduler.done_hidden_ids([parent, child]) == set()
+
+
+def test_done_hidden_ids_grandchild_pending_keeps_whole_chain(tmp_path):
+    parent = _task(tmp_path)
+    parent.id = "p"
+    parent.state = TaskState.DONE
+    child = _task(tmp_path)
+    child.id = "c"
+    child.parent_id = parent.id
+    child.state = TaskState.DONE
+    grandchild = _task(tmp_path)
+    grandchild.id = "g"
+    grandchild.parent_id = child.id
+    grandchild.state = TaskState.IMPLEMENTING
+    assert scheduler.done_hidden_ids([parent, child, grandchild]) == set()
+
+
+def test_done_hidden_ids_pending_task_is_never_hidden(tmp_path):
+    task = _task(tmp_path)
+    task.id = "wip"
+    task.state = TaskState.DRAFT
+    assert scheduler.done_hidden_ids([task]) == set()
+
+
+def test_done_hidden_ids_cycle_does_not_hang(tmp_path):
+    a = _task(tmp_path)
+    a.id = "a"
+    a.state = TaskState.DONE
+    b = _task(tmp_path)
+    b.id = "b"
+    b.state = TaskState.DONE
+    a.parent_id = b.id
+    b.parent_id = a.id
+    assert scheduler.done_hidden_ids([a, b]) == {"a", "b"}
+
+
 def test_prepare_next_iteration_resets_machine(tmp_path):
     task = _task(tmp_path)
     task.state = TaskState.DONE

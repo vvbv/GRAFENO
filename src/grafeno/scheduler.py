@@ -150,6 +150,46 @@ def tree_order(tasks: list[Task]) -> list[tuple[Task, int]]:
     return result
 
 
+def done_hidden_ids(tasks: list[Task]) -> set[str]:
+    """Ids of the DONE tasks that may be hidden without breaking a chain.
+
+    A chain is the connected component of the ``parent_id`` forest that
+    contains the task (ancestors, descendants and kin linked through a
+    common ancestor). A DONE task is hideable only when EVERY task of its
+    component is DONE; if any member is not DONE (e.g. DRAFT, FAILED,
+    DISCARDED), the whole component stays visible. Immune to ``parent_id``
+    cycles.
+    """
+    by_id = {task.id: task for task in tasks}
+    neighbors: dict[str, set[str]] = {task.id: set() for task in tasks}
+    for task in tasks:
+        if task.parent_id and task.parent_id in by_id:
+            neighbors[task.id].add(task.parent_id)
+            neighbors[task.parent_id].add(task.id)
+    hidden: set[str] = set()
+    visited: set[str] = set()
+    for task in tasks:
+        if task.id in visited or task.state is not TaskState.DONE:
+            continue
+        # Flood fill the whole component from a DONE seed.
+        component: list[Task] = []
+        stack = [task.id]
+        all_done = True
+        while stack:
+            node_id = stack.pop()
+            if node_id in visited:
+                continue
+            visited.add(node_id)
+            node = by_id[node_id]
+            component.append(node)
+            if node.state is not TaskState.DONE:
+                all_done = False
+            stack.extend(neighbors[node_id] - visited)
+        if all_done:
+            hidden.update(node.id for node in component)
+    return hidden
+
+
 def prepare_next_iteration(task: Task) -> None:
     """Reset the state machine for the next repetition.
 

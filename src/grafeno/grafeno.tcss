@@ -42,6 +42,11 @@ Footer {
     margin-right: 2;
 }
 
+#done-toggle {
+    width: auto;
+    margin-right: 2;
+}
+
 /* ---- Lista de tareas ---- */
 #tasks-table {
     margin: 0 2;

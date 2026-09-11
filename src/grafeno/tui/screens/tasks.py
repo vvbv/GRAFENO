@@ -294,6 +294,7 @@ class TaskListScreen(Screen[None]):
         Binding("enter", "open_task", t("tasks.bind.open")),
         Binding("r", "reload", t("tasks.bind.reload")),
         Binding("v", "toggle_scope", t("tasks.bind.scope")),
+        Binding("h", "toggle_done", t("tasks.bind.done")),
         Binding("k", "consoles", t("tasks.bind.consoles")),
         Binding("q", "quit_hint", t("common.quit")),
     ]
@@ -302,6 +303,7 @@ class TaskListScreen(Screen[None]):
         super().__init__()
         # By default: only tasks of the current project.
         self._show_all = False
+        self._hide_done = False
         self._all_tasks: list[Task] = []
         self._tasks: list[Task] = []
         self._signature: tuple[tuple[str, int, int], ...] = ()  # last seen disk snapshot
@@ -312,6 +314,7 @@ class TaskListScreen(Screen[None]):
         with Horizontal(id="tasks-header"):
             yield Static(t("tasks.subtitle"), id="subtitle")
             yield Button(t("tasks.scope.project"), id="scope-toggle", compact=True)
+            yield Button(t("tasks.done.hide"), id="done-toggle", compact=True)
             yield Button(t("tasks.bind.consoles"), id="consoles-open", compact=True)
         yield DataTable(id="tasks-table", cursor_type="row", zebra_stripes=True)
         yield Static("", id="empty-hint")
@@ -353,9 +356,19 @@ class TaskListScreen(Screen[None]):
         )
         self._reload()
 
+    def action_toggle_done(self) -> None:
+        """Toggle hiding of DONE tasks whose whole chain is done."""
+        self._hide_done = not self._hide_done
+        self.query_one("#done-toggle", Button).label = t(
+            "tasks.done.show" if self._hide_done else "tasks.done.hide"
+        )
+        self._reload()
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "scope-toggle":
             self.action_toggle_scope()
+        elif event.button.id == "done-toggle":
+            self.action_toggle_done()
         elif event.button.id == "consoles-open":
             self.action_consoles()
 
@@ -381,6 +394,10 @@ class TaskListScreen(Screen[None]):
                     for parent in self._all_tasks
                 ))
             ]
+        if self._hide_done:
+            # Chain analysis over ALL tasks: a chain spanning scopes stays intact.
+            hidden = scheduler.done_hidden_ids(self._all_tasks)
+            self._tasks = [task for task in self._tasks if task.id not in hidden]
         runtimes = getattr(self.app, "runtimes", {})
         ordered = scheduler.tree_order(self._tasks)
         for index, (task, depth) in enumerate(ordered):

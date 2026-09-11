@@ -50,7 +50,7 @@ Every task follows a pipeline with five configurable roles (CLI + model for each
 
 **Scheduler, chains and repetitive tasks**: in the new-task form you can set a start time (`Start at`, format `YYYY-MM-DD HH:MM`), chain the task to another (`Chained after task`, which fires as soon as the parent reaches `DONE`), and turn it into a repetitive task. Two repeat modes are available: `interval` (every N minutes after the previous run, with the interval reused as the next start time) and `infinite` (restart when the whole chain finishes). For repetitive runs you also pick a plan policy: `reuse` (run the same plan again), `replan` (drop the plan and let the planner start from scratch) or `reevaluate` (keep the plan but ask the planner to re-check it against the description before implementing). Unattended runs always use the full pipeline in automode and ignore `confirm_plan`; tasks paused manually (`PAUSED`) are never auto-started. The detail view shows the start time and the repeat mode so the context is visible without leaving the screen.
 
-**Tasks list**: the task table renders chained tasks as a sub-list under their parent, with the child rows indented (`+` marks the root, two spaces per level). Besides the live clock that the global header shows on every screen (date and time with seconds, updated every second), this screen also has a scope button — `Project tasks` by default (it compares `task.workdir` against the current directory, including chained children whose parent belongs to this project) and `All tasks` when toggled with the `v` key. Running tasks show a leading `▶` so they stand out even when the list is long.
+**Tasks list**: the task table renders chained tasks as a sub-list under their parent, with the child rows indented (`+` marks the root, two spaces per level). Besides the live clock that the global header shows on every screen (date and time with seconds, updated every second), this screen also has a scope button — `Project tasks` by default (it compares `task.workdir` against the current directory, including chained children whose parent belongs to this project) and `All tasks` when toggled with the `v` key. A second toggle (`h` key or the header button) hides completed (`done`) tasks, except those belonging to a chain with pending work, which always keep the whole chain visible. Running tasks show a leading `▶` so they stand out even when the list is long.
 
 **Location bar**: every full screen shows a one-line bar right under the header with the current working directory (`cwd: <path>`), so you always know where you are. When a task detail is open, the bar also shows the task's project path (`task: <workdir>` or, for remote tasks, `task: user@host:/path`) followed by a yellow `[SSH]` badge to flag remote projects at a glance.
 
@@ -168,6 +168,7 @@ grafeno --version (or -v)          # print the installed GRAFENO version and exi
 | `c` | List | Global configuration |
 | `Enter` | List | Open task |
 | `v` | List | Toggle scope: project tasks only / all tasks |
+| `h` | List | Toggle hiding of completed (done) tasks; chains with pending work are always shown whole |
 | `r` | List | Reload the task list |
 | `p` / `i` / `r` / `f` | Detail | Plan / Implement / Review / Fix (with confirmation) |
 | `s` | Detail | Final steps (with confirmation) |
