@@ -1959,6 +1959,9 @@ def test_task_list_toggle_hides_done_but_keeps_pending_chains():
     solo = Task.create("Solo hecha", "desc", os.getcwd(), Config())
     solo.state = TaskState.DONE
     models.save(solo)
+    discarded = Task.create("Sola descartada", "desc", os.getcwd(), Config())
+    discarded.state = TaskState.DISCARDED
+    models.save(discarded)
     parent = Task.create("Padre cadena", "desc", os.getcwd(), Config())
     parent.state = TaskState.DONE
     models.save(parent)
@@ -1977,21 +1980,22 @@ def test_task_list_toggle_hides_done_but_keeps_pending_chains():
             await pilot.pause()  # let on_mount's _reload run
             screen = app.screen
             assert isinstance(screen, TaskListScreen)
-            assert len(row_names(screen)) == 3
+            assert len(row_names(screen)) == 4
 
             await pilot.press("h")
             await pilot.pause()
             names = row_names(screen)
-            assert len(names) == 2  # solo DONE task hidden
+            assert len(names) == 2  # solo DONE and solo DISCARDED hidden
             assert any("Padre cadena" in name for name in names)
             assert any("Hija cadena" in name for name in names)
             assert not any("Solo hecha" in name for name in names)
+            assert not any("Sola descartada" in name for name in names)
             label = str(screen.query_one("#done-toggle").label)
             assert "Show completed" in label
 
             await pilot.press("h")
             await pilot.pause()
-            assert len(row_names(screen)) == 3
+            assert len(row_names(screen)) == 4
 
     asyncio.run(scenario())
 

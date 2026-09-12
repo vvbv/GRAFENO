@@ -307,7 +307,14 @@ def test_done_hidden_ids_chain_with_pending_parent_stays_visible(tmp_path):
     assert scheduler.done_hidden_ids([parent, child]) == set()
 
 
-def test_done_hidden_ids_discarded_member_keeps_chain_visible(tmp_path):
+def test_done_hidden_ids_single_discarded_task(tmp_path):
+    task = _task(tmp_path)
+    task.id = "descartada"
+    task.state = TaskState.DISCARDED
+    assert scheduler.done_hidden_ids([task]) == {"descartada"}
+
+
+def test_done_hidden_ids_discarded_member_hides_with_done_chain(tmp_path):
     parent = _task(tmp_path)
     parent.id = "p"
     parent.state = TaskState.DONE
@@ -315,6 +322,17 @@ def test_done_hidden_ids_discarded_member_keeps_chain_visible(tmp_path):
     child.id = "c"
     child.parent_id = parent.id
     child.state = TaskState.DISCARDED
+    assert scheduler.done_hidden_ids([parent, child]) == {"p", "c"}
+
+
+def test_done_hidden_ids_failed_member_keeps_chain_visible(tmp_path):
+    parent = _task(tmp_path)
+    parent.id = "p"
+    parent.state = TaskState.DISCARDED
+    child = _task(tmp_path)
+    child.id = "c"
+    child.parent_id = parent.id
+    child.state = TaskState.FAILED
     assert scheduler.done_hidden_ids([parent, child]) == set()
 
 

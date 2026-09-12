@@ -150,15 +150,19 @@ def tree_order(tasks: list[Task]) -> list[tuple[Task, int]]:
     return result
 
 
-def done_hidden_ids(tasks: list[Task]) -> set[str]:
-    """Ids of the DONE tasks that may be hidden without breaking a chain.
+# States the "hide completed" toggle may hide: terminal, with no pending work.
+_HIDEABLE_STATES = (TaskState.DONE, TaskState.DISCARDED)
 
-    A chain is the connected component of the ``parent_id`` forest that
-    contains the task (ancestors, descendants and kin linked through a
-    common ancestor). A DONE task is hideable only when EVERY task of its
-    component is DONE; if any member is not DONE (e.g. DRAFT, FAILED,
-    DISCARDED), the whole component stays visible. Immune to ``parent_id``
-    cycles.
+
+def done_hidden_ids(tasks: list[Task]) -> set[str]:
+    """Ids of the finished tasks that may be hidden without breaking a chain.
+
+    Finished means DONE or DISCARDED. A chain is the connected component of
+    the ``parent_id`` forest that contains the task (ancestors, descendants
+    and kin linked through a common ancestor). A finished task is hideable
+    only when EVERY task of its component is finished; if any member still
+    has pending work (e.g. DRAFT, FAILED, PAUSED), the whole component stays
+    visible. Immune to ``parent_id`` cycles.
     """
     by_id = {task.id: task for task in tasks}
     neighbors: dict[str, set[str]] = {task.id: set() for task in tasks}
@@ -169,12 +173,12 @@ def done_hidden_ids(tasks: list[Task]) -> set[str]:
     hidden: set[str] = set()
     visited: set[str] = set()
     for task in tasks:
-        if task.id in visited or task.state is not TaskState.DONE:
+        if task.id in visited or task.state not in _HIDEABLE_STATES:
             continue
-        # Flood fill the whole component from a DONE seed.
+        # Flood fill the whole component from a finished seed.
         component: list[Task] = []
         stack = [task.id]
-        all_done = True
+        all_finished = True
         while stack:
             node_id = stack.pop()
             if node_id in visited:
@@ -182,10 +186,10 @@ def done_hidden_ids(tasks: list[Task]) -> set[str]:
             visited.add(node_id)
             node = by_id[node_id]
             component.append(node)
-            if node.state is not TaskState.DONE:
-                all_done = False
+            if node.state not in _HIDEABLE_STATES:
+                all_finished = False
             stack.extend(neighbors[node_id] - visited)
-        if all_done:
+        if all_finished:
             hidden.update(node.id for node in component)
     return hidden
 
