@@ -1132,6 +1132,48 @@ def test_task_list_sublist_indents_children():
     asyncio.run(scenario())
 
 
+def test_task_list_reload_preserves_scroll():
+    """The periodic refresh keeps the viewport of a wheel-scrolled list."""
+    import os
+
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task
+        from textual.widgets import DataTable
+
+        for index in range(30):
+            task = Task.create(f"Tarea {index:02d}", "d", os.getcwd(), Config())
+            task.id = f"scroll-{index:02d}"
+            models.save(task)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 20)) as pilot:
+            await pilot.pause()
+            await pilot.pause()  # second pause: _reload runs after on_mount
+            table = app.screen.query_one(DataTable)
+            assert table.row_count == 30
+            assert table.max_scroll_y > 10
+
+            # Wheel scrolling moves the viewport, not the cursor.
+            table.scroll_to(y=10, animate=False)
+            await pilot.pause()
+            assert table.scroll_y == 10
+
+            # The 2s tick path: reload preserving the cursor and viewport.
+            app.screen._reload(preserve_cursor=True)
+            await pilot.pause()
+            assert table.scroll_y == 10
+            assert table.cursor_coordinate.row == 0
+
+            # Manual reloads (r, scope toggles) still reset the viewport.
+            app.screen._reload()
+            await pilot.pause()
+            assert table.scroll_y == 0
+
+    asyncio.run(scenario())
+
+
 def test_new_task_form_accepts_schedule():
     """The form accepts a future date and persists it as local ISO."""
     async def scenario():

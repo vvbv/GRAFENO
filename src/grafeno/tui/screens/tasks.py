@@ -400,6 +400,7 @@ class TaskListScreen(Screen[None]):
         self._signature = models.tasks_signature()
         table = self.query_one(DataTable)
         selected = self._selected_task_id() if preserve_cursor else None
+        scroll_x, scroll_y = table.scroll_x, table.scroll_y  # clear() zeroes both
         table.clear()
         self._all_tasks = models.list_all()
         if self._show_all:
@@ -440,7 +441,12 @@ class TaskListScreen(Screen[None]):
                 key=task.id,
             )
             if selected == task.id:
-                table.move_cursor(row=index)
+                table.move_cursor(row=index, scroll=False)
+        if preserve_cursor:
+            # Wheel/trackpad scrolling moves the viewport without moving the
+            # cursor: restore the offset or the periodic refresh (2s tick
+            # while a task runs) yanks the list back to the top.
+            table.scroll_to(scroll_x, scroll_y, animate=False)
         hint = self.query_one("#empty-hint", Static)
         hint.update("" if self._tasks else t("tasks.empty_hint"))
         self._render_summary()
