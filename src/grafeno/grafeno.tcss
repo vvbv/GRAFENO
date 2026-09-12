@@ -69,6 +69,43 @@ Footer {
     margin-bottom: 1;
 }
 
+/* ---- Reportes de uso ---- */
+#reports-period {
+    height: auto;
+    padding: 0 2;
+    margin-bottom: 1;
+}
+
+#reports-period Button {
+    margin-right: 2;
+}
+
+#rp-from, #rp-to {
+    width: 22;
+    margin-right: 1;
+}
+
+#reports-range, #reports-summary {
+    color: #8b949e;
+    padding: 0 2;
+}
+
+#reports-body {
+    margin: 0 2 1 2;
+}
+
+.report-section {
+    color: #7ee787;
+    text-style: bold;
+    padding-top: 1;
+}
+
+.report-table {
+    height: auto;
+    max-height: 14;
+    border: round #30363d;
+}
+
 /* ---- Nueva tarea (modal) ---- */
 #new-task-dialog {
     background: #161b22;

@@ -27,6 +27,7 @@ src/grafeno/
 ├── timefmt.py              # Formateo de duraciones (42s, 3m 05s, 1h 02m 03s)
 ├── ratelimit.py            # Detección de usage agotado en CLIs: patrones de error, pista de espera (retry-after, duración relativa u hora absoluta de reseteo con zona horaria) y constantes de sondeo/reintento (PROBE_SECONDS, MAX_ATTEMPTS, PASSIVE_WAIT_SECONDS)
 ├── scheduler.py            # Lógica pura: programación horaria, encadenamiento padre/hija y repetición de tareas
+├── usage.py                # Ledger de uso con fecha (~/.grafeno/usage.toml, [[record]] append-only): registro de tokens/tiempo desde el orquestador, backfill único desde las tareas existentes (fechado por updated_at), períodos (día/semana/mes) y agregación para la pantalla de reportes
 ├── updater.py              # Auto-actualización best-effort de los CLIs de agentes (comando nativo de cada uno) al arrancar la TUI si auto_update está activado en el config
 ├── selfupdate.py           # Auto-actualización de GRAFENO desde las releases de GitHub: chequeo de versión (API releases/latest), comparación semver y comando pipx/pip; comando CLI `grafeno update`
 ├── workspaces.py           # Workspaces raíz: lectura del nivel proyecto (.grafeno.toml), resolve() global+proyecto y discover() de proyectos sin tareas (subcarpetas de primer nivel)
@@ -71,7 +72,7 @@ src/grafeno/
     ├── refform.py          # Editor reutilizable de referencias (tabla + añadir/borrar)
     ├── trigform.py         # Editor reutilizable de triggers globales (tabla + añadir/borrar)
     ├── widgets.py          # Widgets comunes (cabecera GrafenoHeader con reloj fecha/hora (refresco alineado al cambio de minuto, sin segundos), LocationBar con la ruta actual y la de la tarea + distintivo SSH, barra de fases, helpers Markdown, MediaTextArea que guarda imágenes pegadas e inserta tokens media/media-NN.png)
-    └── screens/            # tasks (lista), detail (detalle+acciones: `u` reanuda una tarea FAILED reusando artefactos, `c` continúa una tarea fallida o interrumpida (estado transitorio huérfano) desde la fase donde paró vía `run_continue`, `R` reinicia desde cero borrandolos), config, roles, profileedit (modal nombre + RolesForm, clon de roles.py), consoles (tabs de shells del proyecto)
+    └── screens/            # tasks (lista), detail (detalle+acciones: `u` reanuda una tarea FAILED reusando artefactos, `c` continúa una tarea fallida o interrumpida (estado transitorio huérfano) desde la fase donde paró vía `run_continue`, `R` reinicia desde cero borrandolos), config, roles, profileedit (modal nombre + RolesForm, clon de roles.py), consoles (tabs de shells del proyecto), reports (reporte de uso: tokens/modelos/tiempo/proyectos por día, semana, mes o rango; atajo `i` desde la lista)
 tests/                      # pytest; conftest aísla GRAFENO_HOME e idioma por test
 docs/screenshot.png         # captura de la lista de tareas usada en el README
 install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), vía pipx; la ausencia de CLIs de agente es siempre un warning (nunca un error)

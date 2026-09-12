@@ -38,6 +38,11 @@ def profiles_path() -> Path:
     return home() / "profiles.toml"
 
 
+def usage_path() -> Path:
+    """Dated usage ledger (tokens/time records for the reports screen)."""
+    return home() / "usage.toml"
+
+
 def telegram_state_path() -> Path:
     """Bot state file: last update offset + task_id -> chat_id mapping."""
     return home() / "telegram-state.toml"

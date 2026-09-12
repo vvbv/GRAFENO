@@ -40,6 +40,7 @@ from ..widgets import GrafenoHeader, LocationBar, MediaTextArea
 from .config import ConfigScreen
 from .consoles import ConsolesScreen
 from .detail import TaskDetailScreen
+from .reports import ReportsScreen
 
 
 class NewTaskScreen(ModalScreen[Task | None]):
@@ -318,6 +319,7 @@ class TaskListScreen(Screen[None]):
         Binding("v", "toggle_scope", t("tasks.bind.scope")),
         Binding("h", "toggle_done", t("tasks.bind.done")),
         Binding("k", "consoles", t("tasks.bind.consoles")),
+        Binding("i", "reports", t("tasks.bind.reports")),
         Binding("q", "quit_hint", t("common.quit")),
     ]
 
@@ -338,6 +340,7 @@ class TaskListScreen(Screen[None]):
             yield Button(t("tasks.scope.project"), id="scope-toggle", compact=True)
             yield Button(t("tasks.done.hide"), id="done-toggle", compact=True)
             yield Button(t("tasks.bind.consoles"), id="consoles-open", compact=True)
+            yield Button(t("tasks.bind.reports"), id="reports-open", compact=True)
         yield DataTable(id="tasks-table", cursor_type="row", zebra_stripes=True)
         yield Static("", id="empty-hint")
         yield Static("", id="token-summary")
@@ -393,6 +396,8 @@ class TaskListScreen(Screen[None]):
             self.action_toggle_done()
         elif event.button.id == "consoles-open":
             self.action_consoles()
+        elif event.button.id == "reports-open":
+            self.action_reports()
         # Clicking a header button steals focus from the table, which drops
         # its focused border; give it back so the list keeps its outline.
         self.query_one(DataTable).focus()
@@ -523,6 +528,10 @@ class TaskListScreen(Screen[None]):
     def action_quit_hint(self) -> None:
         """Block closing with q: you can only quit via the quit shortcut."""
         self.notify(t("tasks.quit_hint", key=_QUIT_KEY_LABEL), severity="warning")
+
+    def action_reports(self) -> None:
+        """Open the usage reports screen."""
+        self.app.push_screen(ReportsScreen())
 
     def action_consoles(self) -> None:
         """Open the consoles of the current project (the cwd, or remote mount)."""

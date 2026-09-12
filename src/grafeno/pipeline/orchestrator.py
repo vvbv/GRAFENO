@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from .. import models, paths, ratelimit, remote, remotesession, triggers
+from .. import models, paths, ratelimit, remote, remotesession, triggers, usage
 from ..config import RoleConfig
 from ..drivers import RunEvent, RunRequest, get_driver
 from ..drivers.base import CLIDriver, EventKind, RunResult
@@ -204,6 +204,9 @@ class Orchestrator:
         return result
 
     def _record_duration(self, phase: str, elapsed: float) -> None:
+        # Ledger first: its first-touch backfill must read the counters
+        # BEFORE this run is added, or the run would be counted twice.
+        usage.record_duration(self.task, phase, int(round(elapsed)))
         durations = self.task.durations
         durations[phase] = int(durations.get(phase, 0) + round(elapsed))
         models.save(self.task)
@@ -212,6 +215,11 @@ class Orchestrator:
         """Accumulate the tokens of the run on the task, by phase and CLI+model."""
         if result.tokens.empty:
             return
+        # Ledger first: see _record_duration.
+        usage.record_tokens(
+            self.task, role.cli, role.model, phase,
+            result.tokens.input, result.tokens.output,
+        )
         self.task.record_tokens(role.cli, role.model, phase, result.tokens)
         models.save(self.task)
 
