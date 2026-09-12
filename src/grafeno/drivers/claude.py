@@ -144,7 +144,7 @@ class ClaudeDriver(CLIDriver):
             if text:
                 events.append(RunEvent(EventKind.TEXT, text))
             tools = [
-                str(item.get("name", "tool"))
+                ClaudeDriver._tool_label(item)
                 for item in content
                 if isinstance(item, dict) and item.get("type") == "tool_use"
             ]
@@ -156,6 +156,31 @@ class ClaudeDriver(CLIDriver):
         if isinstance(content, str) and content.strip():
             return RunEvent(EventKind.TEXT, content.strip())
         return None
+
+    # Tool input keys shown next to the tool name, in preference order.
+    _TOOL_DETAIL_KEYS = (
+        "command", "file_path", "path", "pattern", "query", "url", "description",
+    )
+
+    @staticmethod
+    def _tool_label(item: dict[str, Any]) -> str:
+        """``"Bash: ls -la"`` instead of a bare ``"Bash"``.
+
+        Without the detail an exploration phase renders as a wall of
+        identical "Bash" lines. Mirrors the codex driver, which shows the
+        executed command as the tool summary.
+        """
+        name = str(item.get("name", "tool"))
+        args = item.get("input")
+        if isinstance(args, dict):
+            for key in ClaudeDriver._TOOL_DETAIL_KEYS:
+                value = args.get(key)
+                if isinstance(value, str) and value.strip():
+                    detail = " ".join(value.split())
+                    if len(detail) > 120:
+                        detail = detail[:117] + "..."
+                    return f"{name}: {detail}"
+        return name
 
     # ------------------------------------------------------------ #
     def extract_usage(self, payload: dict[str, Any]) -> TokenUsage | None:

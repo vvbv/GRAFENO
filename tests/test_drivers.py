@@ -401,6 +401,35 @@ def test_claude_decode_mixed_text_and_tool_emits_both():
     assert "Bash" in decoded[1].text
 
 
+def test_claude_tool_events_show_input_detail():
+    """Tool events carry the command/path, not just a bare tool name."""
+    driver = ClaudeDriver()
+    event, _, _ = driver.decode_line(json.dumps({
+        "type": "assistant",
+        "message": {"content": [
+            {"type": "tool_use", "name": "Bash", "input": {"command": "ls  -la"}},
+        ]},
+    }))
+    assert event.kind is EventKind.TOOL
+    assert event.text == "Bash: ls -la"
+    event, _, _ = driver.decode_line(json.dumps({
+        "type": "assistant",
+        "message": {"content": [
+            {"type": "tool_use", "name": "Read", "input": {"file_path": "/tmp/x.py"}},
+            {"type": "tool_use", "name": "Grep", "input": {"pattern": "def main"}},
+        ]},
+    }))
+    assert event.text == "Read: /tmp/x.py, Grep: def main"
+    long_command = "x" * 300
+    event, _, _ = driver.decode_line(json.dumps({
+        "type": "assistant",
+        "message": {"content": [
+            {"type": "tool_use", "name": "Bash", "input": {"command": long_command}},
+        ]},
+    }))
+    assert len(event.text) <= 200 and event.text.startswith("Bash: xxx")
+
+
 def test_claude_decode_thinking_only_is_noise():
     driver = ClaudeDriver()
     decoded, _, _ = driver.decode_line(json.dumps({
