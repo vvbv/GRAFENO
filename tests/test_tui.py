@@ -1996,6 +1996,28 @@ def test_task_list_toggle_hides_done_but_keeps_pending_chains():
     asyncio.run(scenario())
 
 
+def test_task_list_scope_button_keeps_table_focus():
+    """Clicking the scope/done buttons returns focus (and its border) to the table."""
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, TaskListScreen)
+            table = screen.query_one(DataTable)
+
+            await pilot.click("#scope-toggle")
+            await pilot.pause()
+            assert app.focused is table
+
+            await pilot.click("#done-toggle")
+            await pilot.pause()
+            assert app.focused is table
+
+    asyncio.run(scenario())
+
+
 def test_clock_seconds_to_next_minute():
     """The helper returns the remaining time until the next minute boundary."""
     from grafeno.tui.widgets import DateTimeClock

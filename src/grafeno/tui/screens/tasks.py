@@ -393,6 +393,9 @@ class TaskListScreen(Screen[None]):
             self.action_toggle_done()
         elif event.button.id == "consoles-open":
             self.action_consoles()
+        # Clicking a header button steals focus from the table, which drops
+        # its focused border; give it back so the list keeps its outline.
+        self.query_one(DataTable).focus()
 
     def _reload(self, *, preserve_cursor: bool = False) -> None:
         # Snapshot the signature BEFORE list_all: a save landing mid-load is
