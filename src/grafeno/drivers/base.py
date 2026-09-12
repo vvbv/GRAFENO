@@ -323,8 +323,14 @@ Reglas:
 - Termina tu respuesta con una línea que indique la ruta del archivo creado.
 """
 
-    def decode_line(self, line: str) -> tuple[RunEvent | None, str | None, TokenUsage | None]:
-        """Interpret a line. Returns (event, session_id|None, usage|None)."""
+    def decode_line(
+        self, line: str
+    ) -> tuple[RunEvent | list[RunEvent] | None, str | None, TokenUsage | None]:
+        """Interpret a line. Returns (event(s), session_id|None, usage|None).
+
+        A single JSONL line may yield several events (e.g. an assistant
+        message mixing text and tool_use blocks): drivers may return a list.
+        """
         try:
             payload = json.loads(line)
         except json.JSONDecodeError:
@@ -350,7 +356,9 @@ Reglas:
         """
         return ratelimit.detect_usage_wait(text)
 
-    def decode_event(self, payload: dict) -> tuple[RunEvent | None, str | None]:
+    def decode_event(
+        self, payload: dict
+    ) -> tuple[RunEvent | list[RunEvent] | None, str | None]:
         """Interpret an already-parsed JSON event (CLI dialect)."""
         raise NotImplementedError
 
@@ -418,19 +426,21 @@ Reglas:
                     log_handle.flush()
                 if on_activity:
                     on_activity()  # heartbeat: the CLI is still emitting output
-                event, found_session, usage = self.decode_line(line)
+                decoded, found_session, usage = self.decode_line(line)
                 if found_session:
                     session_id = found_session
                 if usage:
                     tokens.add(usage)
-                if event is None:
-                    continue
-                if event.kind is EventKind.TEXT:
-                    text_parts.append(event.text)
-                if event.kind is EventKind.ERROR:
-                    error_parts.append(event.text)
-                if on_event:
-                    on_event(event)
+                events = decoded if isinstance(decoded, list) else (
+                    [decoded] if decoded is not None else []
+                )
+                for event in events:
+                    if event.kind is EventKind.TEXT:
+                        text_parts.append(event.text)
+                    if event.kind is EventKind.ERROR:
+                        error_parts.append(event.text)
+                    if on_event:
+                        on_event(event)
 
         async def pump_stderr() -> None:
             assert process.stderr is not None

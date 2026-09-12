@@ -383,6 +383,33 @@ def test_claude_decode_real_event_shapes():
     assert event.kind is EventKind.ERROR
 
 
+def test_claude_decode_mixed_text_and_tool_emits_both():
+    """Fable-style messages mix text + tool_use in ONE assistant event."""
+    driver = ClaudeDriver()
+    decoded, _, _ = driver.decode_line(json.dumps({
+        "type": "assistant",
+        "message": {"content": [
+            {"type": "thinking", "thinking": "pensando..."},
+            {"type": "text", "text": "voy a listar"},
+            {"type": "tool_use", "name": "Bash", "input": {}},
+        ]},
+    }))
+    assert isinstance(decoded, list) and len(decoded) == 2
+    assert decoded[0].kind is EventKind.TEXT
+    assert decoded[0].text == "voy a listar"
+    assert decoded[1].kind is EventKind.TOOL
+    assert "Bash" in decoded[1].text
+
+
+def test_claude_decode_thinking_only_is_noise():
+    driver = ClaudeDriver()
+    decoded, _, _ = driver.decode_line(json.dumps({
+        "type": "assistant",
+        "message": {"content": [{"type": "thinking", "thinking": "hmm"}]},
+    }))
+    assert decoded is None
+
+
 def test_claude_decode_system_hook_is_noise():
     """``system`` events with subtypes other than ``init`` do not generate an event."""
     driver = ClaudeDriver()
@@ -443,6 +470,16 @@ def test_claude_rate_limit_event_blocked_without_hint_probes():
     )
     assert event is not None and event.kind is EventKind.ERROR
     assert driver._classify_usage_wait("", [event.text]) == 0.0
+
+
+def test_claude_rate_limit_event_allowed_ping_is_noise():
+    """Periodic "allowed" status pings pollute the log: raw log only."""
+    driver = ClaudeDriver()
+    event, _, _ = driver.decode_line(json.dumps({
+        "type": "rate_limit_event",
+        "rate_limit_info": {"status": "allowed", "resetsAt": time.time() + 7159},
+    }))
+    assert event is None
 
 
 def test_claude_rate_limit_event_warning_is_never_an_error():
@@ -686,6 +723,36 @@ def test_run_feeds_prompt_via_stdin(tmp_path):
     result = asyncio.run(driver.run(request))
     assert result.ok, result.error
     assert result.text == prompt
+
+
+def test_run_mixed_content_line_emits_text_and_tool(tmp_path):
+    """End-to-end: one JSONL line decoding to a list feeds text AND events."""
+    import sys
+
+    line = json.dumps({
+        "type": "assistant",
+        "message": {"content": [
+            {"type": "text", "text": "explicación"},
+            {"type": "tool_use", "name": "Bash", "input": {}},
+        ]},
+    })
+
+    class FakeClaude(ClaudeDriver):
+        executable = sys.executable
+
+        def stdin_prompt(self):
+            return False
+
+        def build_command(self, request: RunRequest) -> list[str]:
+            return [sys.executable, "-c", f"print({line!r})"]
+
+    events = []
+    result = asyncio.run(
+        FakeClaude().run(_request(workdir=tmp_path), on_event=events.append)
+    )
+    assert result.ok, result.error
+    assert "explicación" in result.text
+    assert [event.kind for event in events] == [EventKind.TEXT, EventKind.TOOL]
 
 
 # ---------------------------------------------------------------------- #

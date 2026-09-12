@@ -23,9 +23,12 @@ Verified real stream-json events:
   ``{"type":"system","subtype":"hook_started",...}`` (noise: raw log only)
   ``{"type":"assistant","message":{"content":[{"type":"text","text":"..."}]}}``
   ``{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash",...}]}}``
+  (newer models — e.g. fable — mix text + tool_use blocks in ONE message:
+  both a TEXT and a TOOL event are emitted; ``thinking`` blocks are noise)
   ``{"type":"result","subtype":"success","session_id":"...","usage":{...}}``
   ``{"type":"rate_limit_event","rate_limit_info":{...}}`` (blocked turn ->
-  ERROR event with a "retry after N seconds" hint; otherwise INFO or None)
+  ERROR event with a "retry after N seconds" hint; status "allowed"/"ok" is
+  a periodic ping -> None, raw log only; anything else -> INFO or None)
   ``{"type":"user",...}`` (tool results: raw log only, no event)
 
 Verified notes: ``usage`` may include ``cache_creation_input_tokens`` and
@@ -54,6 +57,9 @@ class ClaudeDriver(CLIDriver):
     EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
     # Statuses that mean the turn was blocked by the limit (defensive list).
     _RATE_LIMIT_BLOCKED = ("rejected", "blocked", "exceeded", "limited", "error")
+    # Statuses that mean everything is fine: periodic pings, not shown (exact
+    # match, so "allowed_warning" still surfaces as INFO).
+    _RATE_LIMIT_OK = ("allowed", "ok")
     # Payload keys that may carry the reset instant as epoch seconds.
     _RESET_EPOCH_KEYS = ("resets_at", "resetsAt", "reset_at", "resetAt", "resets")
     # Payload keys that may carry a relative retry delay in seconds.
@@ -98,8 +104,7 @@ class ClaudeDriver(CLIDriver):
         if event_type == "assistant":
             message = payload.get("message") or {}
             content = message.get("content")
-            event = self._decode_content(content)
-            return event, session_id
+            return self._decode_content(content), session_id
 
         if event_type == "result":
             if payload.get("is_error") or str(payload.get("subtype", "")).startswith("error"):
@@ -119,23 +124,35 @@ class ClaudeDriver(CLIDriver):
         return RunEvent(EventKind.INFO, f"[{event_type or 'evento'}]"), session_id
 
     @staticmethod
-    def _decode_content(content: Any) -> RunEvent | None:
-        """Interpret the ``content`` block list of an ``assistant`` event."""
+    def _decode_content(content: Any) -> RunEvent | list[RunEvent] | None:
+        """Interpret the ``content`` block list of an ``assistant`` event.
+
+        Newer models (e.g. fable) mix ``text`` and ``tool_use`` blocks in the
+        SAME assistant message; both must be emitted (text first: in the
+        message the text precedes the tool calls) or the run shows only tool
+        names and ``RunResult.text`` loses the assistant's prose. ``thinking``
+        blocks are noise (raw log only), like in the other drivers.
+        """
         if isinstance(content, list):
-            tools = [
-                str(item.get("name", "tool"))
-                for item in content
-                if isinstance(item, dict) and item.get("type") == "tool_use"
-            ]
-            if tools:
-                return RunEvent(EventKind.TOOL, ", ".join(tools)[:200])
+            events: list[RunEvent] = []
             texts = [
                 str(item.get("text", ""))
                 for item in content
                 if isinstance(item, dict) and item.get("type") == "text"
             ]
             text = "\n".join(part for part in texts if part).strip()
-            return RunEvent(EventKind.TEXT, text) if text else None
+            if text:
+                events.append(RunEvent(EventKind.TEXT, text))
+            tools = [
+                str(item.get("name", "tool"))
+                for item in content
+                if isinstance(item, dict) and item.get("type") == "tool_use"
+            ]
+            if tools:
+                events.append(RunEvent(EventKind.TOOL, ", ".join(tools)[:200]))
+            if not events:
+                return None
+            return events[0] if len(events) == 1 else events
         if isinstance(content, str) and content.strip():
             return RunEvent(EventKind.TEXT, content.strip())
         return None
@@ -176,8 +193,16 @@ class ClaudeDriver(CLIDriver):
         if any(token in status for token in self._RATE_LIMIT_BLOCKED) or payload.get("is_error"):
             hint = f"; retry after {int(wait)} seconds" if wait else ""
             return RunEvent(EventKind.ERROR, f"rate limit reached (session limit){hint}")
+        if status in self._RATE_LIMIT_OK:
+            # Periodic status ping: nothing is limited (the hint is just when
+            # the usage window resets). Raw log only, no display noise.
+            return None
         if status or wait:
-            hint = f"; retry after {int(wait)} seconds" if wait else ""
+            # Informational (e.g. allowed_warning = nearing the limit). The
+            # window-reset hint is NOT a wait requirement, so no "retry after"
+            # (that phrasing is reserved for the ERROR path the usage-limit
+            # classifier parses).
+            hint = f"; window resets in {int(wait)} seconds" if wait else ""
             return RunEvent(EventKind.INFO, f"rate limit: {status or 'reported'}{hint}")
         return None
 
