@@ -784,6 +784,32 @@ def test_run_mixed_content_line_emits_text_and_tool(tmp_path):
     assert [event.kind for event in events] == [EventKind.TEXT, EventKind.TOOL]
 
 
+def test_run_failure_includes_stdout_error_events(tmp_path):
+    """A failed run surfaces the CLI's ERROR events, not just the stderr tail.
+
+    OpenCode reports failures as JSONL ``error`` events on stdout and leaves
+    stderr empty: without them the error is a bare "exited with code 1".
+    """
+    import sys
+
+    line = json.dumps({
+        "type": "error",
+        "error": {"name": "ProviderError", "data": {"message": "429 too many requests"}},
+    })
+
+    class FailingOpenCode(OpenCodeDriver):
+        executable = sys.executable
+
+        def build_command(self, request: RunRequest) -> list[str]:
+            return [sys.executable, "-c", f"import sys; print({line!r}); sys.exit(1)"]
+
+    result = asyncio.run(FailingOpenCode().run(_request(workdir=tmp_path)))
+    assert not result.ok
+    assert "exited with code 1" in result.error
+    assert "429 too many requests" in result.error
+    assert result.usage_wait is not None  # the hint survives the new message
+
+
 # ---------------------------------------------------------------------- #
 # Registry
 # ---------------------------------------------------------------------- #

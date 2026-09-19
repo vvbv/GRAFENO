@@ -465,6 +465,12 @@ Reglas:
             error = t("drv.exit_error", name=self.display_name, code=returncode)
             if tail:
                 error += f"\n{tail}"
+            # Some CLIs report the failure as ERROR events on stdout (e.g.
+            # opencode) and leave stderr empty: without this the error is a
+            # bare "exited with code N" with no diagnosable detail.
+            cli_errors = [part.strip() for part in error_parts if part.strip()]
+            if cli_errors:
+                error += "\n" + "\n".join(cli_errors[-3:])
         usage_wait = self._classify_usage_wait(error, error_parts) if not ok else None
         return RunResult(
             ok=ok,
