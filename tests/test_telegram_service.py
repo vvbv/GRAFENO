@@ -637,7 +637,10 @@ def test_invalid_lang_falls_back_to_ui_language(tmp_path, monkeypatch):
 # Parser failure surfacing + bot log
 # ---------------------------------------------------------------------- #
 def test_parser_error_is_reported_to_the_chat(tmp_path, monkeypatch):
-    driver = FakeDriver([RunResult(ok=False, error="model exploded")])
+    from grafeno.telegram import intents
+
+    monkeypatch.setattr(intents, "PARSER_RETRY_DELAY", 0)
+    driver = FakeDriver([RunResult(ok=False, error="model exploded")] * 3)
     service, client = _make_service(tmp_path, monkeypatch, driver)
 
     _run(service._parse_and_reply(555, "crea algo"))

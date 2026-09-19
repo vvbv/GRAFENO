@@ -149,10 +149,44 @@ def test_parse_intent_ok(tmp_path):
 
 def test_parse_intent_cli_failure_carries_error(tmp_path):
     """A failing CLI surfaces the error (distinct from a plain 'unknown')."""
-    driver = FakeDriver([RunResult(ok=False, error="boom exit 1")])
-    intent = _run(intents.parse_intent(driver, "", "texto", "", tmp_path))
+    driver = FakeDriver([RunResult(ok=False, error="boom exit 1")] * 3)
+    intent = _run(intents.parse_intent(driver, "", "texto", "", tmp_path, retry_delay=0))
     assert intent.action == "unknown"
     assert "boom" in intent.error
+    assert len(driver.prompts) == 3  # 1 initial attempt + PARSER_RETRIES
+
+
+def test_parse_intent_retry_recovers_after_transient_failure(tmp_path):
+    """A transient CLI failure (provider hiccup) is retried transparently."""
+    driver = FakeDriver([
+        RunResult(ok=False, error="exit error"),
+        _ok('{"action": "list_tasks"}'),
+    ])
+    intent = _run(intents.parse_intent(driver, "", "texto", "", tmp_path, retry_delay=0))
+    assert intent.action == "list_tasks"
+    assert intent.error == ""
+    assert len(driver.prompts) == 2
+
+
+def test_parse_intent_retry_honors_usage_wait_hint(tmp_path):
+    """A usage-limit failure waits for the hinted time before retrying."""
+    driver = FakeDriver([
+        RunResult(ok=False, error="429 rate limit", usage_wait=0.01),
+        _ok('{"action": "list_tasks"}'),
+    ])
+    intent = _run(intents.parse_intent(driver, "", "texto", "", tmp_path, retry_delay=0))
+    assert intent.action == "list_tasks"
+    assert len(driver.prompts) == 2
+
+
+def test_parse_intent_no_retry_when_retries_zero(tmp_path):
+    driver = FakeDriver([RunResult(ok=False, error="boom"), _ok('{"action": "help"}')])
+    intent = _run(
+        intents.parse_intent(driver, "", "texto", "", tmp_path, retries=0, retry_delay=0)
+    )
+    assert intent.action == "unknown"
+    assert "boom" in intent.error
+    assert len(driver.prompts) == 1
 
 
 def test_parse_intent_cli_exception_carries_error(tmp_path):

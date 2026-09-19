@@ -494,6 +494,8 @@ class TelegramService:
                 self._run_workdir(),
                 default_workdir=self.default_workdir,
                 projects=intents.projects_summary(tasks, self._discovered_projects()),
+                retries=intents.PARSER_RETRIES,
+                retry_delay=intents.PARSER_RETRY_DELAY,
             )
         if intent.lang:
             self._chat_lang[chat_id] = intent.lang  # answer in the user's language

@@ -34,6 +34,9 @@ ACTIONS = (
 
 MAX_TASKS_PER_INTENT = 10
 PARSER_TIMEOUT = 120.0  # seconds; a hung parser CLI must not wedge the bot
+PARSER_RETRIES = 2      # extra attempts after a transient parser CLI failure
+PARSER_RETRY_DELAY = 5.0       # seconds between attempts without a wait hint
+PARSER_RETRY_MAX_WAIT = 90.0   # cap for a usage "retry-after" hint
 _SUMMARY_LIMIT = 30
 
 
@@ -325,12 +328,18 @@ async def parse_intent(
     default_workdir: str = "",
     projects: str = "",
     timeout: float = PARSER_TIMEOUT,
+    retries: int = PARSER_RETRIES,
+    retry_delay: float = PARSER_RETRY_DELAY,
 ) -> Intent:
     """Run the parser CLI one-shot and interpret its JSON answer.
 
-    Infrastructure failures (timeout, crash, non-zero exit) are reported in
-    ``Intent.error`` so the caller can tell them apart from a genuine
-    "unknown" intent and surface them to the user instead of staying silent.
+    Infrastructure failures (timeout, crash, non-zero exit, empty output) are
+    retried a few times — they are usually transient (provider hiccup, quota
+    reset) and the one-shot has no side effects. A usage-limit hint
+    (``RunResult.usage_wait``) sets the wait between attempts, capped at
+    ``PARSER_RETRY_MAX_WAIT`` so the chat is not held for long. The last
+    failure is reported in ``Intent.error`` so the caller can tell it apart
+    from a genuine "unknown" intent and surface it instead of staying silent.
     """
     prompt = build_parser_prompt(user_text, summary, default_workdir, projects)
     request = RunRequest(
@@ -339,17 +348,32 @@ async def parse_intent(
         workdir=workdir,
         title="grafeno:telegram:intent",
     )
-    try:
-        result = await asyncio.wait_for(driver.run(request), timeout=timeout)
-    except TimeoutError:
-        return Intent(action="unknown", error=f"timeout after {timeout:.0f}s")
-    except Exception as exc:  # noqa: BLE001 - the bot never propagates CLI errors
-        return Intent(action="unknown", error=str(exc)[:300])
-    if not result.ok:
-        return Intent(action="unknown", error=(result.error or "exit error")[:300])
-    if not result.text.strip():
-        return Intent(action="unknown", error="empty output")
-    return parse_intent_payload(result.text)
+    attempts = 1 + max(0, retries)
+    error = ""
+    for attempt in range(attempts):
+        wait_hint: float | None = None
+        try:
+            result = await asyncio.wait_for(driver.run(request), timeout=timeout)
+        except TimeoutError:
+            error = f"timeout after {timeout:.0f}s"
+        except Exception as exc:  # noqa: BLE001 - the bot never propagates CLI errors
+            error = str(exc)[:300]
+        else:
+            if result.ok:
+                if not result.text.strip():
+                    error = "empty output"
+                else:
+                    return parse_intent_payload(result.text)
+            else:
+                error = (result.error or "exit error")[:1000]
+                wait_hint = result.usage_wait
+        if attempt >= attempts - 1:
+            break
+        delay = retry_delay
+        if wait_hint is not None and wait_hint > 0:
+            delay = min(wait_hint, PARSER_RETRY_MAX_WAIT)
+        await asyncio.sleep(delay)
+    return Intent(action="unknown", error=error)
 
 
 def fuzzy_find_task(query: str, tasks: list[Task]) -> Task | None:
