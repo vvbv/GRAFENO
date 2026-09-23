@@ -448,8 +448,8 @@ def test_claude_decode_system_hook_is_noise():
     assert event is None
 
 
-def test_claude_extract_usage_ignores_cache():
-    """``usage`` may include cache_creation/cache_read: they are ignored."""
+def test_claude_extract_usage_counts_cached_input():
+    """``input_tokens`` excludes cache writes/reads: all three are summed."""
     driver = ClaudeDriver()
     _, _, usage = driver.decode_line(json.dumps({
         "type": "result", "subtype": "success",
@@ -458,7 +458,20 @@ def test_claude_extract_usage_ignores_cache():
             "cache_read_input_tokens": 200, "output_tokens": 4,
         },
     }))
-    assert usage is not None and (usage.input, usage.output) == (9, 4)
+    assert usage is not None and (usage.input, usage.output) == (309, 4)
+
+
+def test_claude_extract_usage_ignores_nested_assistant_usage():
+    """Per-message usage lives under ``message``: only ``result`` counts."""
+    driver = ClaudeDriver()
+    _, _, usage = driver.decode_line(json.dumps({
+        "type": "assistant",
+        "message": {
+            "content": [{"type": "text", "text": "hi"}],
+            "usage": {"input_tokens": 2, "cache_read_input_tokens": 500, "output_tokens": 7},
+        },
+    }))
+    assert usage is None
 
 
 def test_claude_static_models_and_variants():

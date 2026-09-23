@@ -333,6 +333,7 @@ class TaskDetailScreen(Screen[None]):
         self.current_task = task
         self._spinner_index = 0
         self._asking_plan = False
+        self._models_warning_shown = ""  # last rendered warning (dedup)
 
     @property
     def runtime(self):
@@ -352,6 +353,7 @@ class TaskDetailScreen(Screen[None]):
             id="phase-bar",
         )
         yield Static("", id="agents-bar")
+        yield Static("", id="models-warning")
         yield Static("", id="activity-bar")
         with TabbedContent(id="tabs"):
             with TabPane(t("det.tab.desc"), id="tab-desc"):
@@ -405,6 +407,7 @@ class TaskDetailScreen(Screen[None]):
         self._render_activity()
         self._render_tokens()
         self._render_agents_bar()
+        self._render_models_warning()
         # 1s clock: the on-screen tick shows the UI isn't frozen.
         self.set_interval(1.0, self._tick)
         self._maybe_plan_confirm()
@@ -471,6 +474,7 @@ class TaskDetailScreen(Screen[None]):
             self._render_activity()
             self._render_tokens()
             self._render_agents_bar()
+        self._render_models_warning()  # picks up the late startup check
 
     def _total_seconds(self) -> float:
         total = float(self.current_task.total_duration_seconds())
@@ -585,6 +589,30 @@ class TaskDetailScreen(Screen[None]):
             if index < len(phases) - 1:
                 line.append("  ·  ", style="dim")
         bar.update(line)
+
+    def _render_models_warning(self) -> None:
+        """Red banner when a role of the task points at a removed model.
+
+        Uses the CLI model lists fetched by the app startup check; while the
+        check is in flight (or a CLI list failed) nothing is shown.
+        """
+        from ... import modelcheck
+
+        available = getattr(self.app, "available_models", None) or {}
+        issues = modelcheck.find_missing(
+            modelcheck.collect_task_roles(self.current_task), available
+        )
+        items = " · ".join(modelcheck.format_issues(issues))
+        if items == self._models_warning_shown:
+            return
+        self._models_warning_shown = items
+        widget = self.query_one("#models-warning", Static)
+        if not items:
+            widget.update("")
+            widget.styles.display = "none"
+            return
+        widget.update(Text(t("det.models_missing", items=items), style="bold red"))
+        widget.styles.display = "block"
 
     def _log(self) -> RichLog:
         return self.query_one("#live-log", RichLog)

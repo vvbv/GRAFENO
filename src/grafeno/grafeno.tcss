@@ -210,6 +210,12 @@ PhaseBar {
     height: 3;
 }
 
+#models-warning {
+    padding: 0 2;
+    height: 1;
+    display: none;
+}
+
 #activity-bar {
     padding: 0 2;
     height: 1;

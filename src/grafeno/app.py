@@ -65,6 +65,8 @@ class GrafenoApp(App):
         self.telegram: TelegramService | None = None
         # REST + WebSocket server (None when disabled).
         self.api_server = None
+        # Model lists per CLI, filled by the startup availability check.
+        self.available_models: dict[str, list[str]] = {}
 
     def on_mount(self) -> None:
         self.sub_title = t("app.subtitle", version=__version__)
@@ -89,6 +91,13 @@ class GrafenoApp(App):
         )
         if not self._clis_available():
             self.notify(t("app.no_clis"), severity="warning", timeout=10)
+        else:
+            # CLIs and subscriptions drop models over time: warn early
+            # instead of letting the pipeline fail mid-task.
+            self.run_worker(
+                self._models_check(cfg), exclusive=True,
+                group="models-check", exit_on_error=False,
+            )
         if remotesession.active():
             self.notify(t("rsession.active", target=remotesession.label()), timeout=8)
         # Scheduler tick: starts scheduled, chained and unattended
@@ -128,6 +137,32 @@ class GrafenoApp(App):
         from .drivers import available_clis
 
         return bool(available_clis())
+
+    async def _models_check(self, cfg) -> None:
+        """Verify that configured models still exist in their CLIs.
+
+        Checks the general config (roles + Telegram parser) and the
+        processing profiles; the fetched lists are cached in
+        ``self.available_models`` so the task detail can flag tasks whose
+        snapshot roles point at a removed model. Best effort: a CLI whose
+        list cannot be fetched is skipped.
+        """
+        from . import modelcheck
+        from . import profiles as profiles_module
+        from .drivers import available_clis, fetch_all_models
+
+        pairs = modelcheck.collect_config_roles(cfg)
+        pairs += modelcheck.collect_profile_roles(profiles_module.load_global())
+        task_pairs: list = []
+        for task in models.list_all():
+            task_pairs += modelcheck.collect_task_roles(task)
+        clis = modelcheck.used_clis(pairs + task_pairs) & set(available_clis())
+        if not clis:
+            return
+        available = await fetch_all_models(sorted(clis))
+        self.available_models = available
+        for line in modelcheck.format_issues(modelcheck.find_missing(pairs, available)):
+            self.notify(line, severity="warning", timeout=15)
 
     async def _auto_update(self) -> None:
         """Update the installed agent CLIs in the background (best effort)."""

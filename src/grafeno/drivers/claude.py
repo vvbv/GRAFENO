@@ -31,10 +31,14 @@ Verified real stream-json events:
   a periodic ping -> None, raw log only; anything else -> INFO or None)
   ``{"type":"user",...}`` (tool results: raw log only, no event)
 
-Verified notes: ``usage`` may include ``cache_creation_input_tokens`` and
-``cache_read_input_tokens`` which are IGNORED (only direct input/output
-counted). The session id is carried in ``session_id`` for both ``system``
-and ``result`` events.
+Verified notes: only the final ``result`` event carries a top-level
+``usage`` (aggregated over the whole run; ``assistant`` events nest theirs
+under ``message`` and are not counted, so nothing is double-counted). Its
+``input_tokens`` is ONLY the uncached remainder (a handful of tokens with
+prompt caching, e.g. 192 on a 101-turn run); the real input is split into
+``cache_creation_input_tokens`` and ``cache_read_input_tokens``, so the three
+are summed. ``output_tokens`` already includes thinking tokens. The session
+id is carried in ``session_id`` for both ``system`` and ``result`` events.
 """
 
 from __future__ import annotations
@@ -183,14 +187,22 @@ class ClaudeDriver(CLIDriver):
         return name
 
     # ------------------------------------------------------------ #
+    # Input token fields of ``usage``; together they are the total input.
+    _INPUT_USAGE_KEYS = (
+        "input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
+    )
+
     def extract_usage(self, payload: dict[str, Any]) -> TokenUsage | None:
         usage_dict = payload.get("usage")
         if not isinstance(usage_dict, dict):
             return None
         try:
+            # input_tokens excludes cached input: add cache writes and reads.
             usage = TokenUsage(
-                input=int(usage_dict.get("input_tokens") or 0),
-                # cache_creation/cache_read are ignored: only direct input/output.
+                input=sum(
+                    int(usage_dict.get(key) or 0)
+                    for key in self._INPUT_USAGE_KEYS
+                ),
                 output=int(usage_dict.get("output_tokens") or 0),
             )
         except (TypeError, ValueError):
