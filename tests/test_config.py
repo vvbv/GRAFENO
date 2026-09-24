@@ -223,3 +223,19 @@ def test_workspaces_roundtrip():
     cfg.workspaces = ["~/Documents/GitHub", "/tmp/code"]
     config.save(cfg)
     assert config.load().workspaces == ["~/Documents/GitHub", "/tmp/code"]
+
+
+def test_prompt_language_defaults_to_same_as_gui():
+    """Empty prompt language = internal prompts follow the GUI language."""
+    assert Config().prompt_language == ""
+    assert config.load().prompt_language == ""
+
+
+def test_prompt_language_roundtrip():
+    cfg = config.load()
+    cfg.language = "en"
+    cfg.prompt_language = "es"
+    config.save(cfg)
+    loaded = config.load()
+    assert loaded.language == "en"
+    assert loaded.prompt_language == "es"

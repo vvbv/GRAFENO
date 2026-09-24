@@ -278,6 +278,7 @@ class ApiConfig:
 @dataclass
 class Config:
     language: str = "en"
+    prompt_language: str = ""  # internal agent prompts; empty = same as the GUI language
     first: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
     planner: RoleConfig = field(default_factory=lambda: RoleConfig(cli="opencode"))
     implementer: RoleConfig = field(default_factory=lambda: RoleConfig(cli="kimi"))
@@ -301,6 +302,7 @@ class Config:
     def to_dict(self) -> dict[str, Any]:
         return {
             "language": self.language,
+            "prompt_language": self.prompt_language,
             "first": self.first.to_dict(),
             "planner": self.planner.to_dict(),
             "implementer": self.implementer.to_dict(),
@@ -323,6 +325,7 @@ class Config:
     def from_dict(cls, data: dict[str, Any]) -> "Config":
         return cls(
             language=str(data.get("language", "en")),
+            prompt_language=str(data.get("prompt_language", "")),
             first=RoleConfig.from_dict(data.get("first", {}), default_cli="opencode"),
             planner=RoleConfig.from_dict(data.get("planner", {}), default_cli="opencode"),
             implementer=RoleConfig.from_dict(data.get("implementer", {}), default_cli="kimi"),

@@ -365,7 +365,7 @@ def test_second_cycle_uses_cycle_dirs(tmp_path):
     assert list(paths.review_dir(task.id, 2).glob("*.md"))
     # The cycle 2 prompt includes the extension request.
     assert "añade más cosas" in planner.prompts[-1]
-    assert "Ampliación" in planner.prompts[-1]
+    assert "Extension (cycle 2)" in planner.prompts[-1]
     # Cycle 1 remains untouched.
     assert list(paths.plan_dir(task.id, 1).glob("*.md"))
     cycle2_final = list(paths.final_dir(task.id, 2).glob("*.md"))
@@ -387,7 +387,7 @@ def test_agents_md_se_genera_antes_del_plan(tmp_path):
     assert task.state is TaskState.PLANNED
     assert len(planner.prompts) == 2
     assert "AGENTS.md" in planner.prompts[0]   # first the init
-    assert "PLANIFICADOR" in planner.prompts[1]  # then the plan
+    assert "PLANNER" in planner.prompts[1]  # then the plan
 
 
 def test_agents_md_se_omite_si_ya_existe(tmp_path):
@@ -775,7 +775,7 @@ def test_run_reevaluate_plan_with_existing_files_writes_reevaluate_log(tmp_path)
     assert (paths.logs_dir(task.id) / "reevaluate.jsonl").exists()
     assert not (paths.logs_dir(task.id) / "plan.jsonl").exists()
     # The planner received the re-evaluation prompt.
-    assert "REEVALUACIÓN" in planner.prompts[-1]
+    assert "RE-EVALUATION" in planner.prompts[-1]
 
 
 def test_effort_is_passed_to_run_request(tmp_path):

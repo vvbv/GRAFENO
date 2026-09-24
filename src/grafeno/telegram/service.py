@@ -27,7 +27,7 @@ from .. import workspaces as workspaces_module
 from ..config import TelegramConfig
 from ..drivers import get_driver
 from ..drivers.base import CLIDriver, RunRequest
-from ..i18n import t, t_lang
+from ..i18n import prompt_language, prompt_template, t, t_lang
 from ..models import Task, TaskState, state_label
 from ..timefmt import format_duration
 from . import intents, stt, tts
@@ -50,8 +50,9 @@ LOG_MAX_BYTES = 1_000_000      # telegram.log is truncated past this size
 # States offered in the task-list filter picker, in display order.
 FILTERABLE_STATES = tuple(TaskState)
 
-# Ask prompt: Spanish, like the rest of the pipeline prompts (prompts.py).
-_ASK_PROMPT = """Eres un asistente que responde preguntas sobre una tarea de GRAFENO
+# Ask prompt, in the configured prompt language (like prompts.py).
+_ASK_PROMPT = {
+    "es": """Eres un asistente que responde preguntas sobre una tarea de GRAFENO
 (orquestador de tareas de programación). Usa SOLO el contexto de la tarea
 para responder; si la respuesta no está en el contexto, dilo claramente.
 Responde en el idioma de la pregunta, de forma concisa (es un chat de
@@ -66,7 +67,29 @@ Pregunta del usuario:
 \"\"\"
 {question}
 \"\"\"
-"""
+""",
+    "en": """You are an assistant that answers questions about a GRAFENO task
+(programming task orchestrator). Use ONLY the task context to answer;
+if the answer is not in the context, say so clearly. Answer in the
+language of the question, concisely (it is a Telegram chat): no complex
+Markdown or emojis.
+
+Task context:
+\"\"\"
+{context}
+\"\"\"
+
+User question:
+\"\"\"
+{question}
+\"\"\"
+""",
+}
+# Labels of the ask context (prompt language too).
+_CONTEXT_LABELS = {
+    "es": {"state": "Estado", "workdir": "Directorio", "description": "Descripción"},
+    "en": {"state": "State", "workdir": "Directory", "description": "Description"},
+}
 
 
 @dataclass
@@ -712,7 +735,7 @@ class TelegramService:
             await self._send(chat_id, self._tt(chat_id, "tg.parser_unavailable", cli=self.parser_cli))
             return
         context = self._task_context(task)
-        prompt = _ASK_PROMPT.format(context=context, question=intent.question)
+        prompt = prompt_template(_ASK_PROMPT).format(context=context, question=intent.question)
         async with self._typing(chat_id):
             try:
                 result = await driver.run(
@@ -730,11 +753,13 @@ class TelegramService:
 
     def _task_context(self, task: Task) -> str:
         """Name, description, state and truncated artifacts of a task."""
+        lang = prompt_language()
+        labels = _CONTEXT_LABELS[lang]
         parts = [
             f"# {task.name}",
-            f"Estado: {state_label(task.state)}",
-            f"Directorio: {task.workdir}",
-            f"Descripción:\n{task.description}",
+            f"{labels['state']}: {t_lang(lang, f'state.{task.state.value}')}",
+            f"{labels['workdir']}: {task.workdir}",
+            f"{labels['description']}:\n{task.description}",
         ]
         budget = ASK_CONTEXT_CHARS
         for path in self._artifact_files(task):

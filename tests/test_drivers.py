@@ -1076,7 +1076,19 @@ def test_agents_md_prompt_generic_sin_init_command():
     assert driver.init_command == ""
     prompt = driver.build_agents_md_prompt()
     assert "AGENTS.md" in prompt
-    assert "`/init`" not in prompt.split("convenciones habituales")[0]
+    assert "`/init`" not in prompt.split("usual conventions")[0]
+
+
+def test_agents_md_prompt_follows_prompt_language():
+    """The AGENTS.md prompt is rendered in the configured prompt language."""
+    from grafeno import i18n
+
+    driver = OpenCodeDriver()
+    assert "Analyze this repository" in driver.build_agents_md_prompt()
+    i18n.set_prompt_language("es")
+    prompt = driver.build_agents_md_prompt()
+    assert "Analiza este repositorio" in prompt
+    assert "Este CLI dispone del comando `/init`" in prompt
 
 
 # ---------------------------------------------------------------------- #

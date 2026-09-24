@@ -25,13 +25,15 @@ from ... import references as references_module
 from ... import triggers as triggers_module
 from ...config import DEFAULT_API_HOST, DEFAULT_API_PORT, KNOWN_CLIS, Config
 from ...drivers import fetch_all_models, fetch_all_variants
-from ...i18n import LANGUAGES, set_language, t
+from ...i18n import LANGUAGES, set_language, set_prompt_language, t
 from ...pipeline.hooks import HOOK_STAGES, format_stages, parse_stages
 from ..profilesform import ProfilesForm
 from ..refform import ReferencesForm
 from ..rolesform import ROLES, RolesForm
 from ..trigform import TriggersForm
 from ..widgets import GrafenoHeader, LocationBar
+
+PROMPT_LANGUAGE_SAME = "same"  # Select value of "same as the GUI" (saved as "")
 
 
 class ConfigScreen(Screen[None]):
@@ -96,10 +98,20 @@ class ConfigScreen(Screen[None]):
                     allow_blank=False,
                 )
             yield Static(t("cfg.language"), classes="section-title")
+            yield Static(t("cfg.language.help"))
             with Horizontal(classes="automode-row"):
+                yield Label(t("cfg.language.gui"))
                 yield Select(
                     [("English", "en"), ("Español", "es")],
                     id="cfg-language",
+                    allow_blank=False,
+                )
+                yield Label(t("cfg.language.prompts"))
+                yield Select(
+                    [(t("cfg.language.prompts.same"), PROMPT_LANGUAGE_SAME),
+                     ("English", "en"),
+                     ("Español", "es")],
+                    id="cfg-prompt-language",
                     allow_blank=False,
                 )
             yield Static(t("cfg.workspaces"), classes="section-title")
@@ -213,6 +225,11 @@ class ConfigScreen(Screen[None]):
         )
         self.query_one("#cfg-language", Select).value = (
             self._config.language if self._config.language in LANGUAGES else "en"
+        )
+        self.query_one("#cfg-prompt-language", Select).value = (
+            self._config.prompt_language
+            if self._config.prompt_language in LANGUAGES
+            else PROMPT_LANGUAGE_SAME
         )
         self.query_one("#cfg-workspaces", Input).value = ", ".join(self._config.workspaces)
         self.query_one("#cfg-refs", ReferencesForm).set_references(
@@ -343,6 +360,8 @@ class ConfigScreen(Screen[None]):
         cfg.editor.mode = str(self.query_one("#editor-mode", Select).value)
         cfg.editor.side = str(self.query_one("#editor-side", Select).value)
         cfg.language = str(self.query_one("#cfg-language", Select).value)
+        prompt_language = str(self.query_one("#cfg-prompt-language", Select).value)
+        cfg.prompt_language = "" if prompt_language == PROMPT_LANGUAGE_SAME else prompt_language
         cfg.workspaces = [                     # comma-separated: paths with commas are unsupported
             part.strip()
             for part in self.query_one("#cfg-workspaces", Input).value.split(",")
@@ -390,6 +409,7 @@ class ConfigScreen(Screen[None]):
             self.query_one("#cfg-profiles", ProfilesForm).profiles()
         )
         set_language(cfg.language)
+        set_prompt_language(cfg.prompt_language)
         self.notify(t("cfg.saved"))
         if cfg.language != previous_language:
             self.notify(t("cfg.language_notice"), severity="warning")

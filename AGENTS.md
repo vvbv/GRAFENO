@@ -16,10 +16,10 @@ CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex, Claude Code, Cu
 ```
 src/grafeno/
 ├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas); intercepta el comando CLI `grafeno update` antes del argparse; `--version`/`-v` imprime la versión; arranca el servidor API (worker `api-server`) si `cfg.api.enabled`; worker `models-check` al arrancar: avisa si los modelos de la config/perfiles ya no existen en su CLI (los de la tarea se muestran en una banda roja del detalle)
-├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo (incluido `first` para el primer paso), automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), prompt de primer paso (first step, opcional) y de pasos finales, sección [telegram] (TelegramConfig), sección [api] (ApiConfig: enabled/host/port/tokens + env GRAFENO_API_TOKEN)
+├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo (incluido `first` para el primer paso), automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), idioma de la GUI (`language`) y de los prompts internos (`prompt_language`, vacío = el de la GUI), prompt de primer paso (first step, opcional) y de pasos finales, sección [telegram] (TelegramConfig), sección [api] (ApiConfig: enabled/host/port/tokens + env GRAFENO_API_TOKEN)
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict; incluye `failed_phase` (fase del pipeline que fallo, para reanudar)
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME; incluye `api_log_path()`
-├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs)
+├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs); además el idioma de los prompts internos (set_prompt_language/prompt_language, vacío = el de la GUI) y prompt_template() para elegir la variante de una plantilla por idioma
 ├── live_log.py             # Persistencia del log en vivo (Text -> logs/live.jsonl, carga al crear el runtime; best-effort)
 ├── mdnorm.py               # Normalización de Markdown: colapsa saltos de línea y compacta listas sueltas en los .md de cada etapa
 ├── media.py                # Imágenes del portapapeles: lectura (wl-paste/xclip/pngpaste/osascript), guardado en media/ de la tarea, listado y apertura con el visor del SO; preview inline opcional vía textual-image
@@ -61,7 +61,7 @@ src/grafeno/
 ├── pipeline/
 │   ├── orchestrator.py     # Orquestador de fases (first opcional/plan/implementar/revisar/final, automode, ciclos); `_mark_failed` registra la fase fallida, `_review_fix_loop` es el bucle compartido, `run_automode_resume` reanuda desde la fase fallida reaprovechando artefactos (resetea el presupuesto de iteracion solo si estaba agotado) y `run_continue` hace lo mismo desde estados transitorios huérfanos (tarea interrumpida por TUI matada, apagón o crash del CLI) usando el mapa `INTERRUPTED_PHASE`
 │   ├── hooks.py            # Hooks de completado por etapa (comando shell o webhook URL; global + por tarea, mejor esfuerzo)
-│   ├── prompts.py          # Prompts por fase (first, plan, ...), cabecera GRAFENO-EXECUTOR e instrucciones finales personalizables
+│   ├── prompts.py          # Prompts por fase (first, plan, ...) en en/es (dicts por idioma, renderizados en i18n.prompt_language()), cabecera GRAFENO-EXECUTOR e instrucciones finales personalizables
 │   ├── verdict.py          # Parseo del veredicto del revisor (VERDICT: APPROVED / CHANGES_REQUESTED)
 │   └── gitops.py           # Rama opcional grafeno/<tarea>; diff base (base_commit) y generacion de changes.md del reporte final
 └── tui/
@@ -102,6 +102,17 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   usuario vía `t("clave")` en `i18n.py` (añadir la clave en ambos idiomas);
   identificadores en inglés. Todo texto de UI pasa por `t("clave")` y se
   traduce en el catálogo de `i18n.py`.
+- **Prompts internos (en/es)**: todo texto que se envía a un CLI de agente
+  (prompts de fase en `pipeline/prompts.py`, generación de AGENTS.md en
+  `drivers/base.py`, parser y preguntas del bot en `telegram/intents.py` y
+  `telegram/service.py`) es una plantilla por idioma `{"es": ..., "en": ...}`
+  con las dos variantes juntas, formateada UNA sola vez con `str.format`
+  (las llaves de los datos de la tarea quedan literales) y elegida con
+  `i18n.prompt_template()`. El idioma es `Config.prompt_language` (selector
+  en la sección Idioma de los ajustes; vacío = el de la GUI) y se aplica en
+  caliente vía `i18n.set_prompt_language` al arrancar y al guardar. Al
+  añadir o cambiar un prompt, actualiza ambos idiomas:
+  `tests/test_prompts.py` exige los mismos placeholders en cada variante.
 - **Estilo**: `from __future__ import annotations` en cada módulo; docstring de
   módulo en la primera línea; dataclasses con `to_dict`/`from_dict` para
   persistencia; type hints modernos (`str | None`); async/await con

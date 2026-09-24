@@ -2,10 +2,24 @@
 
 from __future__ import annotations
 
-from grafeno import paths
+import string
+
+import pytest
+
+from grafeno import i18n, paths
 from grafeno.config import Config
+from grafeno.drivers import base as drivers_base
 from grafeno.models import Task
 from grafeno.pipeline import prompts
+from grafeno.telegram import intents
+from grafeno.telegram import service as telegram_service
+
+
+@pytest.fixture(autouse=True)
+def spanish_prompts():
+    """The contract assertions below use the Spanish wording; the English
+    wording and the language selection are covered at the end of the file."""
+    i18n.set_prompt_language("es")
 
 
 def _task(tmp_path, **overrides) -> Task:
@@ -335,3 +349,131 @@ def test_first_prompt_contract(tmp_path):
     assert "AGENTE DE PRIMER PASO" in prompt
     assert "emotes" in prompt
     assert "INGLÉS" in prompt
+
+
+# ---------------------------------------------------------------------- #
+# Prompt language
+# ---------------------------------------------------------------------- #
+_ALL_PHASES = (
+    lambda task: prompts.first_prompt(task),
+    lambda task: prompts.plan_prompt(task),
+    lambda task: prompts.reevaluate_plan_prompt(task),
+    lambda task: prompts.implement_prompt(task),
+    lambda task: prompts.review_prompt(task, 1),
+    lambda task: prompts.fix_prompt(task, 1),
+    lambda task: prompts.final_prompt(task),
+)
+
+
+def test_prompts_follow_gui_language_by_default(tmp_path):
+    """Empty prompt language = the prompts use the GUI language."""
+    i18n.set_prompt_language("")
+    task = _task(tmp_path)
+    i18n.set_language("en")
+    assert prompts.plan_prompt(task).startswith("You are a SENIOR SOFTWARE ENGINEER")
+    i18n.set_language("es")
+    assert prompts.plan_prompt(task).startswith("Eres un INGENIERO DE SOFTWARE SENIOR")
+
+
+def test_prompt_language_overrides_gui_language(tmp_path):
+    """A chosen prompt language wins over the GUI language, both ways."""
+    task = _task(tmp_path)
+    i18n.set_language("en")
+    i18n.set_prompt_language("es")
+    assert prompts.review_prompt(task, 1).startswith("Eres el REVISOR")
+    i18n.set_language("es")
+    i18n.set_prompt_language("en")
+    assert prompts.review_prompt(task, 1).startswith("You are the REVIEWER")
+
+
+def test_unknown_prompt_language_follows_gui(tmp_path):
+    i18n.set_language("es")
+    i18n.set_prompt_language("fr")
+    assert i18n.prompt_language() == "es"
+
+
+def test_english_prompts_keep_the_contract(tmp_path):
+    """Same contract in English: executor header, verdict lines, discovery,
+    git author rule and the conditional sections."""
+    from grafeno.references import Reference
+
+    i18n.set_prompt_language("en")
+    task = _task(
+        tmp_path,
+        test_command="pytest -q",
+        remote="u@h:/srv/app",
+        first_prompt="Prepare the env",
+        final_prompt="Check the CHANGELOG",
+    )
+    task.references = [Reference(name="GUI ref", path="https://example.com")]
+    (paths.media_dir(task.id) / "media-01.png").write_bytes(b"fake")
+    plan = prompts.plan_prompt(task)
+    assert "GRAFENO-EXECUTOR" in plan
+    assert "**Executor of this plan**" in plan
+    assert "MANDATORY DISCOVERY" in plan
+    assert "Detected existing capabilities" in plan
+    assert "Context references" in plan
+    assert "Images attached to the task" in plan
+    assert '"Remote environment" section' in plan
+    assert "not detected" in plan
+    review = prompts.review_prompt(task, 2)
+    assert "VERDICT: APPROVED` if the plan is fulfilled and the tests pass" in review
+    assert "VERDICT: CHANGES_REQUESTED" in review
+    assert "02-review.md" in review
+    assert "# Additional user instructions for the wrap-up" in prompts.final_prompt(task)
+    assert "Check the CHANGELOG" in prompts.final_prompt(task)
+    assert "Prepare the env" in prompts.first_prompt(task)
+    for build in _ALL_PHASES:
+        prompt = build(task)
+        assert "Remote environment (SSH)" in prompt
+        assert "git config user.name" in prompt
+        assert "under no circumstances" in prompt
+        for spanish in ("Eres ", "Tu entrega", "Reglas", "Proyecto (directorio"):
+            assert spanish not in prompt
+
+
+def test_english_prompts_fallbacks(tmp_path):
+    i18n.set_prompt_language("en")
+    task = _task(tmp_path, description="")
+    task.start_new_cycle("")
+    plan = prompts.plan_prompt(task)
+    assert "- Description: (no description)" in plan
+    assert "# Extension (cycle 2)" in plan
+    assert "(no details)" in plan
+
+
+def test_task_data_with_braces_is_not_reformatted(tmp_path):
+    """Templates are formatted once: braces in task data stay literal."""
+    task = _task(tmp_path, description="use {placeholder} and {{x}}")
+    for lang in i18n.LANGUAGES:
+        i18n.set_prompt_language(lang)
+        assert "use {placeholder} and {{x}}" in prompts.plan_prompt(task)
+
+
+def _template_dicts():
+    """Every per-language prompt template dict of the internal prompts."""
+    modules = (prompts, intents, telegram_service, drivers_base)
+    for module in modules:
+        for name, value in vars(module).items():
+            if (
+                isinstance(value, dict)
+                and set(value) == set(i18n.LANGUAGES)
+                and all(isinstance(item, str) for item in value.values())
+            ):
+                yield f"{module.__name__}.{name}", value
+
+
+def _placeholders(template: str) -> set[str]:
+    return {field for _, field, _, _ in string.Formatter().parse(template) if field}
+
+
+def test_prompt_templates_exist_in_every_language_with_same_placeholders():
+    """Translations stay in sync: same languages and same placeholders."""
+    found = dict(_template_dicts())
+    assert "grafeno.pipeline.prompts._PLAN_PROMPT" in found
+    assert "grafeno.telegram.intents._PARSER_PROMPT" in found
+    assert "grafeno.telegram.service._ASK_PROMPT" in found
+    assert "grafeno.drivers.base._AGENTS_MD_PROMPT" in found
+    for name, templates in found.items():
+        variants = {lang: _placeholders(text) for lang, text in templates.items()}
+        assert len({frozenset(fields) for fields in variants.values()}) == 1, name

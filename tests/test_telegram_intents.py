@@ -6,7 +6,9 @@ import asyncio
 import json
 from collections import deque
 
-from grafeno import models
+import pytest
+
+from grafeno import i18n, models
 from grafeno.config import Config
 from grafeno.drivers.base import CLIDriver, RunResult
 from grafeno.telegram import intents
@@ -259,11 +261,16 @@ def test_tasks_summary_remote_shows_ssh_spec(tmp_path):
     assert "user@host:/home/u/proj" in intents.tasks_summary([task])
 
 
-def test_parser_prompt_describes_workdir_routing(tmp_path):
-    prompt = intents.build_parser_prompt("hola", "", "/tmp")
-    assert "id | nombre | estado | directorio" in prompt
-    assert "directorio por defecto" in prompt
-    assert "EXACTAMENTE el\n  directorio" in prompt or "EXACTAMENTE el directorio" in prompt
+@pytest.mark.parametrize("lang, header, default_dir, exact_dir", [
+    ("es", "id | nombre | estado | directorio", "directorio por defecto", "EXACTAMENTE el"),
+    ("en", "id | name | state | directory", "default directory", "EXACTLY the"),
+])
+def test_parser_prompt_describes_workdir_routing(tmp_path, lang, header, default_dir, exact_dir):
+    i18n.set_prompt_language(lang)
+    prompt = " ".join(intents.build_parser_prompt("hola", "", "/tmp").split())
+    assert header in prompt
+    assert default_dir in prompt
+    assert f"{exact_dir} directory" in prompt or f"{exact_dir} directorio" in prompt
 
 
 def test_resolve_workdir_empty_falls_back_to_default():
@@ -415,17 +422,45 @@ def test_projects_summary_marks_zero_count(tmp_path):
 # ---------------------------------------------------------------------- #
 # parser prompt: anti-summarization guidance for create_tasks
 # ---------------------------------------------------------------------- #
-def test_prompt_create_tasks_forbids_aggressive_summary():
+@pytest.mark.parametrize("lang, phrases", [
+    ("es", ("resumir de forma agresiva", "PROHIBIDO", "sustantiva", "transcripción de audio larga")),
+    ("en", ("summarize aggressively", "FORBIDDEN", "substantive", "long, structured audio transcription")),
+])
+def test_prompt_create_tasks_forbids_aggressive_summary(lang, phrases):
     """The create_tasks guidance forbids aggressive summarization."""
-    prompt = intents.build_parser_prompt("texto", "", ".")
-    assert "resumir de forma agresiva" in prompt
-    assert "PROHIBIDO" in prompt
-    assert "sustantiva" in prompt
-    assert "transcripción de audio larga" in prompt
+    i18n.set_prompt_language(lang)
+    prompt = " ".join(intents.build_parser_prompt("texto", "", ".").split())
+    for phrase in phrases:
+        assert phrase in prompt
 
 
-def test_prompt_create_tasks_anti_compression_rule():
+@pytest.mark.parametrize("lang, phrases", [
+    ("es", ("NO comprimas", "prioriza no perder información")),
+    ("en", ("do NOT compress", "prioritize not losing relevant information")),
+])
+def test_prompt_create_tasks_anti_compression_rule(lang, phrases):
     """Long/detailed messages must not be compressed for brevity."""
-    prompt = intents.build_parser_prompt("texto", "", ".")
-    assert "NO comprimas" in prompt
-    assert "prioriza no perder información" in prompt
+    i18n.set_prompt_language(lang)
+    prompt = " ".join(intents.build_parser_prompt("texto", "", ".").split())
+    for phrase in phrases:
+        assert phrase in prompt
+
+
+def test_parser_prompt_follows_prompt_language_and_keeps_json_contract():
+    """The instructions follow the prompt language; the JSON keys do not change."""
+    i18n.set_language("es")
+    assert "Eres el interpretador" in intents.build_parser_prompt("hola", "", ".")
+    i18n.set_prompt_language("en")
+    prompt = intents.build_parser_prompt("hola {x}", "", "")
+    assert "You are the message interpreter" in prompt
+    assert "hola {x}" in prompt  # user text is never re-formatted
+    assert "(none)" in prompt
+    for key in ('"action"', '"tasks"', '"task_ref"', '"project_ref"', '"question"', '"lang"'):
+        assert key in prompt
+
+
+def test_tasks_summary_state_in_prompt_language():
+    task = _task("Login")
+    i18n.set_language("es")
+    i18n.set_prompt_language("en")
+    assert "| Draft |" in intents.tasks_summary([task])

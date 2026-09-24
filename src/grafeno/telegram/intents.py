@@ -17,8 +17,8 @@ from pathlib import Path
 from typing import Any
 
 from ..drivers.base import CLIDriver, RunRequest
-from ..i18n import LANGUAGES
-from ..models import Task, state_label
+from ..i18n import LANGUAGES, prompt_language, prompt_template, t_lang
+from ..models import Task
 
 ACTIONS = (
     "create_tasks",  # create one or more tasks (params in ``tasks``)
@@ -85,10 +85,15 @@ def tasks_summary(tasks: list[Task], *, limit: int = _SUMMARY_LIMIT) -> str:
     and disambiguate task references; remote tasks show their SSH spec.
     """
     lines = [
-        f"- {task.id} | {task.name} | {state_label(task.state)} | {_task_dir(task)}"
+        f"- {task.id} | {task.name} | {_prompt_state_label(task)} | {_task_dir(task)}"
         for task in tasks[:limit]
     ]
     return "\n".join(lines)
+
+
+def _prompt_state_label(task: Task) -> str:
+    """State label in the prompt language (the listing is parser context)."""
+    return t_lang(prompt_language(), f"state.{task.state.value}")
 
 
 def _task_dir(task: Task) -> str:
@@ -162,24 +167,18 @@ def projects_summary(tasks: list[Task], extra_dirs: Iterable[str] = ()) -> str:
     )
 
 
-def build_parser_prompt(
-    user_text: str,
-    summary: str,
-    default_workdir: str,
-    projects: str = "",
-) -> str:
-    """One-shot prompt: interpret the user message and answer with strict JSON."""
-    return f"""Eres el interpretador de mensajes de GRAFENO, un orquestador de tareas de
+_PARSER_PROMPT = {
+    "es": """Eres el interpretador de mensajes de GRAFENO, un orquestador de tareas de
 programación. El usuario escribe o dicta por voz mensajes para crear tareas o
 consultar las existentes.
 
 Tareas existentes (id | nombre | estado | directorio):
-{summary or "(ninguna)"}
+{summary}
 
 Proyectos con tareas (directorio | nº tareas):
-{projects or "(ninguno)"}
+{projects}
 
-Directorio de trabajo por defecto para tareas nuevas: {default_workdir or "."}
+Directorio de trabajo por defecto para tareas nuevas: {default_workdir}
 
 Mensaje del usuario:
 \"\"\"
@@ -242,7 +241,100 @@ Reglas:
   "task_ref" de forma inequívoca: devuelve el id exacto de la tarea que mejor
   encaje con lo que pide el usuario; el directorio ayuda a distinguir tareas
   con nombres parecidos en proyectos distintos.
-"""
+""",
+    "en": """You are the message interpreter of GRAFENO, a programming task
+orchestrator. The user writes or dictates by voice messages to create tasks
+or query the existing ones.
+
+Existing tasks (id | name | state | directory):
+{summary}
+
+Projects with tasks (directory | no. of tasks):
+{projects}
+
+Default working directory for new tasks: {default_workdir}
+
+User message:
+\"\"\"
+{user_text}
+\"\"\"
+
+Answer ONLY with a JSON object (no surrounding text, no Markdown) with this shape:
+{{
+  "action": "create_tasks" | "list_tasks" | "list_projects" | "list_project_tasks" | "task_status" | "send_files" | "ask" | "help" | "unknown",
+  "tasks": [{{"name": "...", "description": "...", "workdir": "...", "test_command": "..."}}],
+  "task_ref": "id or fragment of the task name (for task_status, send_files, ask)",
+  "project_ref": "project directory (only for list_project_tasks)",
+  "question": "the user's concrete question (only for ask)",
+  "lang": "ISO 639-1 code of the language of the user's message (es, en, ...)"
+}}
+
+Rules:
+- "lang": ALWAYS the language in which the user wrote or dictated the message.
+- "create_tasks": one entry per task the message asks for. name short
+  but CONCRETE and specific (never generic: avoid titles like "code
+  changes" or "new task"; name the exact goal). description with ALL
+  the substantive information of the message: requirements, constraints,
+  quantities, names of files, functions or modules, conditions, edge cases,
+  examples and nuances provided by the user. It is FORBIDDEN to summarize
+  aggressively, condense or merge requirements: the description must inherit
+  the length of the message, and a long, structured audio transcription
+  justifies an equally long description (several paragraphs or lists if
+  needed). If the message comes from a transcribed voice note, keep the
+  details with the precision of the transcribed text, without rewriting it as
+  a short version. Omit only the filler words typical of spoken audio.
+  For "workdir": if the message refers to a project of the projects listing
+  or with existing tasks (by project or directory name), use EXACTLY the
+  directory of that listing (without inventing paths); if the user gives an
+  explicit path, use it as is; if the project cannot be determined, leave it
+  empty (the default directory will be used).
+  "user@host:..." paths are remote projects: do not use them for new tasks.
+  test_command only if the user states it.
+- If the message asks for several tasks, include all of them in "tasks".
+- "list_tasks": the user wants a summary of their tasks.
+- "list_projects": the user asks for the listing of PROJECTS or directories
+  that have tasks (not the task listing): "what projects do I have",
+  "list the directories", "which projects am I working on".
+- "list_project_tasks": the user asks for the tasks of ONE single project:
+  "what tasks does project X have", "list the tasks of grafeno",
+  "tasks of /path/to/project". Return in "project_ref" EXACTLY the
+  directory of that project as it appears in the projects listing
+  (the "user@host:..." spec of a remote project is also valid); if the
+  project cannot be determined, leave "project_ref" empty.
+- "task_status": asks about the state of a specific task.
+- "send_files": the user wants you to send the resulting .md files of
+  a task (plan, reviews, final report).
+- "ask": any other question about a specific task.
+- "help": asks for help or it is unclear what to do.
+- "unknown": the message cannot be interpreted.
+- When the message is long or very detailed (typical of dictated audio), do NOT
+  compress the description for brevity: prioritize not losing relevant
+  information over brevity. Generic and vague is worse than long.
+- Do not invent tasks: create only what the message explicitly asks for.
+- Use the task listing (id | name | state | directory) to resolve
+  "task_ref" unambiguously: return the exact id of the task that best
+  matches what the user asks for; the directory helps to tell apart tasks
+  with similar names in different projects.
+""",
+}
+_PARSER_NO_TASKS = {"es": "(ninguna)", "en": "(none)"}
+_PARSER_NO_PROJECTS = {"es": "(ninguno)", "en": "(none)"}
+
+
+def build_parser_prompt(
+    user_text: str,
+    summary: str,
+    default_workdir: str,
+    projects: str = "",
+) -> str:
+    """One-shot prompt: interpret the user message and answer with strict JSON."""
+    lang = prompt_language()
+    return prompt_template(_PARSER_PROMPT, lang).format(
+        summary=summary or _PARSER_NO_TASKS[lang],
+        projects=projects or _PARSER_NO_PROJECTS[lang],
+        default_workdir=default_workdir or ".",
+        user_text=user_text,
+    )
 
 
 def _extract_json(text: str) -> dict[str, Any] | None:

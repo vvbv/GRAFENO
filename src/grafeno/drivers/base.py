@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import AsyncIterator, Callable
 
 from .. import ratelimit
-from ..i18n import t
+from ..i18n import prompt_template, t
 
 
 _READ_CHUNK = 65536  # bytes read per stream.read() call
@@ -105,6 +105,69 @@ def _format_error_dict(obj: dict) -> str:
     if isinstance(ref, str) and ref:
         text += f" (ref: {ref})"
     return text
+
+
+# AGENTS.md generation prompt, per prompt language (``i18n.prompt_template``).
+_AGENTS_MD_NATIVE_INIT = {
+    "es": (
+        "Este CLI dispone del comando `{command}` exactamente "
+        "para esto: ejecútalo si está disponible en este modo; si no lo "
+        "está, realiza tú mismo el mismo análisis y escribe el archivo "
+        "siguiendo las convenciones habituales de ese comando."
+    ),
+    "en": (
+        "This CLI provides the `{command}` command exactly "
+        "for this: run it if it is available in this mode; if it is "
+        "not, perform the same analysis yourself and write the file "
+        "following the usual conventions of that command."
+    ),
+}
+_AGENTS_MD_GENERIC_INIT = {
+    "es": (
+        "Realiza un análisis del repositorio y escribe el archivo "
+        "siguiendo las convenciones habituales de los comandos `/init` "
+        "de los agentes de programación."
+    ),
+    "en": (
+        "Analyze the repository and write the file "
+        "following the usual conventions of the `/init` commands "
+        "of coding agents."
+    ),
+}
+_AGENTS_MD_PROMPT = {
+    "es": """Analiza este repositorio y crea un archivo AGENTS.md en su raíz.
+
+{instruction}
+
+El AGENTS.md debe ser conciso y útil para un agente de programación:
+- estructura del proyecto y propósito de cada parte;
+- stack y dependencias;
+- cómo compilar/ejecutar y cómo lanzar los tests;
+- convenciones de estilo y de commits que ya se observen en el código.
+
+Reglas:
+- Escribe SOLO el archivo AGENTS.md en la raíz del repositorio; no modifiques
+  ningún otro archivo.
+- Nada de emojis.
+- Termina tu respuesta con una línea que indique la ruta del archivo creado.
+""",
+    "en": """Analyze this repository and create an AGENTS.md file at its root.
+
+{instruction}
+
+The AGENTS.md must be concise and useful for a coding agent:
+- project structure and the purpose of each part;
+- stack and dependencies;
+- how to build/run and how to run the tests;
+- style and commit conventions already observed in the code.
+
+Rules:
+- Write ONLY the AGENTS.md file at the root of the repository; do not modify
+  any other file.
+- No emojis.
+- End your answer with a line stating the path of the created file.
+""",
+}
 
 
 class EventKind(Enum):
@@ -310,37 +373,13 @@ class CLIDriver:
 
         If the CLI has a native init command (``init_command``), the prompt
         asks to run its equivalent; otherwise it asks for the manual
-        analysis.
+        analysis. Rendered in the configured prompt language.
         """
         if self.init_command:
-            instruccion = (
-                f"Este CLI dispone del comando `{self.init_command}` exactamente "
-                "para esto: ejecútalo si está disponible en este modo; si no lo "
-                "está, realiza tú mismo el mismo análisis y escribe el archivo "
-                "siguiendo las convenciones habituales de ese comando."
-            )
+            instruction = prompt_template(_AGENTS_MD_NATIVE_INIT).format(command=self.init_command)
         else:
-            instruccion = (
-                "Realiza un análisis del repositorio y escribe el archivo "
-                "siguiendo las convenciones habituales de los comandos `/init` "
-                "de los agentes de programación."
-            )
-        return f"""Analiza este repositorio y crea un archivo AGENTS.md en su raíz.
-
-{instruccion}
-
-El AGENTS.md debe ser conciso y útil para un agente de programación:
-- estructura del proyecto y propósito de cada parte;
-- stack y dependencias;
-- cómo compilar/ejecutar y cómo lanzar los tests;
-- convenciones de estilo y de commits que ya se observen en el código.
-
-Reglas:
-- Escribe SOLO el archivo AGENTS.md en la raíz del repositorio; no modifiques
-  ningún otro archivo.
-- Nada de emojis.
-- Termina tu respuesta con una línea que indique la ruta del archivo creado.
-"""
+            instruction = prompt_template(_AGENTS_MD_GENERIC_INIT)
+        return prompt_template(_AGENTS_MD_PROMPT).format(instruction=instruction)
 
     def decode_line(
         self, line: str

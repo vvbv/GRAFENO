@@ -13,12 +13,15 @@ def grafeno_home(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def default_language():
-    """Guarantee each test starts with English language (global state)."""
+    """Guarantee each test starts with English language (global state) and
+    internal prompts following it."""
     from grafeno import i18n
 
     i18n.set_language("en")
+    i18n.set_prompt_language("")
     yield
     i18n.set_language("en")
+    i18n.set_prompt_language("")
 
 
 @pytest.fixture(autouse=True)

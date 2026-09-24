@@ -331,7 +331,7 @@ def main() -> None:
 
     from . import config as config_module
     from . import editor
-    from .i18n import set_language
+    from .i18n import set_language, set_prompt_language
 
     parser = argparse.ArgumentParser(prog="grafeno")
     parser.add_argument(
@@ -393,6 +393,7 @@ def main() -> None:
 
     cfg = config_module.load()
     set_language(cfg.language)
+    set_prompt_language(cfg.prompt_language)
     # Opening a local editor over the cwd is meaningless in session mode
     # (the project lives on the remote host); skip it then.
     if not args.noeditor and session is None:

@@ -5,6 +5,10 @@ the saved configuration and updated when the configuration is saved. Texts
 are resolved with ``t(key_id, **kwargs)``; if the key is missing in the
 active language, English is used, and if it is missing there too the key
 itself is returned.
+
+The internal prompts sent to the agent CLIs have their own language (also a
+global state, ``Config.prompt_language``): empty follows the GUI language.
+Prompt templates are per-language dicts resolved with ``prompt_template``.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ LANGUAGES = ("en", "es")
 DEFAULT_LANGUAGE = "en"
 
 _current = DEFAULT_LANGUAGE
+_prompt_language = ""  # empty = follow the GUI language
 
 
 def set_language(language: str) -> None:
@@ -23,6 +28,27 @@ def set_language(language: str) -> None:
 
 def current_language() -> str:
     return _current
+
+
+def set_prompt_language(language: str) -> None:
+    """Set the language of the internal prompts; empty or unknown values
+    make the prompts follow the GUI language."""
+    global _prompt_language
+    _prompt_language = language if language in LANGUAGES else ""
+
+
+def prompt_language() -> str:
+    """Effective language of the internal prompts."""
+    return _prompt_language or _current
+
+
+def prompt_template(templates: dict[str, str], language: str = "") -> str:
+    """Variant of a per-language prompt template (``{"es": ..., "en": ...}``).
+
+    ``language`` empty = the effective prompt language; a language missing
+    from ``templates`` falls back to the default one.
+    """
+    return templates.get(language or prompt_language()) or templates[DEFAULT_LANGUAGE]
 
 
 def t(key_id: str, **kwargs: object) -> str:
@@ -239,7 +265,11 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cfg.editor.side": "Editor side",
         "cfg.editor.side.left": "Left",
         "cfg.editor.side.right": "Right",
-        "cfg.language": "GUI language",
+        "cfg.language": "Language",
+        "cfg.language.help": "Internal prompts are the instructions GRAFENO sends to the agent CLIs (first step, plan, implementation, review, fixes, final steps, AGENTS.md generation and the Telegram bot parser). By default they use the interface language.",
+        "cfg.language.gui": "Interface",
+        "cfg.language.prompts": "Internal prompts",
+        "cfg.language.prompts.same": "Same as the interface",
         "cfg.error.max_iter_int": "Max iterations must be an integer.",
         "cfg.error.max_iter_min": "Max iterations must be ≥ 1.",
         "cfg.saved": "Settings saved.",
@@ -874,7 +904,11 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cfg.editor.side": "Lado del editor",
         "cfg.editor.side.left": "Izquierda",
         "cfg.editor.side.right": "Derecha",
-        "cfg.language": "Idioma de la interfaz",
+        "cfg.language": "Idioma",
+        "cfg.language.help": "Los prompts internos son las instrucciones que GRAFENO envía a los CLIs de agentes (primer paso, plan, implementación, revisión, correcciones, pasos finales, generación de AGENTS.md y parser del bot de Telegram). Por defecto usan el idioma de la interfaz.",
+        "cfg.language.gui": "Interfaz",
+        "cfg.language.prompts": "Prompts internos",
+        "cfg.language.prompts.same": "El mismo de la interfaz",
         "cfg.error.max_iter_int": "Iteraciones máximas debe ser un entero.",
         "cfg.error.max_iter_min": "Iteraciones máximas debe ser ≥ 1.",
         "cfg.saved": "Configuración guardada.",

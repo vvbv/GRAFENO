@@ -568,3 +568,48 @@ def test_config_screen_self_update_checkbox(monkeypatch):
             assert config_module.load().self_update is False
 
     asyncio.run(scenario())
+
+
+def test_prompt_language_select_roundtrip(monkeypatch):
+    """The prompt language is chosen apart from the GUI language, persisted
+    and applied right away; "same as the interface" is saved as empty."""
+    from grafeno import i18n
+
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
+
+    async def open_and_save(value: str | None) -> None:
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 160)) as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfigScreen)
+            for _ in range(20):
+                await pilot.pause(0.1)
+                if app.screen.query_one(RolesForm).models:
+                    break
+            await pilot.pause()
+            select = app.screen.query_one("#cfg-prompt-language", Select)
+            if value is None:
+                assert select.value == "same"  # default: follow the interface
+                select.value = "es"
+            else:
+                assert select.value == "es"  # the saved choice is loaded
+                select.value = value
+            app.screen.query_one("#cfg-save").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#cfg-save")
+            await pilot.pause()
+
+    asyncio.run(open_and_save(None))
+    saved = config_module.load()
+    assert saved.language == "en"
+    assert saved.prompt_language == "es"
+    assert i18n.current_language() == "en"
+    assert i18n.prompt_language() == "es"
+
+    asyncio.run(open_and_save("same"))
+    assert config_module.load().prompt_language == ""
+    assert i18n.prompt_language() == "en"
