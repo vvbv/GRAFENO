@@ -9,6 +9,7 @@ from .claude import ClaudeDriver
 from .codex import CodexDriver
 from .cursor import CursorDriver
 from .kimi import KimiDriver
+from .minimax import MiniMaxDriver
 from .opencode import OpenCodeDriver
 
 __all__ = [
@@ -25,7 +26,10 @@ __all__ = [
 
 _DRIVERS: dict[str, CLIDriver] = {
     driver.name: driver
-    for driver in (OpenCodeDriver(), KimiDriver(), CodexDriver(), CursorDriver(), ClaudeDriver())
+    for driver in (
+        OpenCodeDriver(), KimiDriver(), CodexDriver(), CursorDriver(), ClaudeDriver(),
+        MiniMaxDriver(),
+    )
 }
 
 

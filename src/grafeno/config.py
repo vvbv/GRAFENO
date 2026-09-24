@@ -10,7 +10,7 @@ from typing import Any
 
 from . import _toml, paths
 
-KNOWN_CLIS = ("opencode", "kimi", "codex", "claude", "cursor")
+KNOWN_CLIS = ("opencode", "kimi", "codex", "claude", "cursor", "minimax")
 PROJECT_CONFIG_FILE = ".grafeno.toml"
 
 # Telegram integration defaults (OpenAI-compatible endpoints; Groq by default).

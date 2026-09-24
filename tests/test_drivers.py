@@ -13,6 +13,7 @@ from grafeno.drivers.claude import ClaudeDriver
 from grafeno.drivers.codex import CodexDriver
 from grafeno.drivers.cursor import CursorDriver
 from grafeno.drivers.kimi import KimiDriver
+from grafeno.drivers.minimax import MiniMaxDriver
 from grafeno.drivers.opencode import OpenCodeDriver
 
 
@@ -668,6 +669,166 @@ def test_cursor_variants_use_base_defaults():
 
 
 # ---------------------------------------------------------------------- #
+# MiniMax Code
+# ---------------------------------------------------------------------- #
+def test_minimax_command_full():
+    driver = MiniMaxDriver()
+    cmd = driver.build_command(_request(model="minimax/MiniMax-M2.7", session_id="mvs_1"))
+    assert cmd[:2] == ["mcode", "exec"]
+    assert "hola" not in cmd  # the prompt travels via stdin, not argv
+    assert cmd[cmd.index("--input") + 1] == "-"
+    assert cmd[cmd.index("--output-format") + 1] == "stream-json"
+    assert cmd[cmd.index("--permission") + 1] == "full"
+    assert cmd[cmd.index("--cwd") + 1] == str(Path("/tmp/x"))
+    assert cmd[cmd.index("--model") + 1] == "minimax/MiniMax-M2.7"
+    assert cmd[cmd.index("--session") + 1] == "mvs_1"
+    assert "--effort" not in cmd
+
+
+def test_minimax_command_minimal():
+    cmd = MiniMaxDriver().build_command(_request())
+    assert "--model" not in cmd
+    assert "--session" not in cmd
+
+
+def test_minimax_effort_maps_to_known_variant_only():
+    """Effort becomes a ``#variant`` suffix only when the model declares it:
+    ``--effort`` is rejected by the built-in models and an unknown suffix
+    fails the run ("Invalid model variant")."""
+    driver = MiniMaxDriver()
+    cmd = driver.build_command(_request(model="minimax/MiniMax-M3", effort="none-thinking"))
+    assert cmd[cmd.index("--model") + 1] == "minimax/MiniMax-M3#none-thinking"
+    cmd = driver.build_command(_request(model="minimax/MiniMax-M3", effort="xhigh"))
+    assert cmd[cmd.index("--model") + 1] == "minimax/MiniMax-M3"
+    cmd = driver.build_command(_request(model="minimax/MiniMax-M2.7", effort="thinking"))
+    assert cmd[cmd.index("--model") + 1] == "minimax/MiniMax-M2.7"
+    assert driver.build_command(_request(effort="thinking")) == driver.build_command(_request())
+
+
+def test_minimax_decode_real_event_shapes():
+    """Events captured from ``mcode exec --output-format stream-json``."""
+    driver = MiniMaxDriver()
+    base = {"schemaVersion": 1, "runId": "exec_1", "sessionId": "mvs_9", "turnId": "turn_1"}
+    for noise in ("exec.started", "session.started", "session.resumed", "turn.started"):
+        event, session, _ = driver.decode_line(json.dumps({**base, "type": noise}))
+        assert event is None
+        assert session == "mvs_9"
+    event, _, _ = driver.decode_line(json.dumps({
+        **base, "type": "item.started",
+        "item": {"id": "m:message", "type": "agent_message", "contentDelta": "ho"},
+    }))
+    assert event is None  # streaming delta: the completed item carries the text
+    event, _, _ = driver.decode_line(json.dumps({
+        **base, "type": "item.completed",
+        "item": {"id": "m:reasoning", "type": "reasoning", "content": "pensando"},
+    }))
+    assert event is None  # reasoning: raw log only
+    event, _, _ = driver.decode_line(json.dumps({
+        **base, "type": "item.completed",
+        "item": {"id": "m:message", "type": "agent_message", "content": "hola"},
+    }))
+    assert event.kind is EventKind.TEXT
+    assert event.text == "hola"
+    event, _, _ = driver.decode_line(json.dumps({
+        **base, "type": "item.completed",
+        "item": {"id": "call_1", "type": "tool_call", "toolCall": {
+            "id": "call_1", "name": "bash", "status": 2, "input": {"command": "ls -la"},
+            "output": {"content": [{"type": "text", "text": "a.txt\n"}]},
+        }},
+    }))
+    assert event.kind is EventKind.TOOL
+    assert event.text == "bash: ls -la"
+    event, _, _ = driver.decode_line(json.dumps({
+        **base, "type": "item.completed",
+        "item": {"id": "call_2", "type": "tool_call", "toolCall": {
+            "name": "write", "input": {"path": "/p/a.txt", "content": "x"},
+        }},
+    }))
+    assert event.text == "write: /p/a.txt"
+    event, _, _ = driver.decode_line(json.dumps({
+        **base, "type": "turn.failed", "status": "failed",
+        "error": {"category": "runtime", "message": "Invalid model variant", "retryable": True},
+    }))
+    assert event.kind is EventKind.ERROR
+    assert event.text == "Invalid model variant"
+    event, _, _ = driver.decode_line(json.dumps({
+        **base, "type": "exec.completed",
+        "result": {"status": "failed", "error": {"message": "Invalid model variant"}},
+    }))
+    assert event is None  # repeats turn.failed: no duplicated ERROR
+
+
+def test_minimax_tool_call_defensive():
+    """Malformed tool_call items never raise and still produce a TOOL event."""
+    driver = MiniMaxDriver()
+    event, _, _ = driver.decode_line('{"type":"item.completed","item":{"type":"tool_call"}}')
+    assert event.kind is EventKind.TOOL
+    assert event.text == "tool"
+    event, _, _ = driver.decode_line(
+        '{"type":"item.completed","item":{"type":"tool_call","toolCall":{"name":"grep","input":"x"}}}'
+    )
+    assert event.text == "grep"
+    event, _, _ = driver.decode_line('{"type":"item.completed"}')
+    assert event is None
+
+
+def test_minimax_extract_usage_turn_completed_only():
+    """inputTokens excludes cached input: cache reads/writes are added. The
+    usage repeated in ``exec.completed.result`` is not counted twice."""
+    driver = MiniMaxDriver()
+    usage_dict = {
+        "inputTokens": 0, "outputTokens": 35, "cacheReadTokens": 11283,
+        "cacheWriteTokens": 647, "totalTokens": 35,
+    }
+    _, _, usage = driver.decode_line(json.dumps({"type": "turn.completed", "usage": usage_dict}))
+    assert usage is not None and (usage.input, usage.output) == (11930, 35)
+    _, _, usage = driver.decode_line(json.dumps({
+        "type": "exec.completed", "result": {"usage": usage_dict}, "usage": usage_dict,
+    }))
+    assert usage is None
+    _, _, usage = driver.decode_line('{"type":"turn.completed","usage":{"inputTokens":"x"}}')
+    assert usage is None
+
+
+def test_minimax_list_models(monkeypatch):
+    """Built-in catalogue plus models of enabled custom providers."""
+    driver = MiniMaxDriver()
+    sample = json.dumps({
+        "minimaxModelSource": "token_plan",
+        "providers": [
+            {"providerId": "minimax_oauth", "kind": "minimax-oauth", "enabled": True, "models": []},
+            {"providerId": "acme", "kind": "custom", "enabled": True,
+             "models": [{"modelId": "deep-1", "selected": True}, {"displayName": "sin id"}]},
+            {"providerId": "off", "kind": "custom", "enabled": False,
+             "models": [{"modelId": "hidden"}]},
+        ],
+    })
+    monkeypatch.setattr(driver, "_run_sync", lambda cmd: sample)
+    assert driver.list_models() == [
+        "acme/deep-1",
+        "minimax/MiniMax-M2.7",
+        "minimax/MiniMax-M2.7-highspeed",
+        "minimax/MiniMax-M3",
+    ]
+
+
+def test_minimax_list_models_failure(monkeypatch):
+    driver = MiniMaxDriver()
+    monkeypatch.setattr(driver, "_run_sync", lambda cmd: None)
+    assert driver.list_models() == []
+    assert driver.parse_models("no es json") == []
+
+
+def test_minimax_variants_are_static():
+    """mcode exposes no variants command: the thinking variants are static."""
+    driver = MiniMaxDriver()
+    assert driver.variants_command() == []
+    assert asyncio.run(driver.list_variants_async()) == {
+        "minimax/MiniMax-M3": ["none-thinking", "thinking"],
+    }
+
+
+# ---------------------------------------------------------------------- #
 # Executable resolution (Windows .cmd shims)
 # ---------------------------------------------------------------------- #
 def test_resolve_command_uses_absolute_path(monkeypatch):
@@ -722,6 +883,7 @@ def test_stdin_prompt_flags():
     assert ClaudeDriver().stdin_prompt() is True
     assert CodexDriver().stdin_prompt() is True
     assert CursorDriver().stdin_prompt() is True
+    assert MiniMaxDriver().stdin_prompt() is True
 
     class BareDriver(CLIDriver):
         name = "bare"
@@ -878,6 +1040,7 @@ def test_registry():
     assert get_driver("codex").name == "codex"
     assert get_driver("claude").name == "claude"
     assert get_driver("cursor").name == "cursor"
+    assert get_driver("minimax").name == "minimax"
     try:
         get_driver("inexistente")
         raise AssertionError("debió lanzar KeyError")
@@ -1086,6 +1249,7 @@ def test_update_commands():
     assert KimiDriver().update_command() == ["kimi", "update"]
     assert ClaudeDriver().update_command() == ["claude", "update"]
     assert CursorDriver().update_command() == ["cursor-agent", "update"]
+    assert MiniMaxDriver().update_command() == ["mcode", "update"]
     assert CodexDriver().update_command() == []  # no self-update command known
 
 

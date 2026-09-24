@@ -6,7 +6,7 @@
 
 Multi-CLI TUI orchestrator for programming tasks: **optional first step -> plan -> implementation -> review <=> fix -> final steps**, using agent CLIs already installed on your system.
 
-- **CLIs supported today**: [OpenCode](https://opencode.ai) (`opencode`), [Kimi Code](https://moonshotai.github.io/kimi-code/) (`kimi`), [Codex CLI](https://github.com/openai/codex) (`codex`), [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) and [Cursor](https://cursor.com) (`cursor-agent`) — adding another is just creating a file under `src/grafeno/drivers/` and registering it.
+- **CLIs supported today**: [OpenCode](https://opencode.ai) (`opencode`), [Kimi Code](https://moonshotai.github.io/kimi-code/) (`kimi`), [Codex CLI](https://github.com/openai/codex) (`codex`), [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`), [Cursor](https://cursor.com) (`cursor-agent`) and [MiniMax Code](https://www.npmjs.com/package/@minimax-ai/code) (`mcode`) — adding another is just creating a file under `src/grafeno/drivers/` and registering it.
 - **Cross-platform**: Linux, macOS and Windows (Python 3.11+).
 
 ![GRAFENO task list with sample tasks: a chain with an indented child, a remote SSH task, per-task tokens and time, and the token summary by CLI + model in the footer](https://raw.githubusercontent.com/vvbv/GRAFENO/main/docs/screenshot.png)

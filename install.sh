@@ -93,7 +93,7 @@ fi
 # --- 4. CLIs de agentes (dependencias en tiempo de ejecución) ---------------
 MISSING=""
 FOUND=""
-for cli in opencode kimi codex claude cursor-agent; do
+for cli in opencode kimi codex claude cursor-agent mcode; do
   if command -v "$cli" >/dev/null 2>&1; then
     FOUND="$FOUND $cli"
   else
@@ -104,9 +104,9 @@ if [ -n "$MISSING" ]; then
   warn "CLIs de agentes no encontrados:$MISSING"
 fi
 if [ -z "$FOUND" ]; then
-  warn "No se encontró NINGÚN CLI de agente soportado (opencode, kimi, codex, claude, cursor-agent)."
+  warn "No se encontró NINGÚN CLI de agente soportado (opencode, kimi, codex, claude, cursor-agent, mcode)."
   warn "GRAFENO se ha instalado, pero NO podrá ejecutar ninguna tarea hasta que instales alguno."
-  info "Instala al menos uno: https://opencode.ai · https://moonshotai.github.io/kimi-code/ · https://github.com/openai/codex · https://docs.anthropic.com/en/docs/claude-code · https://cursor.com"
+  info "Instala al menos uno: https://opencode.ai · https://moonshotai.github.io/kimi-code/ · https://github.com/openai/codex · https://docs.anthropic.com/en/docs/claude-code · https://cursor.com · https://www.npmjs.com/package/@minimax-ai/code"
 else
   ok "CLIs de agentes detectados:$FOUND"
 fi

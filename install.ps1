@@ -116,16 +116,16 @@ if (-not $resolved) {
 # --- 4. CLIs de agentes (dependencias en tiempo de ejecucion) ---------------
 $missing = @()
 $found = @()
-foreach ($cli in 'opencode', 'kimi', 'codex', 'claude', 'cursor-agent') {
+foreach ($cli in 'opencode', 'kimi', 'codex', 'claude', 'cursor-agent', 'mcode') {
     if (Get-Command $cli -ErrorAction SilentlyContinue) { $found += $cli } else { $missing += $cli }
 }
 if ($missing.Count -gt 0) {
     Write-Warn "CLIs de agentes no encontrados: $($missing -join ', ')"
 }
 if ($found.Count -eq 0) {
-    Write-Warn "No se encontro NINGUN CLI de agente soportado (opencode, kimi, codex, claude, cursor-agent)."
+    Write-Warn "No se encontro NINGUN CLI de agente soportado (opencode, kimi, codex, claude, cursor-agent, mcode)."
     Write-Warn "GRAFENO se ha instalado, pero NO podra ejecutar ninguna tarea hasta que instales alguno."
-    Write-Info "Instala al menos uno: https://opencode.ai - https://moonshotai.github.io/kimi-code/ - https://github.com/openai/codex - https://docs.anthropic.com/en/docs/claude-code - https://cursor.com"
+    Write-Info "Instala al menos uno: https://opencode.ai - https://moonshotai.github.io/kimi-code/ - https://github.com/openai/codex - https://docs.anthropic.com/en/docs/claude-code - https://cursor.com - https://www.npmjs.com/package/@minimax-ai/code"
 } else {
     Write-Ok "CLIs de agentes detectados: $($found -join ', ')"
 }

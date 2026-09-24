@@ -2,7 +2,7 @@
 
 Orquestador TUI multi-CLI para tareas de programación: pipeline
 **plan -> implementación -> revisión <=> corrección -> pasos finales** usando
-CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex, Claude Code y Cursor).
+CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex, Claude Code, Cursor y MiniMax Code).
 
 ## Stack
 
@@ -56,7 +56,7 @@ src/grafeno/
 │   └── ws.py               #   RFC 6455: handshake (accept key), frames enmascarados de cliente, comandos JSON-RPC {"id","method","params"} y eventos {"event":...,...} con suscripción por topic
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL; expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
-│   ├── opencode.py, kimi.py, codex.py, claude.py, cursor.py#   Dialectos concretos
+│   ├── opencode.py, kimi.py, codex.py, claude.py, cursor.py, minimax.py#   Dialectos concretos (minimax = MiniMax Code, ejecutable `mcode`; el esfuerzo se mapea a la variante de thinking como sufijo `#variante` del modelo)
 │   └── __init__.py         #   Registro: get_driver(), available_clis(), fetch_all_models(), fetch_all_variants()
 ├── pipeline/
 │   ├── orchestrator.py     # Orquestador de fases (first opcional/plan/implementar/revisar/final, automode, ciclos); `_mark_failed` registra la fase fallida, `_review_fix_loop` es el bucle compartido, `run_automode_resume` reanuda desde la fase fallida reaprovechando artefactos (resetea el presupuesto de iteracion solo si estaba agotado) y `run_continue` hace lo mismo desde estados transitorios huérfanos (tarea interrumpida por TUI matada, apagón o crash del CLI) usando el mapa `INTERRUPTED_PHASE`
