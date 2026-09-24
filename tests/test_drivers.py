@@ -823,6 +823,52 @@ def test_run_failure_includes_stdout_error_events(tmp_path):
     assert result.usage_wait is not None  # the hint survives the new message
 
 
+def test_stderr_tail_starts_at_error_line():
+    """Tool output echoed to stderr before the error stays out of the message (kimi)."""
+    from grafeno.drivers.base import stderr_tail
+
+    lines = [
+        "tmp-clean=1",
+        "./1128b4f44694ed034b9155b836dea7f2",
+        "./088c9443a07af811fe5b90a080cb5aca",
+        "remaining=1",
+        "error: failed to run prompt: Prompt turn ended with reason: cancelled",
+        "See log: /Users/x/.kimi-code/logs/kimi-code.log",
+    ]
+    assert stderr_tail(lines) == (
+        "error: failed to run prompt: Prompt turn ended with reason: cancelled\n"
+        "See log: /Users/x/.kimi-code/logs/kimi-code.log"
+    )
+
+
+def test_stderr_tail_without_error_line_keeps_last_lines():
+    from grafeno.drivers.base import stderr_tail
+
+    lines = [f"line {index}" for index in range(15)] + [""]
+    assert stderr_tail(lines) == "\n".join(f"line {index}" for index in range(6, 15))
+
+
+def test_run_failure_trims_stderr_noise(tmp_path):
+    import sys
+
+    script = (
+        "import sys; sys.stderr.write('tmp-clean=1\\n./abc\\nremaining=1\\n"
+        "error: failed to run prompt: cancelled\\n'); sys.exit(1)"
+    )
+
+    class FailingKimi(KimiDriver):
+        executable = sys.executable
+
+        def build_command(self, request: RunRequest) -> list[str]:
+            return [sys.executable, "-c", script]
+
+    result = asyncio.run(FailingKimi().run(_request(workdir=tmp_path)))
+    assert not result.ok
+    assert "error: failed to run prompt: cancelled" in result.error
+    assert "tmp-clean" not in result.error
+    assert "remaining=1" not in result.error
+
+
 # ---------------------------------------------------------------------- #
 # Registry
 # ---------------------------------------------------------------------- #

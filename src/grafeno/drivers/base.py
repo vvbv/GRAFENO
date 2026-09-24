@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import codecs
 import json
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -26,6 +27,24 @@ from ..i18n import t
 
 
 _READ_CHUNK = 65536  # bytes read per stream.read() call
+_STDERR_TAIL_LINES = 10  # stderr lines kept in a failure message
+_ERROR_LINE = re.compile(r"^\s*(error|fatal|panic|exception|traceback)\b", re.IGNORECASE)
+
+
+def stderr_tail(lines: list[str], limit: int = _STDERR_TAIL_LINES) -> str:
+    """Diagnostic tail of a failed run's stderr.
+
+    Some CLIs (e.g. kimi) echo tool output to stderr before the actual error,
+    so a plain "last N lines" tail fills the failure message with command
+    output. When the tail contains an error-looking line, it starts at the
+    first one; otherwise the plain last ``limit`` lines are kept.
+    """
+    tail = [line for line in lines[-limit:] if line.strip()]
+    for index, line in enumerate(tail):
+        if _ERROR_LINE.match(line):
+            tail = tail[index:]
+            break
+    return "\n".join(tail).strip()
 
 
 async def read_lines(stream: asyncio.StreamReader) -> AsyncIterator[str]:
@@ -461,7 +480,7 @@ Reglas:
         ok = returncode == 0
         error = ""
         if not ok:
-            tail = "\n".join(stderr_parts[-10:]).strip()
+            tail = stderr_tail(stderr_parts)
             error = t("drv.exit_error", name=self.display_name, code=returncode)
             if tail:
                 error += f"\n{tail}"
@@ -471,7 +490,12 @@ Reglas:
             cli_errors = [part.strip() for part in error_parts if part.strip()]
             if cli_errors:
                 error += "\n" + "\n".join(cli_errors[-3:])
-        usage_wait = self._classify_usage_wait(error, error_parts) if not ok else None
+        # The usage classifier sees the raw tail: the trimmed message may drop
+        # lines that carry the rate-limit hint.
+        raw_tail = "\n".join(stderr_parts[-_STDERR_TAIL_LINES:])
+        usage_wait = (
+            self._classify_usage_wait(f"{error}\n{raw_tail}", error_parts) if not ok else None
+        )
         return RunResult(
             ok=ok,
             text="\n".join(part for part in text_parts if part).strip(),
