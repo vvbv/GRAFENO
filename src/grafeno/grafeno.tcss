@@ -18,6 +18,9 @@ Footer {
     padding: 0 2;
     margin-bottom: 1;
     width: 1fr;  /* leave room for the scope button in #tasks-header */
+    height: 1;
+    overflow-x: hidden;
+    text-overflow: ellipsis;
 }
 
 #location-bar {
@@ -45,6 +48,24 @@ Footer {
 #done-toggle {
     width: auto;
     margin-right: 2;
+}
+
+#date-today {
+    width: auto;
+    margin-right: 1;
+}
+
+#date-filter {
+    width: 16;
+    height: 1;
+    padding: 0;
+    margin-right: 2;
+    border: none;
+    background: #161b22;
+}
+
+#date-filter:focus {
+    background: #21262d;
 }
 
 /* ---- Lista de tareas ---- */

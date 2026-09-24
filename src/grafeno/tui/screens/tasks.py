@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from datetime import date
 from pathlib import Path
 
 from textual.app import ComposeResult
@@ -27,7 +28,7 @@ from ... import config as config_module, scheduler
 from ... import gh as gh_module
 from ... import media, models, profiles as profiles_module, remote, remotesession
 from ...i18n import t
-from ...models import Task, task_state_label
+from ...models import Task, TaskState, task_state_label
 from ...pipeline.hooks import HOOK_STAGES, format_stages
 from ...timefmt import format_duration
 from ...tokenfmt import format_tokens
@@ -318,6 +319,7 @@ class TaskListScreen(Screen[None]):
         Binding("r", "reload", t("tasks.bind.reload")),
         Binding("v", "toggle_scope", t("tasks.bind.scope")),
         Binding("h", "toggle_done", t("tasks.bind.done")),
+        Binding("d", "focus_date", t("tasks.bind.date")),
         Binding("k", "consoles", t("tasks.bind.consoles")),
         Binding("i", "reports", t("tasks.bind.reports")),
         Binding("q", "quit_hint", t("common.quit")),
@@ -327,7 +329,8 @@ class TaskListScreen(Screen[None]):
         super().__init__()
         # By default: only tasks of the current project.
         self._show_all = False
-        self._hide_done = False
+        self._done_mode = "all"  # all | hide | only
+        self._date: date | None = None  # creation-day filter; None = any day
         self._all_tasks: list[Task] = []
         self._tasks: list[Task] = []
         self._signature: tuple[tuple[str, int, int], ...] = ()  # last seen disk snapshot
@@ -338,7 +341,9 @@ class TaskListScreen(Screen[None]):
         with Horizontal(id="tasks-header"):
             yield Static(t("tasks.subtitle"), id="subtitle")
             yield Button(t("tasks.scope.project"), id="scope-toggle", compact=True)
-            yield Button(t("tasks.done.hide"), id="done-toggle", compact=True)
+            yield Button(t("tasks.done.all"), id="done-toggle", compact=True)
+            yield Button(t("tasks.date.today"), id="date-today", compact=True)
+            yield Input(placeholder=t("tasks.date.placeholder"), id="date-filter")
             yield Button(t("tasks.bind.consoles"), id="consoles-open", compact=True)
             yield Button(t("tasks.bind.reports"), id="reports-open", compact=True)
         yield DataTable(id="tasks-table", cursor_type="row", zebra_stripes=True)
@@ -381,19 +386,45 @@ class TaskListScreen(Screen[None]):
         )
         self._reload()
 
+    _DONE_MODES = ("all", "hide", "only")
+
     def action_toggle_done(self) -> None:
-        """Toggle hiding of DONE tasks whose whole chain is done."""
-        self._hide_done = not self._hide_done
+        """Cycle the completed filter: all -> hide -> only -> all."""
+        index = self._DONE_MODES.index(self._done_mode)
+        self._done_mode = self._DONE_MODES[(index + 1) % len(self._DONE_MODES)]
         self.query_one("#done-toggle", Button).label = t(
-            "tasks.done.show" if self._hide_done else "tasks.done.hide"
+            f"tasks.done.{self._done_mode}"
         )
         self._reload()
+
+    def action_focus_date(self) -> None:
+        """Focus the creation-day filter input."""
+        self.query_one("#date-filter", Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id != "date-filter":
+            return
+        raw = event.input.value.strip()
+        if not raw:
+            self._date = None
+        else:
+            try:
+                self._date = date.fromisoformat(raw)
+            except ValueError:
+                self.notify(t("tasks.date.bad_date"), severity="error")
+                return
+        self._reload()
+        self.query_one(DataTable).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "scope-toggle":
             self.action_toggle_scope()
         elif event.button.id == "done-toggle":
             self.action_toggle_done()
+        elif event.button.id == "date-today":
+            self._date = date.today()
+            self.query_one("#date-filter", Input).value = self._date.isoformat()
+            self._reload()
         elif event.button.id == "consoles-open":
             self.action_consoles()
         elif event.button.id == "reports-open":
@@ -425,10 +456,19 @@ class TaskListScreen(Screen[None]):
                     for parent in self._all_tasks
                 ))
             ]
-        if self._hide_done:
+        if self._date is not None:
+            day = self._date.isoformat()
+            self._tasks = [
+                task for task in self._tasks if task.created_at[:10] == day
+            ]
+        if self._done_mode == "hide":
             # Chain analysis over ALL tasks: a chain spanning scopes stays intact.
             hidden = scheduler.done_hidden_ids(self._all_tasks)
             self._tasks = [task for task in self._tasks if task.id not in hidden]
+        elif self._done_mode == "only":
+            self._tasks = [
+                task for task in self._tasks if task.state is TaskState.DONE
+            ]
         runtimes = getattr(self.app, "runtimes", {})
         ordered = scheduler.tree_order(self._tasks)
         for index, (task, depth) in enumerate(ordered):

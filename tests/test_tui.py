@@ -1991,9 +1991,18 @@ def test_task_list_toggle_hides_done_but_keeps_pending_chains():
             assert not any("Solo hecha" in name for name in names)
             assert not any("Sola descartada" in name for name in names)
             label = str(screen.query_one("#done-toggle").label)
-            assert "Show completed" in label
+            assert "Hide completed" in label
 
-            await pilot.press("h")
+            await pilot.press("h")  # mode "only": just the DONE tasks
+            await pilot.pause()
+            names = row_names(screen)
+            assert len(names) == 2
+            assert any("Solo hecha" in name for name in names)
+            assert any("Padre cadena" in name for name in names)
+            label = str(screen.query_one("#done-toggle").label)
+            assert "Only completed" in label
+
+            await pilot.press("h")  # back to "all"
             await pilot.pause()
             assert len(row_names(screen)) == 4
 
@@ -2028,3 +2037,101 @@ def test_clock_seconds_to_next_minute():
 
     remaining = DateTimeClock._seconds_to_next_minute()
     assert 0.0 < remaining <= 60.0
+
+
+def test_task_list_date_filter():
+    """The date filter shows only the tasks created on the selected day."""
+    import os
+    from datetime import date, timedelta
+
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task
+        from textual.widgets import DataTable, Input
+
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        cwd = os.getcwd()
+        task_today = Task.create("De hoy", "d", cwd, Config())
+        models.save(task_today)
+        task_yesterday = Task.create("De ayer", "d", cwd, Config())
+        task_yesterday.created_at = f"{yesterday.isoformat()}T10:00:00"
+        models.save(task_yesterday)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            await pilot.pause()  # let on_mount's _reload run
+            screen = app.screen
+            assert isinstance(screen, TaskListScreen)
+            table = screen.query_one(DataTable)
+            assert table.row_count == 2
+
+            date_input = screen.query_one("#date-filter", Input)
+            assert date_input.outer_size.height == 1  # single-line, like the buttons
+            await pilot.click("#date-filter")
+            date_input.value = yesterday.isoformat()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert table.row_count == 1
+            assert "De ayer" in str(table.get_row_at(0)[0])
+            assert app.focused is table
+
+            # An invalid date keeps the previous filter.
+            await pilot.click("#date-filter")
+            date_input.value = "not-a-date"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert table.row_count == 1
+
+            # An empty input clears the filter.
+            await pilot.click("#date-filter")
+            date_input.value = ""
+            await pilot.press("enter")
+            await pilot.pause()
+            assert table.row_count == 2
+
+            # The Today button filters by the current day.
+            await pilot.click("#date-today")
+            await pilot.pause()
+            assert table.row_count == 1
+            assert "De hoy" in str(table.get_row_at(0)[0])
+
+    asyncio.run(scenario())
+
+
+def test_task_list_date_filter_combines_with_scope():
+    """The date filter composes with the project/all scope toggle."""
+    import os
+    from datetime import date
+
+    async def scenario():
+        from grafeno import models
+        from grafeno.config import Config
+        from grafeno.models import Task
+        from textual.widgets import DataTable
+
+        cwd = os.getcwd()
+        in_project = Task.create("Hoy proyecto", "d", cwd, Config())
+        models.save(in_project)
+        other = Task.create("Hoy otro", "d", "/tmp", Config())
+        models.save(other)
+
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            screen = app.screen
+            table = screen.query_one(DataTable)
+
+            await pilot.click("#date-today")
+            await pilot.pause()
+            assert table.row_count == 1  # only today's task of this project
+            assert "Hoy proyecto" in str(table.get_row_at(0)[0])
+
+            await pilot.press("v")  # all projects, same day
+            await pilot.pause()
+            assert table.row_count == 2
+
+    asyncio.run(scenario())
