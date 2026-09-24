@@ -413,8 +413,15 @@ class TaskListScreen(Screen[None]):
             except ValueError:
                 self.notify(t("tasks.date.bad_date"), severity="error")
                 return
+        self._update_date_button()
         self._reload()
         self.query_one(DataTable).focus()
+
+    def _update_date_button(self) -> None:
+        """Today button toggles: apply today, or clear an active day filter."""
+        self.query_one("#date-today", Button).label = t(
+            "tasks.date.all_dates" if self._date is not None else "tasks.date.today"
+        )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "scope-toggle":
@@ -422,8 +429,14 @@ class TaskListScreen(Screen[None]):
         elif event.button.id == "done-toggle":
             self.action_toggle_done()
         elif event.button.id == "date-today":
-            self._date = date.today()
-            self.query_one("#date-filter", Input).value = self._date.isoformat()
+            date_input = self.query_one("#date-filter", Input)
+            if self._date is None:
+                self._date = date.today()
+                date_input.value = self._date.isoformat()
+            else:
+                self._date = None
+                date_input.value = ""
+            self._update_date_button()
             self._reload()
         elif event.button.id == "consoles-open":
             self.action_consoles()

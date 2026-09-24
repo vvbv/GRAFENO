@@ -2097,6 +2097,15 @@ def test_task_list_date_filter():
             await pilot.pause()
             assert table.row_count == 1
             assert "De hoy" in str(table.get_row_at(0)[0])
+            today_button = screen.query_one("#date-today")
+            assert "All dates" in str(today_button.label)
+
+            # Clicking it again clears the day filter.
+            await pilot.click("#date-today")
+            await pilot.pause()
+            assert table.row_count == 2
+            assert date_input.value == ""
+            assert "Today" in str(today_button.label)
 
     asyncio.run(scenario())
 
