@@ -26,8 +26,15 @@ def _request(**overrides) -> RunRequest:
 # ---------------------------------------------------------------------- #
 # OpenCode
 # ---------------------------------------------------------------------- #
-def test_opencode_command_full():
+def _opencode(major: int) -> OpenCodeDriver:
+    """OpenCode driver with a fixed major version (no ``--version`` spawn)."""
     driver = OpenCodeDriver()
+    driver._major = major
+    return driver
+
+
+def test_opencode_command_full():
+    driver = _opencode(1)
     cmd = driver.build_command(
         _request(model="opencode-go/kimi-k3", session_id="ses_1")
     )
@@ -42,21 +49,85 @@ def test_opencode_command_full():
 
 
 def test_opencode_command_minimal():
-    cmd = OpenCodeDriver().build_command(_request())
+    cmd = _opencode(1).build_command(_request())
     assert "-m" not in cmd
     assert "--session" not in cmd
 
 
 def test_opencode_command_with_effort_flag():
     """If ``effort`` is set, OpenCode receives ``--variant <level>``."""
-    cmd = OpenCodeDriver().build_command(_request(model="opencode-go/kimi-k3", effort="high"))
+    cmd = _opencode(1).build_command(_request(model="opencode-go/kimi-k3", effort="high"))
     assert cmd[cmd.index("--variant") + 1] == "high"
 
 
 def test_opencode_command_without_effort_has_no_variant_flag():
     """Without ``effort`` there is no ``--variant`` (compatibility with old versions)."""
-    cmd = OpenCodeDriver().build_command(_request(model="opencode-go/kimi-k3", effort=""))
+    cmd = _opencode(1).build_command(_request(model="opencode-go/kimi-k3", effort=""))
     assert "--variant" not in cmd
+
+
+def test_opencode_v2_command_has_no_dir_nor_variant():
+    """OpenCode 2.x: cwd instead of ``--dir``, effort as a ``#variant`` suffix."""
+    cmd = _opencode(2).build_command(
+        _request(model="opencode-go/kimi-k3", effort="high", session_id="ses_1")
+    )
+    assert "--dir" not in cmd
+    assert "--variant" not in cmd
+    assert cmd[cmd.index("-m") + 1] == "opencode-go/kimi-k3#high"
+    assert cmd[cmd.index("--session") + 1] == "ses_1"
+    assert cmd[cmd.index("--title") + 1] == "t"
+
+
+def test_opencode_v2_command_keeps_explicit_variant_and_skips_empty_model():
+    driver = _opencode(2)
+    cmd = driver.build_command(_request(model="p/m#low", effort="high"))
+    assert cmd[cmd.index("-m") + 1] == "p/m#low"
+    assert "-m" not in driver.build_command(_request(effort="high"))
+
+
+def test_opencode_run_env_sets_pwd_only_on_v2():
+    request = _request()
+    assert _opencode(1).run_env(request) is None
+    env = _opencode(2).run_env(request)
+    assert env["PWD"] == str(Path("/tmp/x"))
+    assert "PATH" in env  # the rest of the environment is inherited
+
+
+def test_opencode_major_version_detection(monkeypatch):
+    driver = OpenCodeDriver()
+    monkeypatch.setattr(driver, "_run_sync", lambda cmd: "opencode v2.0.17\n")
+    assert driver.major_version() == 2
+    assert driver.variants_command() == ["opencode", "api", "model.list"]
+    legacy = OpenCodeDriver()
+    monkeypatch.setattr(legacy, "_run_sync", lambda cmd: "1.14.3\n")
+    assert legacy.major_version() == 1
+    assert legacy.variants_command() == ["opencode", "models", "--verbose"]
+    unknown = OpenCodeDriver()
+    monkeypatch.setattr(unknown, "_run_sync", lambda cmd: None)
+    assert unknown.major_version() == 1
+
+
+def test_opencode_parse_variants_v2_model_list():
+    """Parsing of the real 2.x ``opencode api model.list`` output."""
+    sample = json.dumps({
+        "location": {"directory": "/home/u"},
+        "data": [
+            {"id": "big-pickle", "providerID": "opencode", "variants": []},
+            {"id": "kimi-for-coding", "providerID": "kimi-code-plan-global",
+             "variants": [{"id": "low", "settings": {}}, {"id": "max", "settings": {}},
+                          {"id": "high", "settings": {}}]},
+        ],
+    })
+    result = OpenCodeDriver().parse_variants(sample)
+    assert "opencode/big-pickle" not in result
+    assert result["kimi-code-plan-global/kimi-for-coding"] == ["high", "low", "max"]
+
+
+def test_opencode_decode_tool_v2_title_repeats_tool():
+    payload = {"type": "tool_use", "sessionID": "s", "part": {
+        "tool": "shell", "state": {"title": "shell", "input": {"command": "pwd"}}}}
+    event, _ = OpenCodeDriver().decode_event(payload)
+    assert event.text == "shell: pwd"
 
 
 def test_opencode_decode_text_and_session():
@@ -1248,7 +1319,7 @@ def test_list_variants_async_spawn_error(monkeypatch):
         raise OSError("no existe")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
-    assert asyncio.run(OpenCodeDriver().list_variants_async()) == {}
+    assert asyncio.run(_opencode(1).list_variants_async()) == {}
 
 
 def test_list_variants_async_kimi_no_command():

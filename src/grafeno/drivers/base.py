@@ -270,6 +270,10 @@ class CLIDriver:
     def build_command(self, request: RunRequest) -> list[str]:
         raise NotImplementedError
 
+    def run_env(self, request: RunRequest) -> dict[str, str] | None:
+        """Environment for the run subprocess; ``None`` inherits the current one."""
+        return None
+
     def stdin_prompt(self) -> bool:
         """True if ``RunRequest.prompt`` travels via stdin instead of argv.
 
@@ -450,6 +454,7 @@ class CLIDriver:
             process = await asyncio.create_subprocess_exec(
                 *command,
                 cwd=str(request.workdir),
+                env=self.run_env(request),
                 stdin=(asyncio.subprocess.PIPE if self.stdin_prompt() else None),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
