@@ -9,6 +9,10 @@ WebSocket clients connected to the service receive a stream of
 ``task.changed`` events polled from the on-disk task store (no App
 hooks involved); the poll loop is started by :meth:`run` and cancelled
 on :meth:`stop`.
+
+The same server also serves the web administration panel at ``/`` (see
+:mod:`server.web`); with ``web`` launch settings (``grafeno --web``) the
+panel URLs are announced once the socket is bound.
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from .. import __version__, models, paths
 from ..config import ApiConfig
@@ -28,6 +32,9 @@ from ..models import TaskState, tasks_signature
 from .httpcore import HttpServer
 from .ws import WsConnection, dispatch_upgrade
 
+if TYPE_CHECKING:
+    from .web import WebLaunch
+
 POLL_SECONDS = 2.0
 LOG_MAX_BYTES = 1_000_000  # api.log truncated past this size
 
@@ -35,9 +42,15 @@ LOG_MAX_BYTES = 1_000_000  # api.log truncated past this size
 class ServerService:
     """Bind, accept and tear down the API server."""
 
-    def __init__(self, config: ApiConfig, app: object | None = None) -> None:
+    def __init__(
+        self,
+        config: ApiConfig,
+        app: object | None = None,
+        web: "WebLaunch | None" = None,
+    ) -> None:
         self.config = config
         self.app = app
+        self.web = web  # --web launch settings (None = API enabled from config)
         self.server: Optional[asyncio.AbstractServer] = None
         self.port: int = config.port
         self.http: Optional[HttpServer] = None
@@ -67,6 +80,7 @@ class ServerService:
         self.start_monotonic = time.monotonic()
         self._log(f"listening on {self.config.host}:{self.port}")
         self._notify(t("api.started", host=self.config.host, port=self.port))
+        self._announce_web()
         self._events_task = asyncio.create_task(self._events_loop())
         try:
             async with self.server:
@@ -102,8 +116,12 @@ class ServerService:
     # Request dispatch
     # ------------------------------------------------------------------ #
     async def _handle_request(self, request):
+        from . import web
         from .auth import AuthError, check
 
+        if web.is_page_request(request):
+            # Static page without task data: it asks for the token itself.
+            return web.page_response(request), None
         try:
             check(self.config, request.headers, request.query)
         except AuthError as exc:
@@ -215,13 +233,27 @@ class ServerService:
         if not self.config.resolve_tokens():
             self._log("auth disabled: no tokens configured (accept all)")
 
-    def _notify(self, message: str) -> None:
+    def _announce_web(self) -> None:
+        """Show the web panel URLs (with the ephemeral token, never logged)."""
+        if self.web is None:
+            return
+        from .web import is_loopback
+
+        self._log(f"web panel enabled on {self.config.host}:{self.port}")
+        if not is_loopback(self.config.host):
+            self._notify(t("web.exposed", host=self.config.host), severity="warning", timeout=20)
+        if self.web.token:
+            self._notify(t("web.token_generated"), timeout=60)
+        for url in self.web.urls(self.port):
+            self._notify(t("web.ready", url=url), timeout=60)
+
+    def _notify(self, message: str, **kwargs) -> None:
         """Surface a one-line message to the App (if available)."""
         if self.app is None:
             return
         notify = getattr(self.app, "notify", None)
         if callable(notify):
             try:
-                notify(message)
+                notify(message, **kwargs)
             except Exception:
                 pass

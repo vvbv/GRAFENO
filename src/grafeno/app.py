@@ -20,6 +20,8 @@ from .models import Task, TaskState
 from .tui.runtime import TaskRuntime
 
 if TYPE_CHECKING:
+    from .config import ApiConfig
+    from .server.web import WebLaunch
     from .telegram.service import TelegramService
 
 
@@ -56,9 +58,13 @@ class GrafenoApp(App):
     # Latest GitHub release when newer than the running one; "" = none/unknown.
     available_update = Reactive("")
 
-    def __init__(self):
+    def __init__(self, web: WebLaunch | None = None, api_config: ApiConfig | None = None):
         super().__init__()
         self.title = _window_title()
+        # ``--web`` run: settings of the web panel and the API config that
+        # overrides the saved ``[api]`` section for this run only.
+        self.web = web
+        self.api_config = api_config
         # Background task runtimes: they survive navigation.
         self.runtimes: dict[str, TaskRuntime] = {}
         # Telegram bot service (None when disabled or misconfigured).
@@ -105,6 +111,8 @@ class GrafenoApp(App):
         self.set_interval(10.0, self._scheduler_tick)
         if cfg.telegram.enabled:
             self._start_telegram(cfg)
+        if self.api_config is not None:
+            cfg.api = self.api_config  # in memory only: never saved
         if cfg.api.enabled:
             self._start_api(cfg)
 
@@ -221,7 +229,7 @@ class GrafenoApp(App):
         """Start the REST + WebSocket API server worker when enabled."""
         from .server.service import ServerService
 
-        self.api_server = ServerService(cfg.api, app=self)
+        self.api_server = ServerService(cfg.api, app=self, web=self.web)
         self.run_worker(
             self.api_server.run(), exclusive=True,
             group="api-server", exit_on_error=False,
@@ -355,6 +363,28 @@ def main() -> None:
         help="Do not open the configured editor on startup.",
     )
     parser.add_argument(
+        "--web",
+        action="store_true",
+        help=(
+            "Also manage GRAFENO from a web panel (REST/WS API server + web UI) "
+            "on 127.0.0.1 unless --web-host is given."
+        ),
+    )
+    parser.add_argument(
+        "--web-host",
+        default="",
+        help=(
+            "Web panel bind address (implies --web; default 127.0.0.1). Use "
+            "0.0.0.0 to open it to the network."
+        ),
+    )
+    parser.add_argument(
+        "--web-port",
+        type=int,
+        default=0,
+        help="Web panel port (implies --web; default: the [api] port, 8735).",
+    )
+    parser.add_argument(
         "--version",
         "-v",
         action="version",
@@ -362,6 +392,8 @@ def main() -> None:
         help="Show the GRAFENO version and exit.",
     )
     args = parser.parse_args()
+    if args.web_port and not 0 < args.web_port < 65536:
+        parser.error(f"invalid --web-port: {args.web_port}")
 
     # Bootstrap the remote session BEFORE loading the config: that way
     # ``GRAFENO_HOME`` already points at the remote ``~/.grafeno`` mount
@@ -403,7 +435,12 @@ def main() -> None:
             editor.maybe_open_editor(editor_cfg, workdir)
         except Exception:  # best effort: the TUI starts even if the editor fails
             pass
-    GrafenoApp().run()
+    web_launch = api_config = None
+    if args.web or args.web_host or args.web_port:
+        from .server import web
+
+        api_config, web_launch = web.prepare(cfg.api, args.web_host, args.web_port)
+    GrafenoApp(web=web_launch, api_config=api_config).run()
 
 
 if __name__ == "__main__":
