@@ -15,7 +15,7 @@ CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex, Claude Code, Cu
 
 ```
 src/grafeno/
-├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas); intercepta el comando CLI `grafeno update` antes del argparse; `--version`/`-v` imprime la versión; arranca el servidor API (worker `api-server`) si `cfg.api.enabled`; worker `models-check` al arrancar: avisa si los modelos de la config/perfiles ya no existen en su CLI (los de la tarea se muestran en una banda roja del detalle)
+├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas); intercepta el comando CLI `grafeno update` antes del argparse; `--version`/`-v` imprime la versión; `--web` (+ `--web-host`/`--web-port`, que lo implican) activa el panel web solo para esa ejecución; arranca el servidor API (worker `api-server`) si `cfg.api.enabled` o con `--web`; worker `models-check` al arrancar: avisa si los modelos de la config/perfiles ya no existen en su CLI (los de la tarea se muestran en una banda roja del detalle)
 ├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo (incluido `first` para el primer paso), automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), idioma de la GUI (`language`) y de los prompts internos (`prompt_language`, vacío = el de la GUI), prompt de primer paso (first step, opcional) y de pasos finales, sección [telegram] (TelegramConfig), sección [api] (ApiConfig: enabled/host/port/tokens + env GRAFENO_API_TOKEN)
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict; incluye `failed_phase` (fase del pipeline que fallo, para reanudar)
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME; incluye `api_log_path()`
@@ -53,6 +53,8 @@ src/grafeno/
 │   ├── auth.py             #   Bearer/query token; denegar todo cuando no hay tokens
 │   ├── rest.py             #   Router con placeholder {task_id} precompilado (regex fullmatch); dispatch a actions.py
 │   ├── actions.py          #   Operaciones compartidas REST/WS (read y write); ApiError(status, message) -> Response
+│   ├── web.py              #   Panel web (`grafeno --web`): prepare() (copia en memoria de ApiConfig, loopback por defecto, token efímero si se expone sin tokens), URLs del panel y render de la página con las cadenas i18n inyectadas
+│   ├── static/index.html   #   Panel web de una sola página (HTML+CSS+JS sin dependencias) sobre la API REST/WS; paquete de datos en pyproject
 │   └── ws.py               #   RFC 6455: handshake (accept key), frames enmascarados de cliente, comandos JSON-RPC {"id","method","params"} y eventos {"event":...,...} con suscripción por topic
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL; expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
@@ -222,6 +224,22 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   REST, AsyncAPI 3.0 para la WebSocket) y `tests/test_api_specs.py`
   garantiza que cada ruta REST y cada método WS del código estén
   documentados.
+- **Panel web**: `grafeno --web` arranca el servidor API para esa
+  ejecución (sin tocar `config.toml`: `server/web.prepare` devuelve una
+  copia de `ApiConfig` que la App usa en memoria) y sirve en `/` un panel
+  de una sola página (`server/static/index.html`, HTML+JS sin dependencias
+  ni CDN) que usa exclusivamente la API REST/WS existente. Por defecto
+  escucha solo en `127.0.0.1`; `--web-host 0.0.0.0` lo abre a la red y
+  `--web-port` cambia el puerto (ambos implican `--web`; puerto por defecto
+  el de `[api]`). Si se expone fuera de loopback sin tokens configurados se
+  genera un token efímero (`secrets.token_urlsafe`) que solo vive en
+  memoria, viaja en la URL anunciada por notificación de la TUI y nunca se
+  escribe a disco ni al log. La página (`/`, `/index.html`) y `/favicon.ico`
+  se sirven sin autenticación (no contienen datos); todo lo demás pasa por
+  `auth.check`. Los textos de la página salen del catálogo de `i18n.py`
+  (claves `web.ui.*` listadas en `web.UI_KEYS` + `state.*`) inyectados como
+  JSON al servirla; al añadir texto al panel, añade la clave en ambos
+  idiomas y en `UI_KEYS`.
 - **Telegram**: integración opcional de un bot (sección `[telegram]` del
   config + sección en la pantalla de ajustes). El bot corre como worker de
   la App mientras la TUI está abierta (long polling con stdlib urllib:
