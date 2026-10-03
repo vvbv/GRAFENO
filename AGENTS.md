@@ -234,7 +234,9 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   de una sola página (`server/static/`: `index.html` + `app.css` + `app.js`,
   sin dependencias ni CDN) con la misma navegación que la TUI (la lista
   ocupa toda la pantalla y al abrir una tarea su detalle la reemplaza a
-  pantalla completa; Volver/Escape regresan conservando filtros y scroll)
+  pantalla completa; Volver/Escape regresan conservando filtros y scroll;
+  en las pestañas de artefactos la lista de archivos y el archivo abierto
+  se desplazan por separado)
   y las mismas opciones (lista con
   filtros y cadenas, detalle con todas las acciones del pipeline, pestañas
   de artefactos/medios/log/tokens, editor de agentes, formulario completo

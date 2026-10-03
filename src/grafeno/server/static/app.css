@@ -161,6 +161,13 @@ td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: t
 .file-list button.active { background: var(--accent-soft); color: var(--accent); }
 .file-list .group { font-size: 11.5px; color: var(--muted); margin: 8px 0 2px 4px; text-transform: uppercase; letter-spacing: .04em; }
 .file-view { flex: 1; min-width: 0; }
+/* File tabs: the list and the selected file scroll independently, so the
+   list stays in view while reading a long file. */
+.tab-body.files-mode { overflow: hidden; display: flex; flex-direction: column; padding: 0; }
+.files-mode > .files-layout { flex: 1; min-height: 0; gap: 0; }
+.files-mode .file-list { overflow-y: auto; padding: 14px 8px 14px 16px; border-right: 1px solid var(--border); }
+.files-mode .file-view { overflow-y: auto; padding: 0 16px 24px; }
+.files-mode .file-view > .toolbar { position: sticky; top: 0; z-index: 1; margin: 0 0 10px; padding: 12px 0 8px; background: var(--bg); }
 pre {
   margin: 0 0 14px; padding: 10px 12px; background: var(--code-bg); border: 1px solid var(--border);
   border-radius: 6px; white-space: pre-wrap; word-break: break-word; font: 12.5px/1.5 var(--mono);
@@ -277,6 +284,9 @@ dialog .detail { font-size: 13px; color: var(--muted); white-space: pre-line; }
   .form-grid { grid-template-columns: 1fr; }
   .files-layout { flex-direction: column; }
   .file-list { width: auto; }
+  .tab-body.files-mode { overflow: auto; display: block; }
+  .files-mode .file-list, .files-mode .file-view { overflow: visible; }
+  .files-mode .file-list { border-right: none; border-bottom: 1px solid var(--border); }
   header.top { gap: 8px; padding: 8px 12px; }
   header.top .version, #status-text { display: none; }
   .page { padding: 14px 16px 40px; }
