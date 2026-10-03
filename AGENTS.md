@@ -54,7 +54,8 @@ src/grafeno/
 │   ├── rest.py             #   Router con placeholder {task_id} precompilado (regex fullmatch); dispatch a actions.py
 │   ├── actions.py          #   Operaciones compartidas REST/WS (read y write); ApiError(status, message) -> Response
 │   ├── web.py              #   Panel web (`grafeno --web`): prepare() (copia en memoria de ApiConfig, loopback por defecto, token efímero si se expone sin tokens), URLs del panel y render de la página con las cadenas i18n inyectadas
-│   ├── static/index.html   #   Panel web de una sola página (HTML+CSS+JS sin dependencias) sobre la API REST/WS; paquete de datos en pyproject
+│   ├── settings.py         #   Operaciones REST/WS de catálogo, reportes y ajustes: opciones del formulario, modelos+variantes (caché 10 min), autocompletado de directorios, issues de gh, reporte de uso y ajustes globales (secretos de solo escritura)
+│   ├── static/             #   Panel web (paquete de datos en pyproject): index.html (shell + JSON de arranque no ejecutable), app.css, app.js (SPA vanilla sin dependencias ni CDN: lista, detalle, nueva tarea, reportes, ajustes)
 │   └── ws.py               #   RFC 6455: handshake (accept key), frames enmascarados de cliente, comandos JSON-RPC {"id","method","params"} y eventos {"event":...,...} con suscripción por topic
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL; expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
@@ -194,14 +195,17 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   separada que sigue funcionando como canal alternativo). Tokens también por
   env `GRAFENO_API_TOKEN` (prioridad al env). El router se compila al importar
   con `re.fullmatch` y soporta `{task_id}` como placeholder. Acciones REST
-  bajo `/api/v1`: status, tasks (GET/POST con `attachments?` opcional base64
+  bajo `/api/v1`: status, tasks (GET/POST con todas las opciones del
+  formulario de la TUI y `attachments?` opcional base64
   máx. 10: los adjuntos de audio por nombre de archivo (`AUDIO_SUFFIXES`:
   ogg/oga/opus/mp3/wav/m4a/flac) se transcriben además con el proveedor STT
   configurado y el texto se añade a la descripción, devolviendo en la
   respuesta un array `transcriptions` por adjunto con `{name, text}` o
-  `{name, error}`; `/{id}/start|resume|restart|
-  pause|extend|discard|mark-done`, `/{id}/logs`, `/{id}/artifacts?kind=
-  first|plan|review|final&cycle=`, projects, y `/audio/speech` (síntesis
+  `{name, error}`; `/{id}/start|resume|restart|reset|continue|approve-plan|
+  run|edit|roles|pause|extend|discard|mark-done`, `/{id}/logs`, `/{id}/artifacts?kind=
+  first|plan|review|final&cycle=`, `/{id}/artifact?kind=&path=`,
+  `/{id}/media?name=`, projects, options, models, fs/dirs, issues,
+  reports, settings (GET/POST) y `/audio/speech` (síntesis
   TTS bajo demanda con el proveedor configurado: WAV por defecto u OGG/OPUS
   cuando `format=ogg` y hay `ffmpeg` instalado en el host). WebSocket en `/api/v1/ws` con
   handshake RFC 6455 (cliente enmascarado obligatorio; servidor sin
@@ -227,19 +231,38 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
 - **Panel web**: `grafeno --web` arranca el servidor API para esa
   ejecución (sin tocar `config.toml`: `server/web.prepare` devuelve una
   copia de `ApiConfig` que la App usa en memoria) y sirve en `/` un panel
-  de una sola página (`server/static/index.html`, HTML+JS sin dependencias
-  ni CDN) que usa exclusivamente la API REST/WS existente. Por defecto
+  de una sola página (`server/static/`: `index.html` + `app.css` + `app.js`,
+  sin dependencias ni CDN) con las mismas opciones que la TUI (lista con
+  filtros y cadenas, detalle con todas las acciones del pipeline, pestañas
+  de artefactos/medios/log/tokens, editor de agentes, formulario completo
+  de nueva tarea, reportes y ajustes globales; las consolas siguen siendo
+  solo de la TUI) que usa exclusivamente la API REST/WS. Las reglas de qué
+  acción aplica en cada estado viven en el servidor
+  (`actions.available_actions`, mismas que el detalle de la TUI) y viajan
+  en el detalle de la tarea. Por defecto
   escucha solo en `127.0.0.1`; `--web-host 0.0.0.0` lo abre a la red y
   `--web-port` cambia el puerto (ambos implican `--web`; puerto por defecto
   el de `[api]`). Si se expone fuera de loopback sin tokens configurados se
   genera un token efímero (`secrets.token_urlsafe`) que solo vive en
   memoria, viaja en la URL anunciada por notificación de la TUI y nunca se
-  escribe a disco ni al log. La página (`/`, `/index.html`) y `/favicon.ico`
-  se sirven sin autenticación (no contienen datos); todo lo demás pasa por
-  `auth.check`. Los textos de la página salen del catálogo de `i18n.py`
-  (claves `web.ui.*` listadas en `web.UI_KEYS` + `state.*`) inyectados como
-  JSON al servirla; al añadir texto al panel, añade la clave en ambos
-  idiomas y en `UI_KEYS`.
+  escribe a disco ni al log. La página (`/`, `/index.html`), sus assets
+  (`/assets/app.css`, `/assets/app.js`, lista blanca `web.ASSETS`) y
+  `/favicon.ico` se sirven sin autenticación (no contienen datos); todo lo
+  demás pasa por `auth.check`. La página lleva CSP estricta (`script-src
+  'self'`, sin scripts inline) y el DOM se construye siempre con
+  `textContent` (Markdown incluido: renderizador propio que crea nodos, sin
+  `innerHTML`). Los textos salen del catálogo de `i18n.py`: se inyectan como
+  JSON todas las claves con los prefijos de `web.UI_PREFIXES` (reutiliza
+  los textos de la TUI: `nt.*`, `det.*`, `cfg.*`, `reports.*`...) más las
+  propias `web.*`; al añadir texto al panel usa `tr("clave")` con una clave
+  existente o nueva en ambos idiomas (`tests/test_api_web.py` exige que
+  toda clave usada en `app.js` exista en en/es). Acciones del servidor para
+  el panel (también en REST/WS): `run` (fase concreta o automode
+  respetando `confirm_plan`), `continue`, `approve-plan`, `reset`
+  (cancela y espera al worker, igual que `R`), `edit` (nombre,
+  descripción y re-encadenado validado con `scheduler.rechain_error`),
+  `roles`, `artifact` y `media`; `discard`/`restart` esperan a que el
+  worker cancelado termine para que su PAUSED no pise el estado final.
 - **Telegram**: integración opcional de un bot (sección `[telegram]` del
   config + sección en la pantalla de ajustes). El bot corre como worker de
   la App mientras la TUI está abierta (long polling con stdlib urllib:

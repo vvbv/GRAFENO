@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GRAFENO Remote API
-  version: 1.2.0
+  version: 1.3.0
   summary: REST API of the GRAFENO remote server (optional token authentication).
   description: |
     REST control API exposed by the GRAFENO TUI while it is running
@@ -33,6 +33,12 @@ tags:
     description: Project list with task counts.
   - name: audio
     description: Audio synthesis (TTS) endpoint.
+  - name: catalog
+    description: New-task form options, model catalogue, directories and GitHub issues.
+  - name: reports
+    description: Usage reports (tokens, models, time and projects per period).
+  - name: settings
+    description: Global settings (same sections as the TUI settings screen).
 paths:
   /api/v1/status:
     get:
@@ -221,7 +227,7 @@ paths:
   /api/v1/tasks/{task_id}/start:
     post:
       tags: [tasks]
-      summary: Start the full automode pipeline.
+      summary: Start the full automode pipeline (stops after the plan when the task has `confirm_plan`).
       operationId: startTask
       parameters:
         - $ref: "#/components/parameters/TaskId"
@@ -466,6 +472,316 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/v1/tasks/{task_id}/artifact:
+    get:
+      tags: [tasks]
+      summary: One `.md` of a phase by its path relative to the phase root (any cycle), normalized like the TUI viewer.
+      operationId: getTaskArtifactFile
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/KindQuery"
+        - {name: path, in: query, required: true, description: "Relative path, e.g. `plan.md` or `ciclo-02/plan.md`.", schema: {type: string}}
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactFileResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/tasks/{task_id}/media:
+    get:
+      tags: [tasks]
+      summary: Raw file of the task media dir (images, audio, video); MIME type by extension.
+      operationId: getTaskMedia
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - {name: name, in: query, required: true, description: "File name as listed in the task detail `media`.", schema: {type: string}}
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/tasks/{task_id}/run:
+    post:
+      tags: [tasks]
+      summary: Run one pipeline phase or the full automode (same checks as the TUI detail).
+      operationId: runTaskPhase
+      description: "`automode` respects `confirm_plan`: it stops after the plan and the task waits in `planned` for `approve-plan`."
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunRequest"
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/tasks/{task_id}/continue:
+    post:
+      tags: [tasks]
+      summary: Continue a failed or interrupted task from the phase where it stopped (TUI `c`).
+      operationId: continueTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/tasks/{task_id}/approve-plan:
+    post:
+      tags: [tasks]
+      summary: Approve the plan of a `planned` task, then implementation + review loop (plan confirmation point).
+      operationId: approvePlan
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/tasks/{task_id}/reset:
+    post:
+      tags: [tasks]
+      summary: Cancel any running execution and reset the task to `draft`, deleting its artifacts (TUI `R`).
+      operationId: resetTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkStateResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/tasks/{task_id}/edit:
+    post:
+      tags: [tasks]
+      summary: Edit name, description and/or chain parent (validated like the TUI rechain).
+      operationId: editTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskEditRequest"
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskCreateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/tasks/{task_id}/roles:
+    post:
+      tags: [tasks]
+      summary: Change the agents (cli/model/effort per role) of a task, or apply a profile.
+      operationId: updateTaskRoles
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskRolesRequest"
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetailResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/options:
+    get:
+      tags: [catalog]
+      summary: Defaults and choices of the new-task form (config defaults, profiles, hook stages, CLIs, session mode).
+      operationId: getFormOptions
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OptionsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/models:
+    get:
+      tags: [catalog]
+      summary: Models and effort variants per CLI (cached for 10 minutes; `refresh=1` reloads them).
+      operationId: listModels
+      parameters:
+        - {name: refresh, in: query, required: false, schema: {type: string, enum: ["1", "true"]}}
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/fs/dirs:
+    get:
+      tags: [catalog]
+      summary: Subdirectories for the workdir autocompletion (directory or partial path).
+      operationId: listDirectories
+      parameters:
+        - {name: path, in: query, required: false, schema: {type: string}}
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/issues:
+    get:
+      tags: [catalog]
+      summary: Open GitHub issues of a project (requires `gh` with access; empty otherwise).
+      operationId: listIssues
+      parameters:
+        - {name: workdir, in: query, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssuesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/reports:
+    get:
+      tags: [reports]
+      summary: Usage aggregated by day, CLI+model and project for a period (`period` wins over `from`/`to`; default today).
+      operationId: getUsageReport
+      parameters:
+        - {name: period, in: query, required: false, schema: {type: string, enum: [day, week, month]}}
+        - {name: from, in: query, required: false, schema: {type: string, format: date}}
+        - {name: to, in: query, required: false, schema: {type: string, format: date}}
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /api/v1/settings:
+    get:
+      tags: [settings]
+      summary: Global settings; secrets are reported as `*_set` flags, never their value.
+      operationId: getSettings
+      responses:
+        "200":
+          description: Current settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [settings]
+      summary: Save the sections present in the body (secrets are write-only; `<key>_clear` empties them).
+      operationId: updateSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Settings"
+      responses:
+        "200":
+          description: Saved settings (same shape as GET).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/v1/audio/speech:
     post:
       tags: [audio]
@@ -519,6 +835,37 @@ paths:
                 $ref: "#/components/schemas/Error"
 
 components:
+  responses:
+    BadRequest:
+      description: Validation error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or invalid token (only enforced when tokens are configured).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Task or file not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: The action does not apply to the task right now (running, discarded, wrong state); the message is localized.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unavailable:
+      description: App unavailable (write op without the TUI runtime).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
   securitySchemes:
     BearerAuth:
       type: http
@@ -616,6 +963,29 @@ components:
           type: string
         parent_id:
           type: string
+        iteration: {type: integer}
+        cycle: {type: integer}
+        repeat_mode: {type: string}
+        usage_waiting:
+          type: boolean
+          description: Waiting for the CLI usage quota to reset.
+        running:
+          type: boolean
+          description: A pipeline of the task is running in this TUI.
+        tokens:
+          $ref: "#/components/schemas/TokenTotals"
+        tokens_by_agent:
+          type: object
+          description: '"cli/model" -> [input, output].'
+          additionalProperties:
+            type: array
+            items: {type: integer}
+        duration_seconds: {type: integer}
+        created_at: {type: string}
+        updated_at: {type: string}
+        depth:
+          type: integer
+          description: Chain depth in the list endpoint (children follow their parent).
       required: [id, name, workdir, state, automode]
     TaskRaw:
       type: object
@@ -695,6 +1065,90 @@ components:
           $ref: "#/components/schemas/TokenTotals"
         total_duration_seconds:
           type: number
+        phases:
+          type: array
+          description: Phases of the progress bar (`first` only when the task defines it).
+          items: {type: string}
+        phase_bar:
+          type: array
+          description: Progress bar as the TUI draws it (`status` pending/active/done per phase).
+          items:
+            type: object
+            properties:
+              key: {type: string}
+              label: {type: string}
+              status: {type: string, enum: [pending, active, done]}
+        usage_waiting:
+          type: boolean
+          description: Waiting for the CLI usage quota to reset (transient, only while running).
+        agents:
+          type: array
+          description: Agent and consumption per phase (TUI agents bar).
+          items:
+            type: object
+            properties:
+              phase: {type: string}
+              label: {type: string}
+              cli: {type: string}
+              model: {type: string}
+              effort: {type: string}
+              tokens:
+                oneOf:
+                  - $ref: "#/components/schemas/TokenTotals"
+                  - type: "null"
+        tokens_by_phase:
+          type: array
+          items:
+            type: object
+            properties:
+              phase: {type: string}
+              label: {type: string}
+              input: {type: integer}
+              output: {type: integer}
+        tokens_by_agent:
+          type: array
+          items:
+            type: object
+            properties:
+              label: {type: string}
+              input: {type: integer}
+              output: {type: integer}
+        runtime:
+          type: object
+          description: Live execution data of this TUI (activity bar).
+          properties:
+            running: {type: boolean}
+            phase_label: {type: string}
+            phase_elapsed_seconds: {type: integer}
+            silence_seconds: {type: integer}
+            event_count: {type: integer}
+            pending_plan_confirm: {type: boolean}
+            total_seconds: {type: integer}
+        actions:
+          type: object
+          description: Which actions apply right now (same rules as the TUI detail).
+          additionalProperties: {type: boolean}
+        artifacts:
+          type: object
+          description: Relative `.md` paths per phase (`first`, `plan`, `review`, `final`), every cycle.
+          additionalProperties:
+            type: array
+            items: {type: string}
+        media:
+          type: array
+          items: {type: string}
+        models_missing:
+          type: array
+          description: Roles pointing at a model the CLI no longer lists.
+          items: {type: string}
+        rechain_candidates:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: string}
+              name: {type: string}
+        remote_target: {type: string}
     TaskDetailResponse:
       type: object
       description: Wrapper with the task payload under the `task` key (see `actions.get_task`).
@@ -710,8 +1164,42 @@ components:
         automode:
           type: boolean
           default: true
+        remote:
+          type: string
+          description: Remote project `user@host:/path` (then `workdir` is not needed). Ignored in session mode.
         parent_id: {type: string}
-        scheduled_at: {type: string}
+        scheduled_at:
+          type: string
+          description: Local `YYYY-MM-DD HH:MM` (or with `T`).
+        repeat_mode:
+          type: string
+          enum: ["", interval, infinite]
+          description: A repetitive task always runs in automode.
+        repeat_interval_minutes: {type: integer, minimum: 1}
+        plan_reuse:
+          type: string
+          enum: [reuse, replan, reevaluate]
+        test_command: {type: string}
+        first_prompt: {type: string}
+        final_prompt: {type: string}
+        confirm_plan: {type: boolean}
+        create_branch: {type: boolean}
+        hook_command: {type: string}
+        hook_stages:
+          description: List or comma-separated string of first/plan/implement/review/fix/final/tests.
+          oneOf:
+            - type: string
+            - type: array
+              items: {type: string}
+        hook_mode:
+          type: string
+          enum: [override, both]
+        use_global_references: {type: boolean}
+        use_project_references: {type: boolean}
+        references:
+          type: array
+          items:
+            $ref: "#/components/schemas/Reference"
         origin: {type: string}
         profile:
           type: string
@@ -739,7 +1227,7 @@ components:
                 format: byte
                 description: Base64-encoded file content.
             required: [data]
-      required: [name, workdir]
+      required: [name]
     TaskCreateResponse:
       type: object
       properties:
@@ -755,8 +1243,13 @@ components:
       properties:
         tasks:
           type: array
+          description: Chain order (each child right after its parent, see `depth`).
           items:
             $ref: "#/components/schemas/TaskSummary"
+        done_hidden_ids:
+          type: array
+          description: Finished tasks that can be hidden without breaking a chain.
+          items: {type: string}
     ProjectItem:
       type: object
       properties:
@@ -799,6 +1292,14 @@ components:
         request:
           type: string
           description: Free-text request for the new cycle.
+        attachments:
+          type: array
+          description: Optional files saved to the task media and referenced in the request (same shape as task creation).
+          items:
+            type: object
+            properties:
+              name: {type: string}
+              data: {type: string, format: byte}
       required: [request]
     LogsResponse:
       type: object
@@ -807,6 +1308,14 @@ components:
           type: array
           items:
             type: string
+        entries:
+          type: array
+          description: Same lines with their TUI style (e.g. `bold red`, `cyan`, `dim`).
+          items:
+            type: object
+            properties:
+              text: {type: string}
+              style: {type: string}
     ArtifactsResponse:
       type: object
       properties:
@@ -822,3 +1331,239 @@ components:
             properties:
               name: {type: string}
               content: {type: string}
+    ArtifactFileResponse:
+      type: object
+      properties:
+        kind: {type: string}
+        path: {type: string}
+        content: {type: string}
+    Reference:
+      type: object
+      properties:
+        name: {type: string}
+        description: {type: string}
+        path:
+          type: string
+          description: Local directory or URL.
+    RunRequest:
+      type: object
+      properties:
+        phase:
+          type: string
+          enum: [plan, implement, review, fix, final, tests, automode]
+      required: [phase]
+    TaskEditRequest:
+      type: object
+      description: Only the present fields change.
+      properties:
+        name: {type: string}
+        description: {type: string}
+        parent_id:
+          type: string
+          description: Empty = unchain (root).
+    TaskRolesRequest:
+      type: object
+      properties:
+        roles:
+          type: object
+          description: Keys first/planner/implementer/reviewer/final.
+          additionalProperties:
+            $ref: "#/components/schemas/RoleConfig"
+        profile:
+          type: string
+          description: Alone, copies the profile roles; with `roles`, kept only when they match.
+    Profile:
+      type: object
+      properties:
+        name: {type: string}
+        summary: {type: string}
+        roles:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/RoleConfig"
+    OptionsResponse:
+      type: object
+      properties:
+        defaults:
+          type: object
+          properties:
+            workdir: {type: string}
+            automode: {type: boolean}
+            confirm_plan: {type: boolean}
+            create_branch: {type: boolean}
+            test_command: {type: string}
+            first_prompt: {type: string}
+            final_prompt: {type: string}
+            roles:
+              type: object
+              additionalProperties:
+                $ref: "#/components/schemas/RoleConfig"
+        profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Profile"
+        hook_stages:
+          type: array
+          items: {type: string}
+        known_clis:
+          type: array
+          items: {type: string}
+        available_clis:
+          type: array
+          items: {type: string}
+        session:
+          type: object
+          properties:
+            active: {type: boolean}
+            label: {type: string}
+    ModelsResponse:
+      type: object
+      properties:
+        models:
+          type: object
+          additionalProperties:
+            type: array
+            items: {type: string}
+        variants:
+          type: object
+          description: cli -> model -> effort levels.
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: array
+              items: {type: string}
+    DirsResponse:
+      type: object
+      properties:
+        path: {type: string}
+        parent: {type: string}
+        exists: {type: boolean}
+        dirs:
+          type: array
+          items: {type: string}
+    IssuesResponse:
+      type: object
+      properties:
+        available: {type: boolean}
+        issues:
+          type: array
+          items:
+            type: object
+            properties:
+              number: {type: integer}
+              title: {type: string}
+              body: {type: string}
+    ReportResponse:
+      type: object
+      properties:
+        from: {type: string, format: date}
+        to: {type: string, format: date}
+        tokens:
+          $ref: "#/components/schemas/TokenTotals"
+        seconds: {type: integer}
+        tasks: {type: integer}
+        projects: {type: integer}
+        by_day:
+          type: array
+          items:
+            type: object
+            properties:
+              date: {type: string}
+              input: {type: integer}
+              output: {type: integer}
+              seconds: {type: integer}
+        by_model:
+          type: array
+          items:
+            type: object
+            properties:
+              label: {type: string}
+              input: {type: integer}
+              output: {type: integer}
+        by_project:
+          type: array
+          items:
+            type: object
+            properties:
+              project: {type: string}
+              input: {type: integer}
+              output: {type: integer}
+              seconds: {type: integer}
+              tasks: {type: integer}
+    Settings:
+      type: object
+      description: >-
+        Global settings, same sections as the TUI settings screen. On save,
+        only the present sections change. Secrets (`telegram.bot_token`,
+        `telegram.stt_key`, `telegram.tts_key`, `api.tokens`) are write-only:
+        GET returns `<key>_set`, a non-empty value replaces them and
+        `<key>_clear: true` empties them. `[telegram]` and `[api]` changes
+        apply on the next TUI start.
+      properties:
+        roles:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/RoleConfig"
+        automode:
+          type: object
+          properties:
+            enabled: {type: boolean}
+            max_iterations: {type: integer, minimum: 1}
+            test_command: {type: string}
+            create_branch: {type: boolean}
+            confirm_plan: {type: boolean}
+        auto_update: {type: boolean}
+        self_update: {type: boolean}
+        first_prompt: {type: string}
+        final_prompt: {type: string}
+        hook:
+          type: object
+          properties:
+            command: {type: string}
+            stages:
+              type: array
+              items: {type: string}
+        editor:
+          type: object
+          properties:
+            enabled: {type: boolean}
+            editor: {type: string}
+            mode: {type: string, enum: [window, split, none]}
+            side: {type: string, enum: [left, right]}
+        language: {type: string, enum: [en, es]}
+        prompt_language:
+          type: string
+          description: Empty = same as the GUI language.
+        workspaces:
+          type: array
+          items: {type: string}
+        references:
+          type: array
+          items:
+            $ref: "#/components/schemas/Reference"
+        triggers:
+          type: array
+          items:
+            type: object
+            properties:
+              name: {type: string}
+              description: {type: string}
+              phases:
+                type: string
+                description: "`all` or comma-separated stages."
+              timing: {type: string, enum: [before, after]}
+              workdir: {type: string}
+        profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Profile"
+        telegram:
+          type: object
+          additionalProperties: true
+        api:
+          type: object
+          properties:
+            enabled: {type: boolean}
+            host: {type: string}
+            port: {type: integer}
+            tokens_set: {type: boolean}

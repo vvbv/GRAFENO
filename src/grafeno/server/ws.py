@@ -17,7 +17,7 @@ import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Optional
 
-from . import actions
+from . import actions, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -342,7 +342,79 @@ async def _tasks_resume(service: "ServerService", params: dict, conn: "WsConnect
 
 
 async def _tasks_restart(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    return actions.restart_task(service, _required_task_id(params))
+    return await actions.restart_task(service, _required_task_id(params))
+
+
+async def _tasks_reset(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await actions.reset_task(service, _required_task_id(params))
+
+
+async def _tasks_run(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.run_phase(service, _required_task_id(params), str(params.get("phase") or ""))
+
+
+async def _tasks_continue(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.continue_task(service, _required_task_id(params))
+
+
+async def _tasks_approve_plan(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.approve_plan(service, _required_task_id(params))
+
+
+async def _tasks_edit(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.edit_task(service, _required_task_id(params), params)
+
+
+async def _tasks_roles(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.update_roles(service, _required_task_id(params), params)
+
+
+async def _tasks_artifact(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.get_artifact_file(
+        service, _required_task_id(params),
+        kind=str(params.get("kind") or ""), path=str(params.get("path") or ""),
+    )
+
+
+async def _tasks_media(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    import base64
+
+    name = str(params.get("name") or "")
+    data, mime = actions.get_media(service, _required_task_id(params), name)
+    return {"name": name, "mime": mime, "data": base64.b64encode(data).decode("ascii")}
+
+
+async def _options_get(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return settings.form_options(service)
+
+
+async def _models_list(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await settings.models_catalog(service, refresh=bool(params.get("refresh")))
+
+
+async def _fs_dirs(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return settings.list_dirs(service, str(params.get("path") or ""))
+
+
+async def _issues_list(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await settings.list_issues(service, str(params.get("workdir") or ""))
+
+
+async def _reports_get(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return settings.usage_report(
+        service,
+        start=str(params.get("from") or ""),
+        end=str(params.get("to") or ""),
+        period=str(params.get("period") or ""),
+    )
+
+
+async def _settings_get(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return settings.get_settings(service)
+
+
+async def _settings_update(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return settings.update_settings(service, params)
 
 
 async def _tasks_pause(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
@@ -350,7 +422,7 @@ async def _tasks_pause(service: "ServerService", params: dict, conn: "WsConnecti
 
 
 async def _tasks_discard(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    return actions.discard_task(service, _required_task_id(params))
+    return await actions.discard_task(service, _required_task_id(params))
 
 
 async def _tasks_mark_done(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
@@ -361,7 +433,10 @@ async def _tasks_extend(service: "ServerService", params: dict, conn: "WsConnect
     request = params.get("request")
     if not request or not isinstance(request, str):
         raise actions.ApiError(400, "request is required")
-    return actions.extend_task(service, _required_task_id(params), request=request)
+    attachments = actions._decode_attachments(params)
+    return actions.extend_task(
+        service, _required_task_id(params), request=request, attachments=attachments
+    )
 
 
 async def _subscribe(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
@@ -392,6 +467,21 @@ METHODS: dict[str, Callable] = {
     "tasks.discard": _tasks_discard,
     "tasks.mark_done": _tasks_mark_done,
     "tasks.extend": _tasks_extend,
+    "tasks.reset": _tasks_reset,
+    "tasks.run": _tasks_run,
+    "tasks.continue": _tasks_continue,
+    "tasks.approve_plan": _tasks_approve_plan,
+    "tasks.edit": _tasks_edit,
+    "tasks.roles": _tasks_roles,
+    "tasks.artifact": _tasks_artifact,
+    "tasks.media": _tasks_media,
+    "options.get": _options_get,
+    "models.list": _models_list,
+    "fs.dirs": _fs_dirs,
+    "issues.list": _issues_list,
+    "reports.get": _reports_get,
+    "settings.get": _settings_get,
+    "settings.update": _settings_update,
     "subscribe": _subscribe,
     "unsubscribe": _unsubscribe,
 }

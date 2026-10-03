@@ -34,7 +34,7 @@ where = ["src"]
 version = {attr = "grafeno.__version__"}
 
 [tool.setuptools.package-data]
-grafeno = ["*.tcss", "server/static/*.html"]
+grafeno = ["*.tcss", "server/static/*.html", "server/static/*.css", "server/static/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

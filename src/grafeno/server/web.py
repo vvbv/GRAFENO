@@ -24,7 +24,7 @@ from urllib.parse import quote
 
 from .. import __version__
 from ..config import ApiConfig
-from ..i18n import current_language, t
+from ..i18n import catalog, current_language
 from ..models import TaskState
 from .httpcore import Request, Response
 
@@ -34,32 +34,26 @@ FAVICON_PATH = "/favicon.ico"
 WILDCARD_HOSTS = ("0.0.0.0", "::", "")
 _I18N_MARKER = "/*__GRAFENO_I18N__*/null"
 
-# Catalog keys the page needs (the page receives them already translated).
-UI_KEYS = (
-    "web.ui.title", "web.ui.new_task", "web.ui.search", "web.ui.all_states",
-    "web.ui.all_projects", "web.ui.hide_done", "web.ui.col_name",
-    "web.ui.col_project", "web.ui.col_state", "web.ui.empty", "web.ui.select",
-    "web.ui.back", "web.ui.live", "web.ui.polling", "web.ui.offline",
-    "web.ui.token_title", "web.ui.token_help", "web.ui.token_label",
-    "web.ui.token_submit", "web.ui.logout", "web.ui.tab_info",
-    "web.ui.tab_description", "web.ui.tab_log", "web.ui.tab_first",
-    "web.ui.tab_plan", "web.ui.tab_review", "web.ui.tab_final", "web.ui.cycle",
-    "web.ui.no_files", "web.ui.no_log", "web.ui.refresh", "web.ui.start",
-    "web.ui.resume", "web.ui.restart", "web.ui.pause", "web.ui.discard",
-    "web.ui.mark_done", "web.ui.extend", "web.ui.confirm_restart",
-    "web.ui.confirm_discard", "web.ui.confirm_mark_done", "web.ui.extend_title",
-    "web.ui.extend_label", "web.ui.cancel", "web.ui.submit", "web.ui.name",
-    "web.ui.workdir", "web.ui.description", "web.ui.profile",
-    "web.ui.profile_help", "web.ui.parent", "web.ui.parent_none",
-    "web.ui.automode", "web.ui.start_now", "web.ui.attachments",
-    "web.ui.created", "web.ui.done_ok", "web.ui.error", "web.ui.field_id",
-    "web.ui.field_state", "web.ui.field_workdir", "web.ui.field_remote",
-    "web.ui.field_profile", "web.ui.field_origin", "web.ui.field_automode",
-    "web.ui.field_cycle", "web.ui.field_iteration", "web.ui.field_branch",
-    "web.ui.field_scheduled", "web.ui.field_parent", "web.ui.field_failed_phase",
-    "web.ui.field_tokens", "web.ui.field_duration", "web.ui.field_created",
-    "web.ui.field_updated", "web.ui.field_roles", "web.ui.yes", "web.ui.no",
-    "web.ui.transcription_failed",
+ASSET_PREFIX = "/assets/"
+# Static assets of the panel (served without auth, like the page itself).
+ASSETS = {
+    "app.css": "text/css; charset=utf-8",
+    "app.js": "text/javascript; charset=utf-8",
+}
+# Catalog key prefixes the page needs (sent already translated): the panel
+# reuses the TUI texts (new-task form, detail, settings, reports...) and
+# adds its own ``web.*`` keys.
+UI_PREFIXES = (
+    "web.", "state.", "phase.", "common.", "tasks.", "nt.", "det.", "act.",
+    "pc.", "pconf.", "phaseinfo.", "rm.", "et.", "roles.", "cfg.", "hook.",
+    "refs.", "trig.", "prof.", "reports.", "media.",
+)
+# The page only loads its own assets; inline scripts are not allowed (the
+# boot data travels as a non-executable JSON block).
+CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; "
+    "img-src 'self' blob: data:; media-src 'self' blob:; "
+    "connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 )
 
 
@@ -134,39 +128,53 @@ def panel_urls(host: str, port: int, token: str = "") -> list[str]:
 
 def is_page_request(request: Request) -> bool:
     """Requests answered by the panel itself (served without auth)."""
-    return request.method == "GET" and request.path in PAGE_PATHS + (FAVICON_PATH,)
+    if request.method != "GET":
+        return False
+    if request.path in PAGE_PATHS + (FAVICON_PATH,):
+        return True
+    return request.path.startswith(ASSET_PREFIX) and request.path[len(ASSET_PREFIX):] in ASSETS
 
 
-def _catalog() -> dict[str, str]:
-    strings = {key: t(key) for key in UI_KEYS}
-    for state in TaskState:
-        strings[f"state.{state.value}"] = t(f"state.{state.value}")
-    return strings
+def _static(name: str) -> str:
+    return resources.files(__package__).joinpath(f"static/{name}").read_text(encoding="utf-8")
 
 
 def render_page() -> str:
     """The panel HTML with the translated strings of the active language."""
-    template = resources.files(__package__).joinpath("static/index.html").read_text(encoding="utf-8")
     data = {
         "lang": current_language(),
         "version": __version__,
         "states": [state.value for state in TaskState],
-        "strings": _catalog(),
+        "strings": catalog(UI_PREFIXES),
     }
-    # "</" escaped so no string can close the <script> element early.
-    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
-    return template.replace(_I18N_MARKER, payload).replace("__GRAFENO_LANG__", current_language())
+    # Every "<" escaped so no string can close (or comment out) the
+    # <script> block that carries the JSON.
+    payload = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
+    return (
+        _static("index.html")
+        .replace(_I18N_MARKER, payload)
+        .replace("__GRAFENO_LANG__", current_language())
+        .replace("__GRAFENO_VERSION__", __version__)
+    )
 
 
 def page_response(request: Request) -> Response:
-    """Serve the panel (or an empty favicon answer)."""
+    """Serve the panel, one of its assets or an empty favicon answer."""
     if request.path == FAVICON_PATH:
         return Response(204)
     headers = {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "no-store",
         "Referrer-Policy": "no-referrer",  # the URL may carry ?token=
-        "X-Frame-Options": "DENY",
         "X-Content-Type-Options": "nosniff",
     }
+    if request.path.startswith(ASSET_PREFIX):
+        name = request.path[len(ASSET_PREFIX):]
+        headers["Content-Type"] = ASSETS[name]
+        headers["Cache-Control"] = "no-cache"
+        return Response(200, headers=headers, body=_static(name).encode("utf-8"))
+    headers.update({
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Frame-Options": "DENY",
+        "Content-Security-Policy": CSP,
+    })
     return Response(200, headers=headers, body=render_page().encode("utf-8"))
