@@ -102,7 +102,7 @@ If the hook is an `http(s)` URL, GRAFENO does not execute any command: it sends 
 - **Reports**: usage by day, CLI+model and project for today, this week, this month or a date range.
 - **Settings**: the whole settings screen (roles with model/effort catalogue, automode defaults, prompts, hook, updates, language, workspaces, editor, references, triggers, profiles, Telegram and API). Secrets are write-only: the panel shows whether they are set, never their value.
 
-Project consoles (interactive shells) stay TUI-only. By default it only listens on `127.0.0.1`; `--web-host 0.0.0.0` opens it to the network and `--web-port <p>` changes the port (default: the `[api]` port, `8735`); both imply `--web`. The panel URL is shown as a TUI notification. When the panel is exposed beyond loopback and no API token is configured (`[api] tokens` or `GRAFENO_API_TOKEN`), GRAFENO generates a temporary token for that run, kept only in memory and included in the announced URL (`?token=...`; the page stores it in the browser and removes it from the address bar). The page itself carries no task data and is served without authentication; every data request goes through the usual token check. It is plain HTTP: to reach it across untrusted networks, put it behind an SSH tunnel or a TLS reverse proxy. The panel is also available at `/` whenever the API server is enabled from the settings.
+Project consoles (interactive shells) stay TUI-only. By default it only listens on `127.0.0.1`; `--web-host 0.0.0.0` opens it to the network and `--web-port <p>` changes the port (default: the `[api]` port, `8735`); both imply `--web`. The panel URL is shown as a TUI notification. When the panel is exposed beyond loopback and no API token is configured (`[api] tokens` or `GRAFENO_API_TOKEN`), GRAFENO generates a temporary token for that run, kept only in memory and included in the announced URL (`?token=...`; the page stores it in the browser and removes it from the address bar). The page itself carries no task data and is served without authentication; every data request goes through the usual token check. `--noauth` (implies `--web`) disables authentication for that run: configured and `GRAFENO_API_TOKEN` tokens are ignored and no temporary token is generated; the TUI shows a warning, in red when the panel is also open to the network. Use it only on a trusted machine or network. It is plain HTTP: to reach it across untrusted networks, put it behind an SSH tunnel or a TLS reverse proxy. The panel is also available at `/` whenever the API server is enabled from the settings.
 
 ### Remote API endpoints
 
@@ -186,6 +186,7 @@ grafeno --noeditor                 # skip the configured editor on this run
 grafeno --web                      # also manage GRAFENO from a web panel at http://127.0.0.1:8735/
 grafeno --web-host 0.0.0.0         # web panel open to the network (implies --web; temporary token if none is configured)
 grafeno --web --web-port 9000      # web panel on another port
+grafeno --web --noauth             # web panel without authentication (implies --web; trusted networks only)
 grafeno update                     # self-update GRAFENO from the latest GitHub release (no TUI, exit 0/1)
 grafeno --version (or -v)          # print the installed GRAFENO version and exit
 ```

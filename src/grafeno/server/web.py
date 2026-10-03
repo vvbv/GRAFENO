@@ -64,6 +64,7 @@ class WebLaunch:
     host: str = DEFAULT_WEB_HOST
     port: int = 0
     token: str = ""  # ephemeral token generated for this run ("" = none)
+    noauth: bool = False  # authentication disabled for this run (--noauth)
 
     def urls(self, port: int | None = None) -> list[str]:
         """Panel URLs to announce (with the ephemeral token, if any)."""
@@ -80,19 +81,23 @@ def is_loopback(host: str) -> bool:
         return False
 
 
-def prepare(api: ApiConfig, host: str = "", port: int = 0) -> tuple[ApiConfig, WebLaunch]:
+def prepare(
+    api: ApiConfig, host: str = "", port: int = 0, noauth: bool = False
+) -> tuple[ApiConfig, WebLaunch]:
     """Return the API config for a ``--web`` run and its launch settings.
 
     ``host`` empty means loopback only; ``port`` 0 keeps the configured API
     port. The returned config is a copy: the saved ``config.toml`` is never
     modified. Exposing the panel beyond loopback without any configured
     token generates an ephemeral one so the panel is never open to the
-    network without authentication.
+    network without authentication, unless ``noauth`` explicitly disables
+    authentication for the run (configured and environment tokens are then
+    ignored too).
     """
     host = (host or DEFAULT_WEB_HOST).strip()
-    effective = replace(api, enabled=True, host=host, port=port or api.port)
-    launch = WebLaunch(host=host, port=effective.port)
-    if not is_loopback(host) and not api.resolve_tokens():
+    effective = replace(api, enabled=True, host=host, port=port or api.port, auth_disabled=noauth)
+    launch = WebLaunch(host=host, port=effective.port, noauth=noauth)
+    if not noauth and not is_loopback(host) and not api.resolve_tokens():
         launch.token = secrets.token_urlsafe(24)
         effective.tokens = launch.token
     return effective, launch
