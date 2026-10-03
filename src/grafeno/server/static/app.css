@@ -70,12 +70,13 @@ main { flex: 1; display: flex; min-height: 0; }
 .page-inner { max-width: 1040px; margin: 0 auto; }
 .page h2 { margin: 0 0 4px; font-size: 20px; }
 .page .subtitle { color: var(--muted); margin: 0 0 16px; }
-.split { flex: 1; display: flex; min-height: 0; }
-#list-pane {
-  width: 50%; min-width: 380px; max-width: 900px; display: flex; flex-direction: column;
-  border-right: 1px solid var(--border); background: var(--panel);
-}
-#detail-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+/* Like the TUI: the task list fills the screen and opening a task replaces
+   it with the full detail (Back / Escape returns to the list). */
+.screens { flex: 1; display: flex; min-height: 0; min-width: 0; }
+#list-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--panel); }
+#detail-pane { flex: 1; display: none; flex-direction: column; min-width: 0; }
+body.show-detail #list-pane { display: none; }
+body.show-detail #detail-pane { display: flex; }
 .empty { padding: 28px; color: var(--muted); text-align: center; }
 .muted { color: var(--muted); }
 .small-text { font-size: 12.5px; }
@@ -97,7 +98,7 @@ td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: t
 #task-table tbody tr:hover { background: var(--row-hover); }
 #task-table tbody tr.active { background: var(--row-active); }
 #task-table td.name { min-width: 160px; word-break: break-word; }
-#task-table td.project { color: var(--muted); font-size: 12px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#task-table td.project { color: var(--muted); font-size: 12px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #task-table td.when { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .chain { color: var(--muted); font-family: var(--mono); }
 .run-mark { color: var(--ok); font-weight: 700; margin-right: 4px; }
@@ -118,8 +119,8 @@ td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: t
 }
 
 /* ------------------------------------------------------------ detail */
-#detail-empty { margin: auto; color: var(--muted); padding: 20px; text-align: center; }
-#detail { display: none; flex: 1; flex-direction: column; min-height: 0; }
+#detail { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.detail-head .back { margin: -4px 0 4px -6px; }
 .detail-head { padding: 12px 16px 10px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .detail-head h2 { margin: 0; font-size: 18px; word-break: break-word; }
 .detail-meta { color: var(--muted); font-size: 12.5px; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
@@ -265,8 +266,6 @@ dialog .detail { font-size: 13px; color: var(--muted); white-space: pre-line; }
 .toast.error { border-left-color: var(--danger); }
 .toast.warn { border-left-color: var(--warn); }
 
-.back { display: none; }
-@media (max-width: 1250px) { .col-wide { display: none; } }
 @media (max-width: 900px) {
   .role-grid { grid-template-columns: 1fr 1fr; }
   .role-grid .hdr { display: none; }
@@ -274,11 +273,6 @@ dialog .detail { font-size: 13px; color: var(--muted); white-space: pre-line; }
   .role-grid .model-cell { grid-column: 1 / -1; }
 }
 @media (max-width: 760px) {
-  #list-pane { width: 100%; min-width: 0; border-right: none; }
-  #detail-pane { display: none; }
-  body.show-detail #list-pane { display: none; }
-  body.show-detail #detail-pane { display: flex; }
-  .back { display: inline-block; }
   .col-opt { display: none; }
   .form-grid { grid-template-columns: 1fr; }
   .files-layout { flex-direction: column; }

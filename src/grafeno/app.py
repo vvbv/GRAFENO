@@ -385,7 +385,7 @@ def main() -> None:
         help="Web panel port (implies --web; default: the [api] port, 8735).",
     )
     parser.add_argument(
-        "--noauth",
+        "--no-auth",
         action="store_true",
         help=(
             "Web panel without authentication for this run (implies --web): "
@@ -445,11 +445,11 @@ def main() -> None:
         except Exception:  # best effort: the TUI starts even if the editor fails
             pass
     web_launch = api_config = None
-    if args.web or args.web_host or args.web_port or args.noauth:
+    if args.web or args.web_host or args.web_port or args.no_auth:
         from .server import web
 
         api_config, web_launch = web.prepare(
-            cfg.api, args.web_host, args.web_port, noauth=args.noauth
+            cfg.api, args.web_host, args.web_port, no_auth=args.no_auth
         )
     GrafenoApp(web=web_launch, api_config=api_config).run()
 

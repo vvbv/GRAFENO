@@ -219,34 +219,34 @@ def test_main_rejects_bad_web_port(monkeypatch):
 
 
 # ---------------------------------------------------------------------- #
-# --noauth
+# --no-auth
 # ---------------------------------------------------------------------- #
-def test_prepare_noauth_ignores_every_token(monkeypatch):
+def test_prepare_no_auth_ignores_every_token(monkeypatch):
     monkeypatch.setenv("GRAFENO_API_TOKEN", "from-env")
     saved = ApiConfig(tokens="mine")
-    effective, launch = web.prepare(saved, "0.0.0.0", noauth=True)
-    assert launch.noauth is True
+    effective, launch = web.prepare(saved, "0.0.0.0", no_auth=True)
+    assert launch.no_auth is True
     assert launch.token == ""  # no temporary token either
     assert effective.resolve_tokens() == set()
     assert "auth_disabled" not in effective.to_dict()  # never persisted
     assert saved.resolve_tokens() == {"from-env", "mine"}  # saved config untouched
 
 
-def test_main_noauth_implies_web(monkeypatch):
-    app_mock = _run_main(monkeypatch, ["--noauth"])
+def test_main_no_auth_implies_web(monkeypatch):
+    app_mock = _run_main(monkeypatch, ["--no-auth"])
     kwargs = app_mock.call_args.kwargs
     assert kwargs["api_config"].enabled is True
     assert kwargs["api_config"].host == "127.0.0.1"
     assert kwargs["api_config"].auth_disabled is True
-    assert kwargs["web"].noauth is True
+    assert kwargs["web"].no_auth is True
 
 
-def test_server_noauth_accepts_requests_and_warns(monkeypatch):
+def test_server_no_auth_accepts_requests_and_warns(monkeypatch):
     monkeypatch.setenv("GRAFENO_API_TOKEN", "from-env")
 
     async def scenario():
         app = MagicMock()
-        api_cfg, launch = web.prepare(ApiConfig(port=0, tokens="secret"), "0.0.0.0", noauth=True)
+        api_cfg, launch = web.prepare(ApiConfig(port=0, tokens="secret"), "0.0.0.0", no_auth=True)
         service = ServerService(api_cfg, app=app, web=launch)
         task = asyncio.create_task(service.run())
         for _ in range(200):
@@ -260,7 +260,7 @@ def test_server_noauth_accepts_requests_and_warns(monkeypatch):
             service.stop()
             task.cancel()
         calls = app.notify.call_args_list
-        warning = next(call for call in calls if call.args[0] == i18n.t("web.noauth_exposed"))
+        warning = next(call for call in calls if call.args[0] == i18n.t("web.no_auth_exposed"))
         assert warning.kwargs["severity"] == "error"
         assert not any("?token=" in call.args[0] for call in calls)
 
