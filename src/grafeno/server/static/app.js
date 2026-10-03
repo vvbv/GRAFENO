@@ -622,18 +622,37 @@ const tasksView = {
     if (params[1]) this.tab = params[1];
     const main = $("main");
     main.replaceChildren(this.build());
-    if (this.selected) document.body.classList.add("show-detail"); else document.body.classList.remove("show-detail");
+    if (this.selected) this.showDetail(); else document.body.classList.remove("show-detail");
     this.refresh();
     this.timers.push(setInterval(() => this.tick(), 1000));
     this.timers.push(setInterval(() => this.refresh(true), 15000));
     this.onLive = (task) => this.applyEvent(task);
     live.listeners.add(this.onLive);
+    // Escape goes back to the list, like the TUI detail screen.
+    this.onKey = (event) => {
+      if (event.key === "Escape" && this.selected && !document.querySelector("dialog[open], .lightbox")) {
+        location.hash = "#/tasks";
+      }
+    };
+    document.addEventListener("keydown", this.onKey);
   },
   unmount() {
     this.timers.forEach(clearInterval);
     this.timers = [];
     live.listeners.delete(this.onLive);
+    document.removeEventListener("keydown", this.onKey);
     document.body.classList.remove("show-detail");
+  },
+  showList() {
+    document.body.classList.remove("show-detail");
+    this.renderList();
+    if (this.tableWrap) this.tableWrap.scrollTop = this.listScroll || 0;
+  },
+  showDetail() {
+    if (this.tableWrap && !document.body.classList.contains("show-detail")) this.listScroll = this.tableWrap.scrollTop;
+    document.body.classList.add("show-detail");
+    this.detailNode.replaceChildren(h("div", { class: "empty", text: tr("web.ui.loading") }));
+    window.scrollTo(0, 0);
   },
   build() {
     const f = this.filters;
@@ -664,15 +683,15 @@ const tasksView = {
       h("thead", null, h("tr", null,
         h("th", { text: tr("tasks.col.task") }), h("th", { text: tr("tasks.col.state") }),
         h("th", { class: "num col-opt", text: tr("tasks.col.iter") }), h("th", { class: "num col-opt", text: tr("tasks.col.tokens") }),
-        h("th", { class: "num col-opt", text: tr("tasks.col.duration") }), h("th", { class: "col-opt col-wide", text: tr("tasks.col.updated") }),
+        h("th", { class: "num col-opt", text: tr("tasks.col.duration") }), h("th", { class: "col-opt", text: tr("tasks.col.updated") }),
         h("th", { class: "col-opt", text: tr("tasks.col.workdir") }))),
       this.rows);
+    this.tableWrap = h("div", { class: "table-wrap" }, table, this.listEmpty);
     const list = h("section", { id: "list-pane" },
       h("div", { class: "filters" }, search, this.projectSelect, done, state, date, today, reload),
-      h("div", { class: "table-wrap" }, table, this.listEmpty), this.summary);
-    this.detailEmpty = h("div", { id: "detail-empty", text: tr("web.ui.select") });
+      this.tableWrap, this.summary);
     this.detailNode = h("div", { id: "detail" });
-    return h("div", { class: "split" }, list, h("section", { id: "detail-pane" }, this.detailEmpty, this.detailNode));
+    return h("div", { class: "screens" }, list, h("section", { id: "detail-pane" }, this.detailNode));
   },
   async refresh(quiet) {
     try {
@@ -735,8 +754,8 @@ const tasksView = {
         h("td", { class: "num col-opt", text: String(task.iteration || 0) }),
         h("td", { class: "num col-opt", text: tokens }),
         h("td", { class: "num col-opt", text: task.duration_seconds ? formatDuration(task.duration_seconds) : "" }),
-        h("td", { class: "when col-opt col-wide", text: when(task.updated_at) }),
-        h("td", { class: "project col-opt", text: projectOf(task).replace(/\/+$/, "").split("/").pop() || projectOf(task), title: projectOf(task) }));
+        h("td", { class: "when col-opt", text: when(task.updated_at) }),
+        h("td", { class: "project col-opt", text: projectOf(task), title: projectOf(task) }));
       row.addEventListener("click", () => { location.hash = "#/tasks/" + enc(task.id); });
       return row;
     }));
@@ -781,7 +800,6 @@ const tasksView = {
   renderDetail(full, previous) {
     const d = this.detail;
     const task = d.task;
-    this.detailEmpty.style.display = "none";
     this.detailNode.style.display = "flex";
     if (full || !this.headNode) {
       this.headNode = h("div", { class: "detail-head" });
@@ -1673,14 +1691,11 @@ const router = {
         view.headNode = null;
         view.lastLogKey = "";
         if (!id) {
-          view.detailNode.style.display = "none";
-          view.detailEmpty.style.display = "";
-          document.body.classList.remove("show-detail");
+          view.showList();
         } else {
-          document.body.classList.add("show-detail");
+          view.showDetail();
           view.loadDetail(true).catch(fail);
         }
-        view.renderList();
       }
       return;
     }

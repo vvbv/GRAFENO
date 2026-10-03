@@ -250,7 +250,7 @@ class ApiConfig:
     host: str = DEFAULT_API_HOST
     port: int = DEFAULT_API_PORT
     tokens: str = ""  # GRAFENO_API_TOKEN overrides
-    auth_disabled: bool = False  # runtime only (``grafeno --web --noauth``): never persisted
+    auth_disabled: bool = False  # runtime only (``grafeno --web --no-auth``): never persisted
 
     def resolve_tokens(self) -> set[str]:
         """Accepted API tokens: environment variable first, then the file.

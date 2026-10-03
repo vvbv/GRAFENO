@@ -231,7 +231,7 @@ class ServerService:
 
     def _log_startup_token_note(self) -> None:
         if self.config.auth_disabled:
-            self._log("auth disabled by --noauth (accept all)")
+            self._log("auth disabled by --no-auth (accept all)")
         elif not self.config.resolve_tokens():
             self._log("auth disabled: no tokens configured (accept all)")
 
@@ -245,10 +245,10 @@ class ServerService:
         exposed = not is_loopback(self.config.host)
         if exposed:
             self._notify(t("web.exposed", host=self.config.host), severity="warning", timeout=20)
-        if self.web.noauth:
+        if self.web.no_auth:
             # Anyone who can reach the port can drive GRAFENO: say it loudly.
             self._notify(
-                t("web.noauth_exposed" if exposed else "web.noauth"),
+                t("web.no_auth_exposed" if exposed else "web.no_auth"),
                 severity="error" if exposed else "warning",
                 timeout=60,
             )
