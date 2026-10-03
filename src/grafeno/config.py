@@ -250,9 +250,16 @@ class ApiConfig:
     host: str = DEFAULT_API_HOST
     port: int = DEFAULT_API_PORT
     tokens: str = ""  # GRAFENO_API_TOKEN overrides
+    auth_disabled: bool = False  # runtime only (``grafeno --web --noauth``): never persisted
 
     def resolve_tokens(self) -> set[str]:
-        """Accepted API tokens: environment variable first, then the file."""
+        """Accepted API tokens: environment variable first, then the file.
+
+        Empty when authentication was disabled for this run, whatever the
+        file or the environment say.
+        """
+        if self.auth_disabled:
+            return set()
         from_env = os.environ.get(API_TOKEN_ENV, "")
         raw = f"{from_env},{self.tokens}"
         return {part.strip() for part in raw.split(",") if part.strip()}
