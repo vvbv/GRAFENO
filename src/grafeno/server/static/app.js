@@ -1074,11 +1074,25 @@ const tasksView = {
     const d = this.detail;
     const tab = this.tab;
     const body = this.bodyNode;
+    // File tabs scroll the file list and the selected file independently.
+    body.classList.toggle("files-mode", ART_KINDS.includes(tab));
     try {
       if (tab === "desc") body.replaceChildren(await this.descTab());
       else if (tab === "info") body.replaceChildren(this.infoTab());
       else if (tab === "media") body.replaceChildren(await this.mediaTab());
-      else if (ART_KINDS.includes(tab)) body.replaceChildren(await this.filesTab(tab, full));
+      else if (ART_KINDS.includes(tab)) {
+        // Keep the list position (and the reading position of the same file)
+        // across re-renders; a newly selected file opens at its top.
+        const oldList = body.querySelector(".file-list");
+        const oldView = body.querySelector(".file-view");
+        const listTop = oldList ? oldList.scrollTop : 0;
+        const viewTop = oldView && oldView.dataset.path === this.file[tab] ? oldView.scrollTop : 0;
+        body.replaceChildren(await this.filesTab(tab, full));
+        const list = body.querySelector(".file-list");
+        const view = body.querySelector(".file-view");
+        if (list) list.scrollTop = listTop;
+        if (view && view.dataset.path === this.file[tab]) view.scrollTop = viewTop;
+      }
       else if (tab === "log") await this.logTab(full);
       else if (tab === "tokens") body.replaceChildren(this.tokensTab());
     } catch (err) {
@@ -1193,7 +1207,7 @@ const tasksView = {
       list.appendChild(h("button", { class: path === selected ? "active" : "", text: path.split("/").pop(),
         onclick: () => { this.file[kind] = path; this.renderTab(true); } }));
     }
-    const view = h("div", { class: "file-view" });
+    const view = h("div", { class: "file-view", "data-path": selected });
     const data = await api("GET", taskPath(d.task.id, "/artifact?kind=" + kind + "&path=" + enc(selected)));
     view.append(h("div", { class: "toolbar" }, h("span", { class: "mono", text: kind + "/" + selected }),
       h("button", { class: "small", text: tr("web.ui.copy"), onclick: () => navigator.clipboard && navigator.clipboard.writeText(data.content).then(() => toast(tr("web.ui.copied"))) })),
