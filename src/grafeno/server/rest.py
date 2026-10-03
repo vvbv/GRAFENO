@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
-from . import actions
+from . import actions, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -105,6 +105,60 @@ async def _task_artifacts(service: "ServerService", request: Request, params: di
     return actions.get_artifacts(service, params["task_id"], kind=kind, cycle=cycle)
 
 
+@route("GET", "/api/v1/tasks/{task_id}/artifact")
+async def _task_artifact_file(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    kind = request.query.get("kind") or ""
+    path = request.query.get("path") or ""
+    return actions.get_artifact_file(service, params["task_id"], kind=kind, path=path)
+
+
+@route("GET", "/api/v1/tasks/{task_id}/media")
+async def _task_media(service: "ServerService", request: Request, params: dict[str, str]) -> Response:
+    data, mime = actions.get_media(service, params["task_id"], request.query.get("name") or "")
+    return Response(200, headers={"Content-Type": mime, "Cache-Control": "no-store"}, body=data)
+
+
+@route("GET", "/api/v1/options")
+async def _options(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return settings.form_options(service)
+
+
+@route("GET", "/api/v1/models")
+async def _models(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    refresh = request.query.get("refresh", "") in ("1", "true", "yes")
+    return await settings.models_catalog(service, refresh=refresh)
+
+
+@route("GET", "/api/v1/fs/dirs")
+async def _fs_dirs(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return settings.list_dirs(service, request.query.get("path") or "")
+
+
+@route("GET", "/api/v1/issues")
+async def _issues(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await settings.list_issues(service, request.query.get("workdir") or "")
+
+
+@route("GET", "/api/v1/reports")
+async def _reports(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return settings.usage_report(
+        service,
+        start=request.query.get("from") or "",
+        end=request.query.get("to") or "",
+        period=request.query.get("period") or "",
+    )
+
+
+@route("GET", "/api/v1/settings")
+async def _settings_get(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return settings.get_settings(service)
+
+
+@route("POST", "/api/v1/settings")
+async def _settings_update(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return settings.update_settings(service, parse_json_body(request))
+
+
 # ---------------------------------------------------------------------- #
 # Write endpoints
 # ---------------------------------------------------------------------- #
@@ -135,7 +189,38 @@ async def _task_resume(service: "ServerService", request: Request, params: dict[
 
 @route("POST", "/api/v1/tasks/{task_id}/restart")
 async def _task_restart(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
-    return actions.restart_task(service, params["task_id"])
+    return await actions.restart_task(service, params["task_id"])
+
+
+@route("POST", "/api/v1/tasks/{task_id}/reset")
+async def _task_reset(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await actions.reset_task(service, params["task_id"])
+
+
+@route("POST", "/api/v1/tasks/{task_id}/run")
+async def _task_run(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    payload = parse_json_body(request)
+    return actions.run_phase(service, params["task_id"], str(payload.get("phase") or ""))
+
+
+@route("POST", "/api/v1/tasks/{task_id}/continue")
+async def _task_continue(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.continue_task(service, params["task_id"])
+
+
+@route("POST", "/api/v1/tasks/{task_id}/approve-plan")
+async def _task_approve_plan(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.approve_plan(service, params["task_id"])
+
+
+@route("POST", "/api/v1/tasks/{task_id}/edit")
+async def _task_edit(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.edit_task(service, params["task_id"], parse_json_body(request))
+
+
+@route("POST", "/api/v1/tasks/{task_id}/roles")
+async def _task_roles(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.update_roles(service, params["task_id"], parse_json_body(request))
 
 
 @route("POST", "/api/v1/tasks/{task_id}/pause")
@@ -145,7 +230,7 @@ async def _task_pause(service: "ServerService", request: Request, params: dict[s
 
 @route("POST", "/api/v1/tasks/{task_id}/discard")
 async def _task_discard(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
-    return actions.discard_task(service, params["task_id"])
+    return await actions.discard_task(service, params["task_id"])
 
 
 @route("POST", "/api/v1/tasks/{task_id}/mark-done")
@@ -157,7 +242,8 @@ async def _task_mark_done(service: "ServerService", request: Request, params: di
 async def _task_extend(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
     payload = parse_json_body(request)
     request_text = str(payload.get("request") or "")
-    return actions.extend_task(service, params["task_id"], request=request_text)
+    attachments = actions._decode_attachments(payload)
+    return actions.extend_task(service, params["task_id"], request=request_text, attachments=attachments)
 
 
 # ---------------------------------------------------------------------- #

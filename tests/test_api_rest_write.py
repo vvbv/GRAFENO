@@ -9,6 +9,7 @@ import socket
 from typing import Any, Optional
 
 from grafeno.config import ApiConfig
+from grafeno.i18n import t
 from grafeno.models import Task, TaskState, list_all
 from grafeno.server.service import ServerService
 from grafeno.tui.runtime import TaskRuntime
@@ -170,7 +171,7 @@ def test_create_task_invalid_parent(tmp_path) -> None:
                 json.dumps({"name": "Child", "workdir": str(tmp_path), "parent_id": "missing"}).encode(),
             )
             assert status == 400
-            assert payload["error"] == "et.error.parent_missing"
+            assert payload["error"] == t("et.error.parent_missing")
         finally:
             _stop(service, srv_task)
 

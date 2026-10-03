@@ -79,18 +79,37 @@ def test_render_page_injects_translated_strings():
     html = web.render_page()
     assert "__GRAFENO_I18N__" not in html
     assert "__GRAFENO_LANG__" not in html
-    assert '"web.ui.new_task": "New task"' in html
+    assert "__GRAFENO_VERSION__" not in html
+    assert '"web.nav.new": "New task"' in html
+    assert '"nt.repeat": "Repetitive task"' in html  # TUI texts are reused
     assert '<html lang="en">' in html
     i18n.set_language("es")
     html = web.render_page()
-    assert '"web.ui.new_task": "Nueva tarea"' in html
+    assert '"web.nav.new": "Nueva tarea"' in html
     assert '<html lang="es">' in html
 
 
-def test_page_catalog_keys_exist_in_both_languages():
-    for key in web.UI_KEYS:
-        assert i18n.t_lang("en", key) != key, key
-        assert i18n.t_lang("es", key) != key, key
+def test_render_page_escapes_script_breakers(monkeypatch):
+    monkeypatch.setitem(i18n._MESSAGES["en"], "web.ui.evil", "</script><!--")
+    html = web.render_page()
+    assert "</script><!--" not in html
+    assert "\\u003c/script>\\u003c!--" in html
+
+
+def test_page_strings_exist_in_both_languages():
+    """Every key the panel script uses is translated in en and es."""
+    import re
+    from importlib import resources
+
+    script = resources.files("grafeno.server").joinpath("static/app.js").read_text(encoding="utf-8")
+    keys = set(re.findall(r'tr\("([a-z_.]+)"', script))
+    assert keys
+    for key in keys:
+        if key.endswith("."):
+            continue  # dynamic suffix (state., phase.)
+        assert key.startswith(web.UI_PREFIXES), key
+        assert key in i18n._MESSAGES["en"], key
+        assert key in i18n._MESSAGES["es"], key
 
 
 # ---------------------------------------------------------------------- #
@@ -134,6 +153,15 @@ def test_server_serves_page_without_token_and_protects_api():
             assert headers["content-type"].startswith("text/html")
             assert headers["referrer-policy"] == "no-referrer"
             assert b"GRAFENO" in body
+            assert "script-src 'self'" in headers["content-security-policy"]
+            status, headers, body = await _get(service.port, "/assets/app.js")
+            assert status == 200
+            assert headers["content-type"].startswith("text/javascript")
+            assert b"grafeno-boot" in body
+            status, headers, _ = await _get(service.port, "/assets/app.css")
+            assert status == 200 and headers["content-type"].startswith("text/css")
+            status, _, _ = await _get(service.port, "/assets/other.js")
+            assert status == 401  # only the known assets bypass auth
             status, _, _ = await _get(service.port, "/favicon.ico")
             assert status == 204
             status, _, _ = await _get(service.port, "/api/v1/tasks")

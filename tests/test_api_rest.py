@@ -88,7 +88,7 @@ def test_list_tasks_empty() -> None:
         try:
             status, payload = await _request(service, "GET", "/api/v1/tasks")
             assert status == 200
-            assert payload == {"tasks": []}
+            assert payload == {"tasks": [], "done_hidden_ids": []}
             assert models.list_all() == []
         finally:
             _stop(service, task)
@@ -213,7 +213,7 @@ def test_logs_empty(tmp_path) -> None:
                 service, "GET", f"/api/v1/tasks/{task.id}/logs?limit=50"
             )
             assert status == 200
-            assert payload == {"logs": []}
+            assert payload == {"logs": [], "entries": []}
         finally:
             _stop(service, srv_task)
 

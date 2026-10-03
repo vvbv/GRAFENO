@@ -225,7 +225,7 @@ def test_tasks_list_returns_empty() -> None:
             try:
                 reply = await _rpc(reader, writer, {"id": 1, "method": "tasks.list", "params": {}})
                 assert "result" in reply, reply
-                assert reply["result"] == {"tasks": []}
+                assert reply["result"] == {"tasks": [], "done_hidden_ids": []}
             finally:
                 writer.close()
                 await writer.wait_closed()
