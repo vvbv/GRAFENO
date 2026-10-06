@@ -30,7 +30,7 @@ header.top {
   display: flex; align-items: center; gap: 14px; padding: 8px 16px; flex-wrap: wrap;
   background: var(--panel); border-bottom: 1px solid var(--border);
 }
-header.top .brand { font-weight: 700; letter-spacing: .06em; font-size: 15px; }
+header.top a.brand { font-weight: 700; letter-spacing: .06em; font-size: 15px; text-decoration: none; color: inherit; cursor: pointer; }
 header.top .version { color: var(--muted); font-size: 12px; }
 header.top nav { display: flex; gap: 2px; }
 header.top nav a {

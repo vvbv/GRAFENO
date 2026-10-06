@@ -6,6 +6,7 @@ import asyncio
 import base64
 import binascii
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -672,11 +673,18 @@ async def create_task(service: "ServerService", payload: dict) -> dict:
         profile=profile_obj,
     )
     if parent_id:
-        # Validate the proposed position using the same rule the TUI uses.
+        # Creation mirrors the TUI new-task form: the parent only has to
+        # exist (a completed parent is allowed; the stricter position rules
+        # apply when re-chaining later via edit_task).
         by_id = {item.id: item for item in models.list_all()}
-        error = scheduler.rechain_error(task, parent_id, by_id)
-        if error:
-            raise ApiError(400, t(error))
+        if parent_id not in by_id:
+            raise ApiError(400, t("et.error.parent_missing"))
+        if parent_id == task.id:
+            raise ApiError(400, t("et.error.parent_self"))
+        if not task.scheduled_at:
+            # Due as soon as the parent is DONE (right away when it already
+            # finished): the scheduler tick starts it unattended.
+            task.scheduled_at = datetime.now().isoformat(timespec="minutes")
     if payload.get("origin"):
         task.origin = str(payload["origin"])
     else:

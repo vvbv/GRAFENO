@@ -1167,7 +1167,9 @@ components:
         remote:
           type: string
           description: Remote project `user@host:/path` (then `workdir` is not needed). Ignored in session mode.
-        parent_id: {type: string}
+        parent_id:
+          type: string
+          description: Chain after this task. Any existing task is accepted (completed ones too); without `scheduled_at` the child is scheduled to now, so it starts unattended once the parent is DONE (immediately if it already is).
         scheduled_at:
           type: string
           description: Local `YYYY-MM-DD HH:MM` (or with `T`).

@@ -193,6 +193,57 @@ def test_create_task_with_valid_parent(tmp_path) -> None:
             )
             assert status == 201
             assert payload["task"]["parent_id"] == parent.id
+            assert payload["task"]["scheduled_at"]  # auto-scheduled: starts when the parent finishes
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+
+def test_create_task_with_completed_parent(tmp_path) -> None:
+    """Chaining after a DONE task is allowed and auto-schedules the child."""
+    async def scenario():
+        from grafeno import models as models_module
+        from grafeno.models import TaskState
+
+        service, srv_task = await _start_service(app=FakeApp())
+        try:
+            parent = _make_task(tmp_path, name="Parent done")
+            parent.state = TaskState.DONE
+            models_module.save(parent)
+            status, payload = await _request(
+                service, "POST", "/api/v1/tasks",
+                json.dumps({
+                    "name": "Child", "workdir": str(tmp_path), "parent_id": parent.id,
+                }).encode(),
+            )
+            assert status == 201
+            assert payload["task"]["parent_id"] == parent.id
+            assert payload["task"]["scheduled_at"]
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+
+def test_create_task_chained_keeps_explicit_schedule(tmp_path) -> None:
+    """An explicit scheduled_at is never overwritten by the chain default."""
+    async def scenario():
+        from grafeno import models as models_module
+
+        service, srv_task = await _start_service(app=FakeApp())
+        try:
+            parent = _make_task(tmp_path, name="Parent")
+            models_module.save(parent)
+            status, payload = await _request(
+                service, "POST", "/api/v1/tasks",
+                json.dumps({
+                    "name": "Child", "workdir": str(tmp_path), "parent_id": parent.id,
+                    "scheduled_at": "2099-01-01 09:30",
+                }).encode(),
+            )
+            assert status == 201
+            assert payload["task"]["scheduled_at"] == "2099-01-01T09:30"
         finally:
             _stop(service, srv_task)
 

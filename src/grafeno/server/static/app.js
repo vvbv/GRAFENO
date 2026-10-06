@@ -1368,7 +1368,7 @@ const newTaskView = {
       h("div", { class: "card" }, h("h3", { text: tr("web.ui.section_schedule") }),
         h("div", { class: "form-grid" },
           field(tr("nt.schedule"), schedule),
-          field(tr("nt.parent"), parent),
+          field(tr("nt.parent"), parent, { help: tr("web.ui.parent_help") }),
           field(tr("nt.repeat"), repeat),
           minutesField, reuseField)),
       h("div", { class: "card" }, h("h3", { text: plain(tr("nt.hook")) }),
