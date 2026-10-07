@@ -221,6 +221,9 @@ class RunResult:
     # Seconds to wait before retrying when the CLI reported usage/quota
     # exhaustion; 0.0 = exhausted without a time hint; None = not a usage error.
     usage_wait: float | None = None
+    # The failure looks transient (network drop, provider 5xx, CLI service
+    # shutdown): the orchestrator retries the phase a few times before failing.
+    transient: bool = False
 
 
 EventCallback = Callable[[RunEvent], None]
@@ -418,6 +421,14 @@ class CLIDriver:
         """
         return ratelimit.detect_usage_wait(text)
 
+    def detect_transient(self, text: str) -> bool:
+        """True if the failure ``text`` looks transient (worth a plain retry).
+
+        Only consulted when the failure is not a usage-limit error.
+        Subclasses may override for CLI-specific formats.
+        """
+        return ratelimit.looks_like_transient_failure(text)
+
     def decode_event(
         self, payload: dict
     ) -> tuple[RunEvent | list[RunEvent] | None, str | None]:
@@ -540,6 +551,11 @@ class CLIDriver:
         usage_wait = (
             self._classify_usage_wait(f"{error}\n{raw_tail}", error_parts) if not ok else None
         )
+        transient = (
+            not ok
+            and usage_wait is None
+            and self._classify_transient(f"{error}\n{raw_tail}", error_parts)
+        )
         return RunResult(
             ok=ok,
             text="\n".join(part for part in text_parts if part).strip(),
@@ -548,9 +564,15 @@ class CLIDriver:
             returncode=returncode,
             tokens=tokens,
             usage_wait=usage_wait,
+            transient=transient,
         )
 
     def _classify_usage_wait(self, error: str, error_parts: list[str]) -> float | None:
         """Combine stderr tail + ERROR events and classify usage exhaustion."""
         combined = "\n".join([error, *error_parts[-20:]])
         return self.detect_usage_wait(combined)
+
+    def _classify_transient(self, error: str, error_parts: list[str]) -> bool:
+        """Combine stderr tail + ERROR events and classify a transient failure."""
+        combined = "\n".join([error, *error_parts[-20:]])
+        return self.detect_transient(combined)

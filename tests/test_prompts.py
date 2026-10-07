@@ -442,6 +442,27 @@ def test_english_prompts_fallbacks(tmp_path):
     assert "(no details)" in plan
 
 
+def test_resumed_prompt_wraps_original(tmp_path):
+    """The retry notice precedes the untouched phase prompt in both languages."""
+    task = _task(tmp_path)
+    for lang in i18n.LANGUAGES:
+        i18n.set_prompt_language(lang)
+        original = prompts.implement_prompt(task)
+        assert prompts.resumed_prompt(original).endswith(original.strip())
+        assert prompts.resumed_prompt("use {braces}").endswith("use {braces}")
+    i18n.set_prompt_language("es")
+    assert prompts.resumed_prompt("X").startswith("AVISO DE REANUDACIÓN")
+    i18n.set_prompt_language("en")
+    assert prompts.resumed_prompt("X").startswith("RESUME NOTICE")
+
+
+def test_common_rules_forbid_question_tools(tmp_path):
+    task = _task(tmp_path)
+    for lang in i18n.LANGUAGES:
+        i18n.set_prompt_language(lang)
+        assert "`question`" in prompts.implement_prompt(task)
+
+
 def test_task_data_with_braces_is_not_reformatted(tmp_path):
     """Templates are formatted once: braces in task data stay literal."""
     task = _task(tmp_path, description="use {placeholder} and {{x}}")

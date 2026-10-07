@@ -1,10 +1,16 @@
-"""Detection of CLI usage/quota exhaustion and retry-after hints.
+"""Detection of retryable CLI failures: usage/quota exhaustion and transient errors.
 
 Pure logic, no I/O: the driver base scans the error output of a failed run
 with ``detect_usage_wait`` to decide whether the orchestrator should wait
 and retry instead of failing the phase. After ``MAX_ATTEMPTS`` quick retries
 the phase switches to passive mode (``PASSIVE_WAIT_SECONDS`` between probes)
 and never fails on quota.
+
+Failures that are not quota but look transient (dropped connection, provider
+5xx, the CLI's own service shutting down mid-run) are flagged with
+``looks_like_transient_failure``: the orchestrator retries them up to
+``TRANSIENT_MAX_ATTEMPTS`` times with the growing waits of
+``TRANSIENT_WAITS`` before failing the phase.
 """
 
 from __future__ import annotations
@@ -22,6 +28,11 @@ MAX_ATTEMPTS = 30
 PASSIVE_WAIT_SECONDS = 900.0
 # Parsed waits are capped so a bogus "retry after 999999s" cannot stall a task.
 MAX_WAIT_SECONDS = 3600.0
+# Retries of a transient failure before the phase fails; unlike quota, a
+# failure that persists is surfaced instead of being retried forever.
+TRANSIENT_MAX_ATTEMPTS = 3
+# Wait before each transient retry (the last value repeats past the tuple).
+TRANSIENT_WAITS = (15.0, 60.0, 180.0)
 
 # Substrings (lowercased) that signal an exhausted usage/quota limit.
 _USAGE_PATTERNS = (
@@ -63,6 +74,34 @@ _RE_AGAIN_IN = re.compile(
 _RE_RESET_CLOCK = re.compile(
     r"resets?\s+(?:at\s+)?(\d{1,2}):(\d{2})\s*([ap]\.?m\.?)?\s*(?:\(([^)]+)\))?",
     re.IGNORECASE,
+)
+
+# Substrings (lowercased) that signal a transient failure: the run broke for
+# an external reason (network, provider, CLI service) and may succeed as is.
+_TRANSIENT_PATTERNS = (
+    "econnreset",
+    "econnrefused",
+    "econnaborted",
+    "etimedout",
+    "epipe",
+    "eai_again",
+    "socket hang up",
+    "socket connection was closed",
+    "connection reset",
+    "connection closed",
+    "connection error",
+    "network error",
+    "fetch failed",
+    "request timed out",
+    "stream disconnected",
+    "provider response ended unexpectedly",
+    "unexpected server error",  # opencode UnknownError
+    "internal server error",
+    "bad gateway",
+    "service unavailable",
+    "gateway timeout",
+    "overloaded",               # e.g. Anthropic 529 overloaded_error
+    "session interrupted:",     # opencode service shutdown ("by user" has no colon)
 )
 
 _UNIT_SECONDS = {
@@ -114,6 +153,18 @@ def looks_like_usage_limit(text: str) -> bool:
     """True if ``text`` looks like a usage/quota exhaustion message."""
     lowered = text.lower()
     return any(pattern in lowered for pattern in _USAGE_PATTERNS)
+
+
+def looks_like_transient_failure(text: str) -> bool:
+    """True if ``text`` looks like a transient (retryable) CLI failure."""
+    lowered = text.lower()
+    return any(pattern in lowered for pattern in _TRANSIENT_PATTERNS)
+
+
+def transient_wait(attempt: int) -> float:
+    """Seconds to wait before the transient retry number ``attempt`` (1-based)."""
+    index = min(max(attempt, 1), len(TRANSIENT_WAITS)) - 1
+    return TRANSIENT_WAITS[index]
 
 
 def parse_wait_seconds(text: str) -> float | None:

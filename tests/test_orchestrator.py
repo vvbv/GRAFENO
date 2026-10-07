@@ -1099,6 +1099,77 @@ def test_usage_limit_retry_resumes_session(tmp_path, monkeypatch):
     assert task.sessions["planner"] == "s-1"
 
 
+def _transient(error: str = "ECONNRESET", session_id: str | None = None) -> RunResult:
+    return RunResult(ok=False, error=f"OpenCode CLI exited with code 1.\n{error}",
+                     transient=True, session_id=session_id)
+
+
+def test_transient_failure_resumes_phase_with_notice(tmp_path, monkeypatch):
+    """A transient failure retries the phase, resuming the session with a notice."""
+    waits: list[float] = []
+    infos: list[str] = []
+
+    async def fake_sleep(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    task = _make_task(tmp_path)
+    impl = FakeDriver(
+        "fake-impl",
+        [_transient("Session interrupted: shutdown", session_id="ses-1"), _ok("implementado")],
+    )
+    orch = Orchestrator(task, drivers={"fake-impl": impl}, on_info=infos.append)
+    _run(orch.run_implement())
+
+    assert task.state is TaskState.IMPLEMENTED
+    assert task.failed_phase == ""
+    assert waits == [ratelimit.TRANSIENT_WAITS[0]]
+    assert impl.requests[1].session_id == "ses-1"
+    assert impl.prompts[1] == prompts.resumed_prompt(impl.prompts[0])
+    assert any("Transient failure (Session interrupted: shutdown)" in info for info in infos)
+    assert task.usage_waiting is False
+
+
+def test_transient_failure_fails_phase_after_max_retries(tmp_path, monkeypatch):
+    """A failure that persists is not retried forever: the phase fails."""
+    waits: list[float] = []
+    infos: list[str] = []
+
+    async def fake_sleep(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    task = _make_task(tmp_path)
+    attempts = ratelimit.TRANSIENT_MAX_ATTEMPTS + 1
+    impl = FakeDriver("fake-impl", [_transient() for _ in range(attempts)] + [_ok("nunca")])
+    orch = Orchestrator(task, drivers={"fake-impl": impl}, on_info=infos.append)
+    with pytest.raises(PhaseError, match="ECONNRESET"):
+        _run(orch.run_implement())
+
+    assert len(impl.prompts) == attempts
+    assert waits == list(ratelimit.TRANSIENT_WAITS[: ratelimit.TRANSIENT_MAX_ATTEMPTS])
+    assert task.state is TaskState.FAILED
+    assert task.failed_phase == "implement"
+    assert any("persisted after" in info for info in infos)
+    # Every retry wraps the ORIGINAL prompt: the notice is never stacked.
+    assert all(prompt.count("RESUME NOTICE") + prompt.count("AVISO DE REANUDACI") == 1
+               for prompt in impl.prompts[1:])
+
+
+def test_non_transient_failure_is_not_retried(tmp_path, monkeypatch):
+    async def fake_sleep(seconds):
+        raise AssertionError("no retry expected")
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    task = _make_task(tmp_path)
+    impl = FakeDriver("fake-impl", [RunResult(ok=False, error="Model not found")])
+    orch = Orchestrator(task, drivers={"fake-impl": impl})
+    with pytest.raises(PhaseError):
+        _run(orch.run_implement())
+    assert len(impl.prompts) == 1
+    assert task.state is TaskState.FAILED
+
+
 # ---------------------------------------------------------------------- #
 # Remote tasks (SSH/sshfs) - mount and sync helpers
 # ---------------------------------------------------------------------- #

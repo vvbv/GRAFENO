@@ -1054,6 +1054,51 @@ def test_run_failure_includes_stdout_error_events(tmp_path):
     assert "exited with code 1" in result.error
     assert "429 too many requests" in result.error
     assert result.usage_wait is not None  # the hint survives the new message
+    assert result.transient is False  # quota takes precedence over transient
+
+
+def test_run_failure_flags_transient_opencode_errors(tmp_path):
+    """OpenCode 2.x transport/shutdown errors mark the failed run as transient."""
+    import sys
+
+    for error in (
+        {"type": "provider.transport", "message": "ECONNRESET: The socket connection was closed unexpectedly."},
+        {"type": "aborted", "message": "Session interrupted: shutdown"},
+        {"name": "UnknownError", "data": {"message": "Unexpected server error.", "ref": "err_1"}},
+    ):
+        line = json.dumps({"type": "error", "sessionID": "ses_1", "error": error})
+
+        class FailingOpenCode(OpenCodeDriver):
+            executable = sys.executable
+
+            def build_command(self, request: RunRequest, line=line) -> list[str]:
+                return [sys.executable, "-c", f"import sys; print({line!r}); sys.exit(1)"]
+
+        result = asyncio.run(FailingOpenCode().run(_request(workdir=tmp_path)))
+        assert not result.ok
+        assert result.usage_wait is None
+        assert result.transient is True, error
+        assert result.session_id == "ses_1"  # the retry can resume the session
+        assert "{'" not in result.error  # never the Python repr of the payload
+
+
+def test_run_failure_not_transient_for_deterministic_errors(tmp_path):
+    import sys
+
+    line = json.dumps({
+        "type": "error",
+        "error": {"name": "ProviderModelNotFoundError", "data": {"message": "Model not found"}},
+    })
+
+    class FailingOpenCode(OpenCodeDriver):
+        executable = sys.executable
+
+        def build_command(self, request: RunRequest) -> list[str]:
+            return [sys.executable, "-c", f"import sys; print({line!r}); sys.exit(1)"]
+
+    result = asyncio.run(FailingOpenCode().run(_request(workdir=tmp_path)))
+    assert not result.ok
+    assert result.transient is False
 
 
 def test_stderr_tail_starts_at_error_line():

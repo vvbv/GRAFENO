@@ -34,6 +34,13 @@ class PhaseError(Exception):
     """A pipeline phase failed (the state has already been set to FAILED)."""
 
 
+def _error_summary(error: str, limit: int = 160) -> str:
+    """Last non-empty line of a run error (the CLI's own message), truncated."""
+    lines = [line.strip() for line in error.splitlines() if line.strip()]
+    summary = lines[-1] if lines else "?"
+    return summary if len(summary) <= limit else summary[: limit - 3] + "..."
+
+
 # Transient running states left behind by a catastrophic exit (app killed,
 # power loss, CLI crash), mapped to the pipeline phase that was running.
 INTERRUPTED_PHASE: dict[TaskState, str] = {
@@ -153,7 +160,8 @@ class Orchestrator:
             effort=role.effort,
         )
         started_at = time.monotonic()
-        attempt = 0
+        attempt = 0            # usage-limit retries
+        transient_attempt = 0  # transient-failure retries
         try:
             while True:
                 result = await driver.run(
@@ -166,23 +174,35 @@ class Orchestrator:
                     task.sessions[role_name] = result.session_id
                     request.session_id = result.session_id  # retry continues the session
                     models.save(task)  # persist: a crash mid-wait keeps the session
-                if result.usage_wait is None:
-                    break
-                attempt += 1
-                if attempt <= ratelimit.MAX_ATTEMPTS:
-                    wait = result.usage_wait or ratelimit.PROBE_SECONDS
+                if result.usage_wait is not None:
+                    attempt += 1
+                    if attempt <= ratelimit.MAX_ATTEMPTS:
+                        wait = result.usage_wait or ratelimit.PROBE_SECONDS
+                        message = t(
+                            "orch.usage_wait.retry",
+                            wait=format_duration(wait), attempt=attempt, max=ratelimit.MAX_ATTEMPTS,
+                        )
+                    else:
+                        # Passive mode: fixed 15-minute probes, retried forever; a
+                        # usage-limit exhaustion never fails the phase.
+                        wait = ratelimit.PASSIVE_WAIT_SECONDS
+                        message = t(
+                            "orch.usage_wait.passive",
+                            wait=format_duration(wait), attempt=attempt,
+                        )
+                elif result.transient and transient_attempt < ratelimit.TRANSIENT_MAX_ATTEMPTS:
+                    # Network drop, provider 5xx or CLI service shutdown: retry
+                    # the phase telling the agent to resume instead of restarting.
+                    transient_attempt += 1
+                    wait = ratelimit.transient_wait(transient_attempt)
                     message = t(
-                        "orch.usage_wait.retry",
-                        wait=format_duration(wait), attempt=attempt, max=ratelimit.MAX_ATTEMPTS,
+                        "orch.transient.retry",
+                        error=_error_summary(result.error), wait=format_duration(wait),
+                        attempt=transient_attempt, max=ratelimit.TRANSIENT_MAX_ATTEMPTS,
                     )
+                    request.prompt = prompts.resumed_prompt(prompt)
                 else:
-                    # Passive mode: fixed 15-minute probes, retried forever; a
-                    # usage-limit exhaustion never fails the phase.
-                    wait = ratelimit.PASSIVE_WAIT_SECONDS
-                    message = t(
-                        "orch.usage_wait.passive",
-                        wait=format_duration(wait), attempt=attempt,
-                    )
+                    break
                 self._set_usage_waiting(True)
                 self._info(message)
                 await asyncio.sleep(wait)
@@ -190,6 +210,8 @@ class Orchestrator:
             self._set_usage_waiting(False)
         self._record_duration(phase, time.monotonic() - started_at)
         if not result.ok:
+            if result.transient:
+                self._info(t("orch.transient.exhausted", max=ratelimit.TRANSIENT_MAX_ATTEMPTS))
             self._mark_failed(phase)
             await self._run_hooks(phase, "failed")
             raise PhaseError(result.error or t("orch.phase_failed", phase=phase_label(phase)))

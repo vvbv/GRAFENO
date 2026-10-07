@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from grafeno.ratelimit import (
     MAX_WAIT_SECONDS,
+    TRANSIENT_WAITS,
     detect_usage_wait,
+    looks_like_transient_failure,
     looks_like_usage_limit,
     parse_wait_seconds,
+    transient_wait,
 )
 
 
@@ -125,3 +128,37 @@ def test_detect_usage_wait_token_plan_message():
         "or purchase Credits for more usage. (2056)"
     )
     assert detect_usage_wait(message) == 0.0
+
+
+def test_detects_transient_failures_seen_in_opencode():
+    """The three OpenCode failures reported in the field are transient."""
+    assert looks_like_transient_failure(
+        "ECONNRESET: The socket connection was closed unexpectedly. "
+        "For more information, pass `verbose: true` in the second argument to fetch()"
+    )
+    assert looks_like_transient_failure("Session interrupted: shutdown")
+    assert looks_like_transient_failure(
+        "UnknownError: Unexpected server error. Check server logs for details. (ref: err_f948a405)"
+    )
+
+
+def test_detects_common_transient_failures():
+    assert looks_like_transient_failure("API Error: 500 Internal server error")
+    assert looks_like_transient_failure('{"type":"overloaded_error","message":"Overloaded"}')
+    assert looks_like_transient_failure("stream disconnected before completion")
+    assert looks_like_transient_failure("TypeError: fetch failed")
+    assert looks_like_transient_failure("APIConnectionError: Connection error.")
+    assert looks_like_transient_failure("502 Bad Gateway")
+
+
+def test_transient_ignores_deterministic_failures():
+    assert not looks_like_transient_failure("syntax error on line 3")
+    assert not looks_like_transient_failure("Model not found: provider/model")
+    assert not looks_like_transient_failure("Session interrupted by user")  # deliberate cancel
+
+
+def test_transient_wait_grows_and_saturates():
+    assert transient_wait(1) == TRANSIENT_WAITS[0]
+    assert transient_wait(2) == TRANSIENT_WAITS[1]
+    assert transient_wait(len(TRANSIENT_WAITS) + 5) == TRANSIENT_WAITS[-1]
+    assert transient_wait(0) == TRANSIENT_WAITS[0]

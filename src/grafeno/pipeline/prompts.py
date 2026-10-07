@@ -37,7 +37,9 @@ EXECUTOR_NOTICE_TEMPLATE = {
 _COMMON_RULES = {
     "es": """
 Reglas de esta ejecución (modo automático, no interactivo):
-- NO hagas preguntas: decide con criterio y actúa.
+- NO hagas preguntas ni uses herramientas para preguntar al usuario
+  (p. ej. `question`): nadie puede responderlas y la ejecución se aborta;
+  decide con criterio y actúa.
 - Trabaja siempre dentro del directorio del proyecto indicado.
 - Responde de forma breve; los artefactos importantes van en los archivos.
 - Si la tarea requiere operaciones de git (commit, push, tags, etc.), usa el
@@ -49,7 +51,9 @@ Reglas de esta ejecución (modo automático, no interactivo):
 """.strip(),
     "en": """
 Rules for this run (automatic, non-interactive mode):
-- Do NOT ask questions: decide with judgment and act.
+- Do NOT ask questions or use tools that ask the user (e.g. `question`):
+  nobody can answer them and the run gets aborted; decide with judgment
+  and act.
 - Always work inside the given project directory.
 - Answer briefly; the important artifacts go in the files.
 - If the task requires git operations (commit, push, tags, etc.), use the
@@ -955,3 +959,30 @@ def final_prompt(task: Task) -> str:
         final_file=paths.final_dir(task.id, task.cycle) / "01-final.md",
         tests=tests,
     )
+
+
+_RESUMED_PROMPT = {
+    "es": """
+AVISO DE REANUDACIÓN: la ejecución anterior de esta fase se interrumpió por un
+fallo externo (red, proveedor o el propio CLI), no por tu trabajo. Retómala
+desde donde quedó: revisa el estado actual de los archivos del proyecto y de
+los artefactos de la tarea, no rehagas lo que ya esté hecho y completa lo que
+falte. No hagas preguntas: decide con criterio y actúa.
+
+{prompt}
+""",
+    "en": """
+RESUME NOTICE: the previous run of this phase was interrupted by an external
+failure (network, provider or the CLI itself), not by your work. Pick it up
+where it stopped: check the current state of the project files and of the
+task artifacts, do not redo what is already done and complete what is
+missing. Do not ask questions: decide with judgment and act.
+
+{prompt}
+""",
+}
+
+
+def resumed_prompt(prompt: str) -> str:
+    """Prefix a phase prompt with the notice used when retrying an interrupted run."""
+    return _render(_RESUMED_PROMPT, prompt_language(), prompt=prompt)

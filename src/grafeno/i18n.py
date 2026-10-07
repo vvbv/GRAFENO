@@ -553,6 +553,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "orch.agents_md.failed": "[AGENTS.md] Could not generate it ({error}); continuing without it.",
         "orch.usage_wait.retry": "Usage limit reached; waiting {wait} before retrying (attempt {attempt}/{max})",
         "orch.usage_wait.passive": "Usage limit persists; passive wait mode: retrying every {wait} until the quota resets (attempt {attempt})",
+        "orch.transient.retry": "Transient failure ({error}); resuming the phase in {wait} (attempt {attempt}/{max})",
+        "orch.transient.exhausted": "The transient failure persisted after {max} retries; the phase fails (use Continue to resume it later).",
         "orch.changes_md": "Changes report written: changes.md",
         "orch.changes_md.fail": "Could not write changes.md: {error}",
         # hook de completado
@@ -1279,6 +1281,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "orch.agents_md.failed": "[AGENTS.md] No se pudo generar ({error}); se continúa sin él.",
         "orch.usage_wait.retry": "Límite de uso alcanzado; esperando {wait} antes de reintentar (intento {attempt}/{max})",
         "orch.usage_wait.passive": "El límite de uso persiste; modo de espera pasiva: reintentando cada {wait} hasta que se restablezca la cuota (intento {attempt})",
+        "orch.transient.retry": "Fallo transitorio ({error}); se reanuda la fase en {wait} (intento {attempt}/{max})",
+        "orch.transient.exhausted": "El fallo transitorio persistió tras {max} reintentos; la fase falla (usa Continuar para reanudarla más tarde).",
         "orch.changes_md": "Informe de cambios generado: changes.md",
         "orch.changes_md.fail": "No se pudo generar changes.md: {error}",
         # hook de completado
