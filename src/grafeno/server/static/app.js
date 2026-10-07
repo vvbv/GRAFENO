@@ -323,10 +323,83 @@ function askToken() {
     router.reload();
   });
 }
-function lightbox(url) {
-  const box = h("div", { class: "lightbox", onclick: () => box.remove() }, h("img", { src: url, alt: "" }));
-  document.body.appendChild(box);
+// ---------------------------------------------------------------- media viewer
+// Extension sets shared by the media tab, the description thumbnails and the
+// viewer (mirrors IMAGE_SUFFIXES/AUDIO_SUFFIXES of media.py).
+const IMG_EXT = ["png", "jpg", "jpeg"];
+const VID_EXT = ["mp4", "webm"];
+const AUD_EXT = ["ogg", "oga", "opus", "mp3", "wav", "m4a", "flac"];
+function mediaExt(name) { return name.split(".").pop().toLowerCase(); }
+function mediaKind(name) {
+  const ext = mediaExt(name);
+  if (IMG_EXT.includes(ext)) return "image";
+  if (VID_EXT.includes(ext)) return "video";
+  if (AUD_EXT.includes(ext)) return "audio";
+  return "file";
 }
+// Media the viewer can render, keeping the order of the task media list.
+function viewableMedia(detail) {
+  return (detail.media || []).filter((name) => mediaKind(name) !== "file");
+}
+
+// Full-screen overlay for the task media (image/video/audio) with previous and
+// next navigation via on-screen arrows and the ArrowLeft/ArrowRight keys;
+// Escape, a click on the backdrop or a route change closes it. The overlay
+// keeps the ``lightbox`` class so the tasks screen Escape guard (which ignores
+// Escape while a ``.lightbox`` or an open dialog exists) keeps working.
+const viewer = {
+  box: null, taskId: "", names: [], index: 0, loadToken: 0, onKey: null, onHash: null,
+  open(taskId, names, index) {
+    this.close();
+    if (!names.length) return;
+    this.taskId = taskId;
+    this.names = names;
+    this.index = Math.max(0, Math.min(index, names.length - 1));
+    this.box = h("div", { class: "lightbox", onclick: (event) => { if (event.target === this.box) this.close(); } });
+    document.body.appendChild(this.box);
+    this.onKey = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); this.close(); }
+      else if (event.key === "ArrowLeft") { event.preventDefault(); this.step(-1); }
+      else if (event.key === "ArrowRight") { event.preventDefault(); this.step(1); }
+    };
+    document.addEventListener("keydown", this.onKey);
+    this.onHash = () => this.close();
+    window.addEventListener("hashchange", this.onHash);
+    this.show();
+  },
+  close() {
+    this.loadToken += 1;
+    if (this.onKey) { document.removeEventListener("keydown", this.onKey); this.onKey = null; }
+    if (this.onHash) { window.removeEventListener("hashchange", this.onHash); this.onHash = null; }
+    if (this.box) { this.box.remove(); this.box = null; }
+  },
+  step(delta) {
+    if (this.names.length < 2) return;
+    this.index = (this.index + delta + this.names.length) % this.names.length;
+    this.show();
+  },
+  async show() {
+    const token = ++this.loadToken;
+    const name = this.names[this.index];
+    const url = await mediaUrl(this.taskId, name).catch(() => null);
+    if (!this.box || token !== this.loadToken) return;  // closed or navigated meanwhile
+    const kind = mediaKind(name);
+    let node;
+    if (!url) node = h("div", { class: "lb-error", text: name });
+    else if (kind === "image") node = h("img", { src: url, alt: name });
+    else if (kind === "video") node = h("video", { src: url, controls: true, autoplay: true });
+    else node = h("audio", { src: url, controls: true, autoplay: true });
+    const children = [node];
+    if (this.names.length > 1) {
+      children.push(
+        h("button", { class: "lb-nav lb-prev", text: "‹", title: tr("web.media.prev"), "aria-label": tr("web.media.prev"), onclick: (event) => { event.stopPropagation(); this.step(-1); } }),
+        h("button", { class: "lb-nav lb-next", text: "›", title: tr("web.media.next"), "aria-label": tr("web.media.next"), onclick: (event) => { event.stopPropagation(); this.step(1); } }),
+      );
+    }
+    children.push(h("div", { class: "lb-caption", text: "media/" + name + "  " + tr("web.media.counter", { n: this.index + 1, total: this.names.length }) }));
+    this.box.replaceChildren(...children);
+  },
+};
 
 // ---------------------------------------------------------------- shared data
 const store = {
@@ -1108,10 +1181,11 @@ const tasksView = {
     // Thumbnails of the images referenced with media/... tokens.
     const referenced = (d.media || []).filter((name) => /\.(png|jpe?g)$/i.test(name) && (task.description || "").includes("media/" + name));
     if (referenced.length) {
+      const viewable = viewableMedia(d);
       const thumbs = h("div", { class: "thumbs" });
       wrap.appendChild(thumbs);
       for (const name of referenced) {
-        mediaUrl(task.id, name).then((url) => thumbs.appendChild(h("img", { src: url, alt: name, title: "media/" + name, onclick: () => lightbox(url) }))).catch(() => {});
+        mediaUrl(task.id, name).then((url) => thumbs.appendChild(h("img", { src: url, alt: name, title: "media/" + name, onclick: () => viewer.open(task.id, viewable, viewable.indexOf(name)) }))).catch(() => {});
       }
     }
     const extensions = Object.entries(task.extensions || this.detail.extensions || {}).sort((a, b) => Number(a[0]) - Number(b[0]));
@@ -1166,18 +1240,19 @@ const tasksView = {
     const d = this.detail;
     const names = d.media || [];
     if (!names.length) return h("div", { class: "empty", text: tr("media.empty") });
+    const viewable = viewableMedia(d);
     const grid = h("div", { class: "media-grid" });
     for (const name of names) {
       const item = h("div", { class: "media-item" });
       grid.appendChild(item);
-      const ext = name.split(".").pop().toLowerCase();
+      const kind = mediaKind(name);
       mediaUrl(d.task.id, name).then((url) => {
-        let viewer;
-        if (["png", "jpg", "jpeg"].includes(ext)) viewer = h("img", { src: url, alt: name, onclick: () => lightbox(url) });
-        else if (["mp4", "webm"].includes(ext)) viewer = h("video", { src: url, controls: true });
-        else if (["ogg", "oga", "opus", "mp3", "wav", "m4a", "flac"].includes(ext)) viewer = h("audio", { src: url, controls: true });
-        else viewer = h("a", { href: url, download: name, text: tr("web.ui.download") });
-        item.prepend(viewer);
+        let preview = null;
+        if (kind === "image") preview = h("img", { src: url, alt: name });
+        else if (kind === "video") preview = h("video", { src: url, preload: "metadata", muted: true });
+        else if (kind === "audio") preview = h("div", { class: "media-audio-tile", title: name });
+        if (preview) preview.addEventListener("click", () => viewer.open(d.task.id, viewable, viewable.indexOf(name)));
+        item.prepend(preview || h("a", { href: url, download: name, text: tr("web.ui.download") }));
       }).catch(fail);
       item.appendChild(h("div", { class: "cap", text: "media/" + name }));
     }

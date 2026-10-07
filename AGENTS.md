@@ -248,7 +248,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   se desplazan por separado)
   y las mismas opciones (lista con
   filtros y cadenas, detalle con todas las acciones del pipeline, pestañas
-  de artefactos/medios/log/tokens, editor de agentes, formulario completo
+  de artefactos/medios (visor a pantalla completa con navegación anterior/siguiente por flechas de la GUI y del teclado)/log/tokens, editor de agentes, formulario completo
   de nueva tarea, reportes y ajustes globales; las consolas siguen siendo
   solo de la TUI) que usa exclusivamente la API REST/WS. Las reglas de qué
   acción aplica en cada estado viven en el servidor
