@@ -31,12 +31,15 @@ Every task follows a pipeline with five configurable roles (CLI + model for each
 2. **Implementer** — reads the plans and executes them in the project directory (optionally on a `grafeno/<task>` branch; it is decided per task in the creation form, with the global configuration value as the default).
 3. **Reviewer** — verifies the acceptance criteria, writes the review under `review/NN-review.md` and issues a structured verdict (`VERDICT: APPROVED` / `VERDICT: CHANGES_REQUESTED`). If changes are requested, the implementer fixes them and the review runs again.
 4. **Final steps** — once approved, a last agent closes the task: updates the affected
-   documentation, performs a final cleanup and writes a report under `final/01-final.md`.
-   Alongside it, GRAFENO automatically appends `final/<cycle>/changes.md` with every change
-   contributed by the task (committed and uncommitted: commits, `git status`, the full diff
-   against the HEAD captured when the implementation started, and the contents of new
-   untracked files). It is best effort: without a git repo no file is generated and the phase
-   never breaks. It also has a configurable CLI and model (role `final`). You can add an extra
+   documentation, performs a final cleanup and writes a report under `final/01-final.md`,
+   plus a concise executive summary under `final/<cycle>/summary.md` (what was asked,
+   what was done, and — for bug/fix tasks — what was causing the issue and the applied
+   solution; if the agent skips it, GRAFENO writes a minimal fallback). Alongside it,
+   GRAFENO automatically appends `final/<cycle>/changes.md` with every change contributed
+   by the task (committed and uncommitted: commits, `git status`, the full diff against
+   the HEAD captured when the implementation started, and the contents of new untracked
+   files). It is best effort: without a git repo no file is generated and the phase never
+   breaks. It also has a configurable CLI and model (role `final`). You can add an extra
    block of instructions in `config.toml` (`final_prompt`) or override it per task when
    creating it; if empty, the closeout runs as usual.
 
@@ -233,7 +236,7 @@ grafeno --version (or -v)          # print the installed GRAFENO version and exi
     ├── first/*.md           # optional first-step reports per cycle (only when first_prompt is configured)
     ├── plan/*.md            # plans with GRAFENO-EXECUTOR header
     ├── review/*.md          # reviews numbered by iteration
-    ├── final/*.md           # final-step reports per cycle + auto-generated changes.md
+    ├── final/*.md           # final-step reports per cycle + agent-written summary.md + auto-generated changes.md
     ├── media/*.png          # PNGs pasted into the description / ask-for-more; jpg/mp4/etc. from Telegram photos/videos and API attachments
     └── logs/*.jsonl         # raw output from each CLI invocation
 ```
