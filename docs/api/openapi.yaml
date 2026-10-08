@@ -786,6 +786,7 @@ paths:
     post:
       tags: [audio]
       summary: Synthesize speech (TTS) with the configured provider and download the audio file.
+      description: The text is split into segments of under 200 characters and synthesized as a single WAV, with at most 800 characters spoken.
       operationId: synthesizeSpeech
       requestBody:
         required: true

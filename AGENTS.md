@@ -44,7 +44,7 @@ src/grafeno/
 ├── telegram/               # Bot de Telegram (stdlib, sin dependencias nuevas): voz/texto -> tareas, consultas y respuestas con voz
 │   ├── api.py              #   Cliente Bot API con urllib (long polling, multipart a mano, troceo 4096 con pacing CHUNK_DELAY entre chunks y reintento ante 429; el reply_markup viaja siempre en el último chunk); transporte inyectable; el token nunca se loguea
 │   ├── stt.py              #   Transcripción vía endpoint OpenAI-compatible (Groq whisper-large-v3-turbo por defecto), best-effort
-│   ├── tts.py              #   Voz generada vía endpoint OpenAI-compatible (Groq orpheus, voz masculina `troy` por defecto), opt-in; el WAV del proveedor se convierte a OGG/OPUS con ffmpeg externo (best effort; sin ffmpeg se envía como sendAudio) y los fallos se registran en telegram.log
+│   ├── tts.py              #   Voz generada vía endpoint OpenAI-compatible (Groq orpheus, voz masculina `troy` por defecto), opt-in; el WAV del proveedor se convierte a OGG/OPUS con ffmpeg externo (best effort; sin ffmpeg se envía como sendAudio); el texto se trocea en segmentos de menos de 200 caracteres (límite de Groq Orpheus) y los WAV se unen (`split_speech`/`merge_wavs`); los problemas (proveedor, clave, ffmpeg ausente) se registran en telegram.log y se avisan una vez por chat y en la TUI (`_tts_notice`), y al arrancar el bot se avisa si falta ffmpeg
 │   ├── intents.py          #   Interpretación del mensaje con un CLI de agente (prompt one-shot -> JSON): crear/listar tareas/listar proyectos (directorios del scope global)/tareas de un proyecto/estado/archivos/preguntar
 │   └── service.py          #   Bucle de polling (worker de la App), whitelist de chats, propuestas con botones inline, creación origin="telegram", notificación de fin
 ├── server/                 # Servidor remoto REST + WS sobre stdlib (asyncio)
@@ -334,7 +334,11 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   resumen/estado de tareas, envío de los .md de plan/revisión/final como
   documentos y preguntas concretas sobre una tarea (one-shot con los
   artefactos como contexto). Las respuestas de voz (TTS OpenAI-compatible,
-  Groq por defecto, voz masculina `troy`) son opt-in (`tts_enabled`).
+  Groq por defecto, voz masculina `troy`) son opt-in (`tts_enabled`); el texto
+  se trocea en segmentos de menos de 200 caracteres y los problemas de voz se
+  avisan una vez por chat y en la TUI. Groq exige que un admin acepte los
+  términos del modelo Orpheus en su consola (si no, HTTP 400 que el bot
+  reporta en el chat).
   Seguridad: whitelist de chat ids (`allowed_chat_ids`; vacío = denegar
   todos, `/start` responde con el chat id para autorizarse), el token
   puede venir de `GRAFENO_TELEGRAM_TOKEN` (tiene prioridad sobre el

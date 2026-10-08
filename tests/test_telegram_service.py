@@ -1626,7 +1626,7 @@ def test_tts_voice_reply_when_enabled(tmp_path, monkeypatch):
     )
     service, client = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
     monkeypatch.setattr(service_module.tts, "synthesize", lambda **kwargs: b"WAV")
-    monkeypatch.setattr(service_module.tts, "to_ogg", lambda wav: b"OGG")
+    monkeypatch.setattr(service_module.tts, "to_ogg", lambda wav, on_error=None: b"OGG")
 
     _run(service._parse_and_reply(555, "lista"))
 
@@ -1641,12 +1641,89 @@ def test_tts_audio_fallback_without_ffmpeg(tmp_path, monkeypatch):
     )
     service, client = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
     monkeypatch.setattr(service_module.tts, "synthesize", lambda **kwargs: b"WAV")
-    monkeypatch.setattr(service_module.tts, "to_ogg", lambda wav: None)
+    monkeypatch.setattr(service_module.tts, "to_ogg", lambda wav, on_error=None: None)
 
     _run(service._parse_and_reply(555, "lista"))
 
     assert client.voices == []
     assert client.audios == [(555, b"WAV")]
+
+
+def _tts_service(tmp_path, monkeypatch, n=2):
+    driver = FakeDriver([_json_result({"action": "list_tasks"}) for _ in range(n)])
+    cfg = TelegramConfig(
+        enabled=True, bot_token="T", allowed_chat_ids="555",
+        tts_enabled=True, tts_key="KEY", default_workdir=str(tmp_path),
+    )
+    service, client = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
+    infos: list[str] = []
+    service._on_info = infos.append
+    return service, client, infos
+
+
+def test_tts_failure_is_reported_in_chat_once(tmp_path, monkeypatch):
+    service, client, infos = _tts_service(tmp_path, monkeypatch)
+    calls: list[int] = []
+
+    def fake_synth(**kwargs):
+        calls.append(1)
+        kwargs["on_error"](
+            "HTTP 400: The model `m` requires terms acceptance. "
+            "Please have the org admin accept the terms at https://console.groq.com/x"
+        )
+        return None
+
+    monkeypatch.setattr(service_module.tts, "synthesize", fake_synth)
+
+    _run(service._parse_and_reply(555, "lista"))
+    _run(service._parse_and_reply(555, "lista"))
+
+    notices = [m for m in client.sent if "requires terms acceptance" in m[1]]
+    assert len(notices) == 1
+    assert client.voices == [] and client.audios == []
+    assert len(calls) == 2  # notices are never spoken
+    assert any("requires terms acceptance" in i for i in infos)
+    assert "tts failed" in paths.telegram_log_path().read_text(encoding="utf-8")
+
+
+def test_tts_notice_repeats_after_recovery(tmp_path, monkeypatch):
+    service, client, infos = _tts_service(tmp_path, monkeypatch, n=3)
+    state = {"ok": False}
+
+    def fake_synth(**kwargs):
+        if state["ok"]:
+            return b"WAV"
+        kwargs["on_error"]("HTTP 500: boom")
+        return None
+
+    monkeypatch.setattr(service_module.tts, "synthesize", fake_synth)
+    monkeypatch.setattr(service_module.tts, "to_ogg", lambda wav, on_error=None: b"OGG")
+
+    _run(service._parse_and_reply(555, "lista"))
+    state["ok"] = True
+    _run(service._parse_and_reply(555, "lista"))
+    state["ok"] = False
+    _run(service._parse_and_reply(555, "lista"))
+
+    assert len([m for m in client.sent if "Voice reply unavailable" in m[1]]) == 2
+    assert client.voices == [(555, b"OGG")]
+
+
+def test_tts_without_ffmpeg_notifies_once(tmp_path, monkeypatch):
+    service, client, infos = _tts_service(tmp_path, monkeypatch)
+    monkeypatch.setattr(service_module.tts, "synthesize", lambda **kwargs: b"WAV")
+
+    def fake_ogg(wav, on_error=None):
+        on_error("ffmpeg not installed")
+        return None
+
+    monkeypatch.setattr(service_module.tts, "to_ogg", fake_ogg)
+
+    _run(service._parse_and_reply(555, "lista"))
+    _run(service._parse_and_reply(555, "lista"))
+
+    assert len(client.audios) == 2
+    assert len([m for m in client.sent if "ffmpeg" in m[1]]) == 1
 
 
 def test_tts_disabled_by_default(tmp_path, monkeypatch):

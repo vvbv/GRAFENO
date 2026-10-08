@@ -213,6 +213,7 @@ class TelegramService:
         self._bot_username = ""  # filled from getMe at startup
         self._bot_id = 0         # bot user id (reply detection in groups)
         self._unauth_notified: dict[int, float] = {}  # chat_id -> last notice
+        self._tts_notices: dict[int, str] = {}  # chat_id -> last TTS problem reported in the chat
         self._chat_lang: dict[int, str] = {}  # chat_id -> language of its last message
 
     # ------------------------------------------------------------------ #
@@ -232,6 +233,7 @@ class TelegramService:
             self._bot_id = int(me.get("id", 0) or 0)
         self._on_info(t("tg.started"))
         self._log(f"bot started as @{self._bot_username} (id {self._bot_id})")
+        self._check_tts_environment()
         backoff = 1.0
         while True:
             try:
@@ -1204,8 +1206,12 @@ class TelegramService:
         chat_id: int,
         text: str,
         reply_markup: dict[str, Any] | None = None,
+        *,
+        speak: bool = True,
     ) -> None:
         """Send a text reply; with TTS enabled, also a generated voice note.
+
+        ``speak=False`` skips the voice note (notices about the voice itself).
 
         When the send fails and the message carried an inline keyboard, a
         short fallback message re-delivers the buttons (best effort): a
@@ -1224,7 +1230,7 @@ class TelegramService:
                 if reply_markup is not None:
                     await self._send_markup_fallback(chat_id, reply_markup)
                 return
-        if self.cfg.tts_enabled:
+        if speak and self.cfg.tts_enabled:
             await self._send_voice(chat_id, text)
 
     async def _send_markup_fallback(self, chat_id: int, reply_markup: dict[str, Any]) -> None:
@@ -1239,11 +1245,31 @@ class TelegramService:
         except TelegramError as exc:
             self._log(f"markup fallback failed for chat {chat_id}: {exc}")
 
+    def _check_tts_environment(self) -> None:
+        """Warn at startup when voice replies are on but ffmpeg is missing."""
+        if self.cfg.tts_enabled and not tts.ffmpeg_available():
+            self._log("tts enabled but ffmpeg is not installed: voice replies go out as audio files")
+            self._on_info(t("tg.tts.no_ffmpeg_startup"))
+
+    async def _tts_notice(self, chat_id: int, code: str, key: str, **kwargs: Any) -> None:
+        """Report a TTS problem once per chat (and in the TUI) until it changes.
+
+        ``code`` identifies the kind of problem; the same code is not
+        repeated in the chat, so a broken provider does not add a notice to
+        every reply. A delivered voice note clears it.
+        """
+        if self._tts_notices.get(chat_id) == code:
+            return
+        self._tts_notices[chat_id] = code
+        self._on_info(t(key, **kwargs))
+        await self._send(chat_id, self._tt(chat_id, key, **kwargs), speak=False)
+
     async def _send_voice(self, chat_id: int, text: str) -> None:
-        """Best-effort TTS voice reply; failures are logged to telegram.log."""
+        """Best-effort TTS voice reply; problems are logged and reported once in the chat."""
         key = self.cfg.resolve_tts_key()
         if not key:
             self._log(f"tts skipped for chat {chat_id}: no TTS/STT key configured")
+            await self._tts_notice(chat_id, "no_key", "tg.tts.no_key")
             return
         reasons: list[str] = []
         audio = await asyncio.to_thread(
@@ -1256,14 +1282,23 @@ class TelegramService:
             on_error=reasons.append,
         )
         if not audio:
-            self._log(f"tts failed for chat {chat_id}: {reasons[0] if reasons else 'unknown'}")
+            reason = reasons[0] if reasons else "unknown"
+            self._log(f"tts failed for chat {chat_id}: {reason}")
+            notice = "tg.tts.terms" if "terms acceptance" in reason.lower() else "tg.tts.failed"
+            # Group by error class (e.g. "HTTP 400") so changing texts do not re-notify.
+            await self._tts_notice(chat_id, "failed:" + reason.split(":", 1)[0], notice, error=reason)
             return
-        voice = await asyncio.to_thread(tts.to_ogg, audio)
+        if reasons:
+            self._log(f"tts partial for chat {chat_id}: {reasons[0]}")
+        convert_errors: list[str] = []
+        voice = await asyncio.to_thread(tts.to_ogg, audio, on_error=convert_errors.append)
+        reason = ""
         try:
             if voice is not None:
                 await asyncio.to_thread(self.client.send_voice, chat_id, voice)
             else:
-                self._log(f"chat {chat_id}: ffmpeg unavailable/failed, sending TTS as audio")
+                reason = convert_errors[0] if convert_errors else "ffmpeg unavailable"
+                self._log(f"chat {chat_id}: {reason}, sending TTS as audio")
                 await asyncio.to_thread(
                     self.client.send_audio,
                     chat_id, audio, filename="voice.wav", mime="audio/wav",
@@ -1271,6 +1306,11 @@ class TelegramService:
         except TelegramError as exc:
             self._log(f"voice/audio send failed for chat {chat_id}: {exc}")
             self._on_info(t("tg.send_failed", error=exc))
+            return
+        if voice is not None:
+            self._tts_notices.pop(chat_id, None)
+        else:
+            await self._tts_notice(chat_id, "no_ffmpeg", "tg.tts.no_ffmpeg", error=reason)
 
     # ------------------------------------------------------------------ #
     # Notifications from the App
