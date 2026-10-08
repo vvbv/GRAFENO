@@ -12,6 +12,7 @@ from pathlib import Path
 
 from grafeno import models, paths
 from grafeno.config import Config, TelegramConfig
+from grafeno.i18n import t
 from grafeno.models import TaskState
 from grafeno.drivers.base import CLIDriver, RunResult
 from grafeno.telegram import api as api_module
@@ -1724,6 +1725,50 @@ def test_tts_without_ffmpeg_notifies_once(tmp_path, monkeypatch):
 
     assert len(client.audios) == 2
     assert len([m for m in client.sent if "ffmpeg" in m[1]]) == 1
+
+
+def test_tts_without_key_notifies_once(tmp_path, monkeypatch):
+    monkeypatch.delenv("GRAFENO_TELEGRAM_TTS_KEY", raising=False)
+    monkeypatch.delenv("GRAFENO_TELEGRAM_STT_KEY", raising=False)
+    driver = FakeDriver([_json_result({"action": "list_tasks"}) for _ in range(2)])
+    cfg = TelegramConfig(
+        enabled=True, bot_token="T", allowed_chat_ids="555",
+        tts_enabled=True, default_workdir=str(tmp_path),
+    )
+    service, client = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
+    infos: list[str] = []
+    service._on_info = infos.append
+
+    def fail(**kwargs):
+        raise AssertionError("synthesize must not be called without a key")
+
+    monkeypatch.setattr(service_module.tts, "synthesize", fail)
+
+    _run(service._parse_and_reply(555, "lista"))
+    _run(service._parse_and_reply(555, "lista"))
+
+    assert [m for m in client.sent if m[1] == t("tg.tts.no_key")] != []
+    assert len([m for m in client.sent if m[1] == t("tg.tts.no_key")]) == 1
+    assert t("tg.tts.no_key") in infos
+    assert client.voices == [] and client.audios == []
+
+
+def test_check_tts_environment_warns_without_ffmpeg(tmp_path, monkeypatch):
+    service, client, infos = _tts_service(tmp_path, monkeypatch)
+    monkeypatch.setattr(service_module.tts, "ffmpeg_available", lambda: False)
+    service._check_tts_environment()
+    assert infos == [t("tg.tts.no_ffmpeg_startup")]
+    assert "ffmpeg" in paths.telegram_log_path().read_text(encoding="utf-8")
+
+    infos.clear()
+    monkeypatch.setattr(service_module.tts, "ffmpeg_available", lambda: True)
+    service._check_tts_environment()
+    assert infos == []
+
+    monkeypatch.setattr(service_module.tts, "ffmpeg_available", lambda: False)
+    service.cfg.tts_enabled = False
+    service._check_tts_environment()
+    assert infos == []
 
 
 def test_tts_disabled_by_default(tmp_path, monkeypatch):
