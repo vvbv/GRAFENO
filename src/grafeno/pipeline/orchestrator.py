@@ -527,6 +527,15 @@ class Orchestrator:
         if not final_path.exists() and result.text.strip():
             # Fallback: the agent did not write the report; we save its output.
             final_path.write_text(normalize_markdown(result.text), encoding="utf-8")
+        summary_path = paths.final_dir(self.task.id, self.task.cycle) / "summary.md"
+        if not summary_path.exists() and result.text.strip():
+            # Fallback: the agent did not write the summary; save a minimal one.
+            fallback = (
+                f"# Resumen: {self.task.name}\n\n"
+                f"## Qué se pidió\n{self.task.description.strip()}\n\n"
+                f"## Qué se hizo\n{result.text.strip()}\n"
+            )
+            summary_path.write_text(normalize_markdown(fallback), encoding="utf-8")
         self._write_changes_md()
 
     async def run_tests(self) -> bool:

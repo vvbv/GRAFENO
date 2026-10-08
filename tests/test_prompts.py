@@ -138,11 +138,22 @@ def test_final_prompt_contract(tmp_path):
     prompt = prompts.final_prompt(task)
     assert str(paths.final_dir(task.id)) in prompt
     assert "01-final.md" in prompt
+    assert "summary.md" in prompt
     assert task.workdir in prompt
     assert "pytest -q" in prompt
     assert "emotes" in prompt
     assert "INGLÉS" in prompt
     assert "AGENTE DE PASOS FINALES" in prompt
+
+
+def test_final_prompt_requires_summary_in_both_languages(tmp_path):
+    """The final prompt asks for summary.md in es and en (placeholder parity)."""
+    task = _task(tmp_path)
+    for lang in i18n.LANGUAGES:
+        i18n.set_prompt_language(lang)
+        prompt = prompts.final_prompt(task)
+        assert str(paths.final_dir(task.id, task.cycle) / "summary.md") in prompt
+    i18n.set_prompt_language("es")
 
 
 def test_final_prompt_custom_instructions(tmp_path):

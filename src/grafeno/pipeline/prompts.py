@@ -896,7 +896,13 @@ La tarea ya fue implementada y APROBADA por el revisor. Tu trabajo es el cierre.
 4. Escribe tu informe en el archivo:
    {final_file}
    con secciones: Resumen, Acciones realizadas, Documentación actualizada, Observaciones.
-5. NO generes ningún archivo `changes.md`: el sistema lo añade automáticamente
+5. Escribe ADEMÁS un resumen ejecutivo muy conciso en el archivo:
+   {summary_file}
+   con secciones: Qué se pidió, Qué se hizo y, SOLO cuando la tarea sea sobre
+   un bug o una corrección/revisión, Causa (qué lo estaba causando) y Solución
+   (cuál fue la solución aplicada). Máximo ~15 líneas en total: es una lectura
+   rápida para el usuario; no repitas el informe completo ni el diff.
+6. NO generes ningún archivo `changes.md`: el sistema lo añade automáticamente
    al directorio del informe con el diff completo de la tarea.
 
 {code_rules}
@@ -927,7 +933,13 @@ The task was already implemented and APPROVED by the reviewer. Your job is the w
 4. Write your report to the file:
    {final_file}
    with sections: Summary, Actions taken, Updated documentation, Observations.
-5. Do NOT generate any `changes.md` file: the system adds it automatically
+5. ALSO write a very concise executive summary to the file:
+   {summary_file}
+   with sections: What was asked, What was done and, ONLY when the task is
+   about a bug or a fix/review, Cause (what was causing it) and Solution
+   (what the applied solution was). Maximum ~15 lines total: it is a quick
+   read for the user; do not repeat the full report or the diff.
+6. Do NOT generate any `changes.md` file: the system adds it automatically
    to the report directory with the full diff of the task.
 
 {code_rules}
@@ -957,6 +969,7 @@ def final_prompt(task: Task) -> str:
         plan_dir=paths.plan_dir(task.id, task.cycle),
         review_dir=paths.review_dir(task.id, task.cycle),
         final_file=paths.final_dir(task.id, task.cycle) / "01-final.md",
+        summary_file=paths.final_dir(task.id, task.cycle) / "summary.md",
         tests=tests,
     )
 

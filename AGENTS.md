@@ -36,7 +36,7 @@ src/grafeno/
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
 ├── gh.py                   # Integración con GitHub CLI: detección de disponibilidad (repo + gh + acceso) y listado de issues abiertos (best-effort, nunca lanza)
 ├── references.py           # Modelo `Reference` y niveles global/proyecto/tarea con `resolve()`
-├── profiles.py             # Perfiles de procesamiento con nombre: Profile (5 RoleConfig), ~/.grafeno/profiles.toml, find() por nombre
+├── profiles.py             # Perfiles de procesamiento con nombre: Profile (5 RoleConfig), ~/.grafeno/profiles.toml, find() por nombre y helper roles_summary() (formato compacto cli/model compartido por Profile.summary, /api/v1/options y la línea de ayuda del selector del panel web)
 ├── consoles.py             # Consolas del proyecto: ConsoleSpec (nombre/comando/color), paleta CONSOLE_COLORS y persistencia por proyecto bajo ~/.grafeno/consoles/<slug>-<hash8>.toml (migra el [[consoles]] legacy del .grafeno.toml)
 ├── remote.py               # Proyectos remotos por SSH: parseo del spec, montaje sshfs bajo ~/.grafeno/mounts/ y espejo de datos de la tarea con rsync (best-effort), sondeo del SO destino (detect_os)
 ├── remotesession.py        # Modo sesión remota (`grafeno [user@]host[:port]`): bootstrap (sondeo de $HOME remoto, mkdir ~/.grafeno, montaje sshfs), activate() exporta GRAFENO_HOME al montaje; spec_for_task/describe_target para el fallback de sesión
@@ -461,12 +461,17 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   descripción (token `media/...` para imágenes, ruta absoluta para el resto):
   lo usan el bot de Telegram y el servidor API, que acepta `attachments`
   (base64, máx. 10) en la creación de tareas que se guardan igual.
-- **changes.md**: al terminar la fase final, el orquestador escribe
+- **changes.md y summary.md**: al terminar la fase final, el orquestador escribe
   `final/<ciclo>/changes.md` con todos los cambios aportados por la tarea
   (comiteados y sin comitear): commits, `git status`, diff completo contra
   `Task.base_commit` (HEAD registrado al arrancar la implementacion) y el
   contenido de los archivos nuevos sin seguimiento. Es best effort: sin
   repo git no se genera y nunca rompe el pipeline; gitops es solo lectura.
+  Además, el agente de pasos finales escribe `final/<ciclo>/summary.md`:
+  un resumen muy conciso de lo que se pidió, lo que se hizo y, en tareas
+  sobre bugs o revisiones, qué lo estaba causando y cuál fue la solución;
+  si el agente no lo genera, el orquestador escribe un fallback mínimo
+  (best effort, con cabeceras en español como changes.md).
 - **Consolas por proyecto**: la lista de tareas (botón/tecla `k`) y el
   detalle de cada tarea (`k`) abren la pantalla de consolas del proyecto
   (en remotas, sobre el montaje sshfs vía `remote.effective_workdir`).

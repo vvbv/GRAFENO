@@ -522,6 +522,49 @@ def test_final_writes_changes_md(tmp_path):
     assert "## Diff" in text
 
 
+def test_final_writes_summary_md_fallback(tmp_path):
+    """When the agent writes no summary.md, run_final saves a minimal fallback."""
+    task = _make_task(tmp_path)
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", [_ok("v1")]),
+        "fake-rev": FakeDriver("fake-rev", [_ok("bien\nVERDICT: APPROVED")]),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre: todo hecho")]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_final())
+    summary = paths.final_dir(task.id) / "summary.md"
+    assert summary.exists()
+    text = summary.read_text(encoding="utf-8")
+    assert "## Qué se pidió" in text
+    assert "desc" in text
+    assert "cierre: todo hecho" in text
+
+
+def test_final_keeps_agent_written_summary_md(tmp_path):
+    """A summary.md written by the agent is preserved (no fallback overwrite)."""
+    task = _make_task(tmp_path)
+
+    class WriterDriver(FakeDriver):
+        async def run(self, request, on_event=None, on_activity=None):
+            final_dir = paths.final_dir(task.id, task.cycle)
+            final_dir.mkdir(parents=True, exist_ok=True)
+            (final_dir / "summary.md").write_text("# Resumen del agente\n", encoding="utf-8")
+            return await super().run(request, on_event=on_event, on_activity=on_activity)
+
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("plan")]),
+        "fake-impl": FakeDriver("fake-impl", [_ok("v1")]),
+        "fake-rev": FakeDriver("fake-rev", [_ok("bien\nVERDICT: APPROVED")]),
+        "fake-final": WriterDriver("fake-final", [_ok("informe")]),
+    }
+    orch = Orchestrator(task, drivers=drivers)
+    _run(orch.run_final())
+    text = (paths.final_dir(task.id) / "summary.md").read_text(encoding="utf-8")
+    assert "Resumen del agente" in text
+    assert "Qué se pidió" not in text
+
+
 def test_final_without_git_repo_writes_nothing(tmp_path):
     """Without a git repo, run_final finishes and skips the report silently."""
     task = _make_task(tmp_path)
