@@ -1400,6 +1400,9 @@ components:
               type: object
               additionalProperties:
                 $ref: "#/components/schemas/RoleConfig"
+            roles_summary:
+              type: string
+              description: "Compact cli/model summary of the global roles (same format as Profile.summary)."
         profiles:
           type: array
           items:

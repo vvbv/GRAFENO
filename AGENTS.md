@@ -84,7 +84,7 @@ install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), v
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
 `task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `logs/live.jsonl`, `logs/*.jsonl`;
-además `config.toml`, `references.toml`, `triggers.toml`, `profiles.toml`, `consoles/`,
+además `config.toml`, `references.toml`, `triggers.toml`, `profiles.toml` (con backup rotativo `profiles.toml.bak` best-effort en cada guardado), `consoles/`,
 `mounts/`, `telegram-state.toml`, `api.log`); no
 en el repo.
 

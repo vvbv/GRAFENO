@@ -30,7 +30,7 @@ from .. import usage
 from ..config import DEFAULT_API_HOST, DEFAULT_API_PORT, KNOWN_CLIS, RoleConfig
 from ..i18n import LANGUAGES, set_language, set_prompt_language, t
 from ..pipeline.hooks import HOOK_STAGES, format_stages, parse_stages
-from ..profiles import Profile
+from ..profiles import Profile, roles_summary
 from ..references import Reference
 from ..triggers import ALL_PHASES, TIMINGS, TRIGGER_STAGES, Trigger
 from .actions import ROLE_NAMES, ApiError, _coerce_bool
@@ -72,6 +72,7 @@ def form_options(service: "ServerService") -> dict:
             "first_prompt": cfg.first_prompt,
             "final_prompt": cfg.final_prompt,
             "roles": {role: _role_dict(cfg.role(role)) for role in ROLE_NAMES},
+            "roles_summary": roles_summary({role: cfg.role(role) for role in ROLE_NAMES}),
         },
         "profiles": [_profile_dict(profile) for profile in profiles_module.load_global()],
         "hook_stages": list(HOOK_STAGES),

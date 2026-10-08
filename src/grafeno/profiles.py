@@ -10,6 +10,7 @@ roles for that task only.
 from __future__ import annotations
 
 import tomllib
+import shutil
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -35,18 +36,7 @@ class Profile:
 
     def summary(self) -> str:
         """Compact ``cli/model`` per role, e.g. ``plan=opencode/k3 · ...``."""
-        tags = {
-            "first": "first",
-            "planner": "plan",
-            "implementer": "impl",
-            "reviewer": "rev",
-            "final": "final",
-        }
-        parts = []
-        for role in PROFILE_ROLES:
-            cfg = self.role(role)
-            parts.append(f"{tags[role]}={cfg.cli}/{cfg.model or 'default'}")
-        return " · ".join(parts)
+        return roles_summary({role: self.role(role) for role in PROFILE_ROLES})
 
     def to_dict(self) -> dict[str, Any]:
         """Flat mapping (``planner_cli``...): the TOML writer is scalar-only."""
@@ -70,6 +60,22 @@ class Profile:
         return profile
 
 
+def roles_summary(roles: dict[str, RoleConfig]) -> str:
+    """Compact ``cli/model`` per role, e.g. ``plan=opencode/k3 · ...``."""
+    tags = {
+        "first": "first",
+        "planner": "plan",
+        "implementer": "impl",
+        "reviewer": "rev",
+        "final": "final",
+    }
+    parts = []
+    for role in PROFILE_ROLES:
+        cfg = roles.get(role) or RoleConfig()
+        parts.append(f"{tags[role]}={cfg.cli}/{cfg.model or 'default'}")
+    return " · ".join(parts)
+
+
 def load_global() -> list[Profile]:
     """Profiles from ``~/.grafeno/profiles.toml`` (missing/corrupt = [])."""
     path = paths.profiles_path()
@@ -87,9 +93,15 @@ def load_global() -> list[Profile]:
 
 
 def save_global(profiles: list[Profile]) -> None:
-    """Write the global profiles file."""
-    payload = {"profiles": [profile.to_dict() for profile in profiles]}
-    paths.profiles_path().write_text(_toml.dumps(payload), encoding="utf-8")
+    """Write the global profiles file (keeps a best-effort .bak copy)."""
+    path = paths.profiles_path()
+    content = _toml.dumps({"profiles": [profile.to_dict() for profile in profiles]})
+    try:
+        if path.exists() and path.read_text(encoding="utf-8") != content:
+            shutil.copy2(path, path.with_name(path.name + ".bak"))
+    except OSError:
+        pass  # the backup is best effort and never blocks the save
+    path.write_text(content, encoding="utf-8")
 
 
 def find(name: str, profiles: list[Profile] | None = None) -> Profile | None:

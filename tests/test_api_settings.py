@@ -34,6 +34,9 @@ def test_form_options_defaults_and_profiles(monkeypatch, tmp_path) -> None:
     assert data["defaults"]["first_prompt"] == "first"
     assert data["profiles"][0]["name"] == "fast"
     assert data["profiles"][0]["roles"]["planner"]["cli"] == "claude"
+    assert "plan=claude/sonnet" not in data["defaults"]["roles_summary"]  # the summary is of the global config, not of the profile
+    assert data["defaults"]["roles_summary"].count("·") == 4
+    assert "plan=" in data["defaults"]["roles_summary"]
     assert "tests" in data["hook_stages"]
     assert data["session"]["active"] is False
 

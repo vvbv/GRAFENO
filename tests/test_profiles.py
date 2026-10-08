@@ -14,6 +14,10 @@ def _sample(name="calidad") -> Profile:
     return profile
 
 
+def _raise_oserror(*args, **kwargs):
+    raise OSError("boom")
+
+
 def test_profile_roundtrip_all_roles():
     profile = _sample()
     clone = Profile.from_dict(profile.to_dict())
@@ -51,3 +55,34 @@ def test_summary_mentions_roles():
     text = _sample().summary()
     assert "plan=opencode/m1" in text
     assert "impl=kimi/k3" in text
+
+
+def test_roles_summary_matches_profile_summary():
+    profile = _sample()
+    roles = {role: profile.role(role) for role in PROFILE_ROLES}
+    assert profiles.roles_summary(roles) == profile.summary()
+    assert "plan=opencode/m1" in profile.summary()
+
+
+def test_roles_summary_defaults_for_missing_roles():
+    assert profiles.roles_summary({}).count("opencode/default") == len(PROFILE_ROLES)
+
+
+def test_save_global_writes_backup_on_overwrite():
+    profiles.save_global([_sample("calidad")])
+    first = paths.profiles_path().read_text(encoding="utf-8")
+    profiles.save_global([_sample("rapido")])
+    backup = paths.profiles_path().with_name("profiles.toml.bak")
+    assert backup.read_text(encoding="utf-8") == first
+
+
+def test_save_global_no_backup_on_first_write():
+    profiles.save_global([_sample()])
+    assert not paths.profiles_path().with_name("profiles.toml.bak").exists()
+
+
+def test_save_global_backup_is_best_effort(monkeypatch):
+    profiles.save_global([_sample("calidad")])
+    monkeypatch.setattr("grafeno.profiles.shutil.copy2", _raise_oserror)
+    profiles.save_global([_sample("rapido")])  # must not raise
+    assert "rapido" in paths.profiles_path().read_text(encoding="utf-8")

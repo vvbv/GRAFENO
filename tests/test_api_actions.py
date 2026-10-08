@@ -136,6 +136,29 @@ def test_create_task_defaults_from_config(tmp_path) -> None:
     assert task.plan_reuse == "reuse"
 
 
+def test_create_task_with_profile(tmp_path) -> None:
+    from grafeno import profiles
+
+    profiles.save_global([profiles.Profile(name="fast", planner=RoleConfig("claude", "sonnet", "high"))])
+    service = FakeService(FakeApp())
+    status, result = asyncio.run(actions.create_task(service, {
+        "name": "P", "workdir": str(tmp_path), "profile": "fast",
+    }))
+    assert status == 201
+    task = models.load(result["task"]["id"])
+    assert task.profile == "fast"
+    assert task.planner.cli == "claude" and task.planner.model == "sonnet"
+
+
+def test_create_task_with_unknown_profile(tmp_path) -> None:
+    with pytest.raises(ApiError) as exc:
+        asyncio.run(actions.create_task(FakeService(None), {
+            "name": "P", "workdir": str(tmp_path), "profile": "ghost",
+        }))
+    assert exc.value.status == 400
+    assert "unknown profile" in exc.value.message
+
+
 @pytest.mark.parametrize(
     ("payload", "message"),
     [

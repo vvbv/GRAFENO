@@ -1387,9 +1387,11 @@ const newTaskView = {
     const remoteInput = h("input", { type: "text", class: "mono", placeholder: tr("nt.remote.placeholder") });
     const profile = h("select", null, option(tr("nt.profile.default"), ""), options.profiles.map((p) => option(p.name, p.name)));
     const profileHelp = h("span", { class: "help" });
+    const defaultSummary = (options.defaults && options.defaults.roles_summary) || "";
+    profileHelp.textContent = defaultSummary;  // the general option starts preselected
     profile.addEventListener("change", () => {
       const chosen = options.profiles.find((p) => p.name === profile.value);
-      profileHelp.textContent = chosen ? chosen.summary : "";
+      profileHelp.textContent = chosen ? chosen.summary : defaultSummary;
     });
     const schedule = h("input", { type: "datetime-local" });
     const parent = h("select", null, option(tr("web.ui.parent_none"), ""), tasks.map((task) => option(task.name + " (" + task.id + ")", task.id)));
