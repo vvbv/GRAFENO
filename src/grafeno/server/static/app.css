@@ -98,6 +98,16 @@ td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: t
 #task-table tbody tr:hover { background: var(--row-hover); }
 #task-table tbody tr.active { background: var(--row-active); }
 #task-table td.name { min-width: 160px; word-break: break-word; }
+/* Task column: 60% of the viewport by default (the table scrolls sideways when
+   the rest does not fit). min-width must equal width, otherwise the automatic
+   table layout shrinks it. app.js resizes it from the handle and keeps the
+   width in localStorage; the sticky th already positions the handle. */
+#task-table th.name { width: 60vw; min-width: 60vw; }
+.col-resizer { position: absolute; top: 0; right: 0; bottom: 0; width: 8px; cursor: col-resize; touch-action: none; }
+.col-resizer::after { content: ""; position: absolute; top: 6px; bottom: 6px; right: 3px; width: 2px; border-radius: 1px; background: var(--border); }
+.col-resizer:hover::after, .col-resizer:focus-visible::after, body.col-resizing .col-resizer::after { background: var(--accent); }
+body.col-resizing { cursor: col-resize; user-select: none; }
+@media (pointer: coarse) { .col-resizer { width: 16px; } }
 #task-table td.project { color: var(--muted); font-size: 12px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #task-table td.when { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .chain { color: var(--muted); font-family: var(--mono); }

@@ -17,6 +17,10 @@ const ART_KINDS = ["first", "plan", "review", "final"];
 const TOKEN_KEY = "grafeno.token";
 const WARN_AFTER_S = 90;   // no output: warning (TUI activity bar)
 const STALL_AFTER_S = 300; // no output: possible stall
+const TASK_COL_KEY = "grafeno.taskColWidth";
+const TASK_COL_MIN = 160;  // px: same floor as the task cells (app.css)
+const TASK_COL_MAX = 4000; // px: caps absurd stored values
+const TASK_COL_STEP = 20;  // px per ArrowLeft/ArrowRight on the resize handle
 
 // ---------------------------------------------------------------- helpers
 function tr(key, vars) {
@@ -672,6 +676,72 @@ function check(label, checked) {
   return { box, node: h("label", { class: "check" }, box, plain(label)) };
 }
 
+// ---------------------------------------------------------------- task column width
+// The task column of the list takes 60% of the viewport by default (app.css).
+// Dragging the right edge of its header (or the arrow keys on that handle)
+// resizes it and the width is kept in localStorage, so the panel reopens with
+// it; a double click on the handle forgets it and restores the default.
+function clampTaskColWidth(width) {
+  return Math.min(TASK_COL_MAX, Math.max(TASK_COL_MIN, Math.round(width)));
+}
+function loadTaskColWidth() {
+  let saved = null;
+  try { saved = localStorage.getItem(TASK_COL_KEY); } catch (e) { saved = null; }
+  const width = Number.parseInt(saved, 10);
+  return Number.isFinite(width) ? clampTaskColWidth(width) : null;
+}
+function saveTaskColWidth(width) {
+  try {
+    if (width === null) localStorage.removeItem(TASK_COL_KEY);
+    else localStorage.setItem(TASK_COL_KEY, String(width));
+  } catch (e) { /* storage blocked */ }
+}
+// null restores the default of app.css (style property assignment: allowed by the CSP).
+function applyTaskColWidth(th, width) {
+  const value = width === null ? "" : width + "px";
+  th.style.width = value;
+  th.style.minWidth = value; // without it the auto table layout shrinks the column
+}
+function taskColResizer(th) {
+  const label = tr("web.ui.col_resize");
+  const handle = h("span", { class: "col-resizer", role: "separator", tabindex: "0",
+    "aria-orientation": "vertical", "aria-label": label, title: label });
+  let drag = null; // { x, width, applied } while the pointer is down
+  const resize = (width) => {
+    width = clampTaskColWidth(width);
+    applyTaskColWidth(th, width);
+    return width;
+  };
+  const endDrag = () => {
+    if (!drag) return;
+    if (drag.applied !== null) saveTaskColWidth(drag.applied); // a plain click keeps the default
+    drag = null;
+    document.body.classList.remove("col-resizing");
+  };
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    drag = { x: event.clientX, width: th.getBoundingClientRect().width, applied: null };
+    handle.setPointerCapture(event.pointerId);
+    document.body.classList.add("col-resizing");
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (!drag || (drag.applied === null && event.clientX === drag.x)) return;
+    drag.applied = resize(drag.width + event.clientX - drag.x);
+  });
+  handle.addEventListener("pointerup", endDrag);
+  handle.addEventListener("pointercancel", endDrag);
+  handle.addEventListener("lostpointercapture", endDrag);
+  handle.addEventListener("dblclick", () => { applyTaskColWidth(th, null); saveTaskColWidth(null); });
+  handle.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const step = event.key === "ArrowLeft" ? -TASK_COL_STEP : TASK_COL_STEP;
+    saveTaskColWidth(resize(th.getBoundingClientRect().width + step));
+  });
+  return handle;
+}
+
 // ---------------------------------------------------------------- tasks view
 const tasksView = {
   tasks: [],
@@ -752,9 +822,12 @@ const tasksView = {
     this.rows = h("tbody");
     this.listEmpty = h("div", { class: "empty", hidden: true, text: tr("web.ui.empty") });
     this.summary = h("div", { class: "list-summary" });
+    const taskHead = h("th", { class: "name", text: tr("tasks.col.task") });
+    applyTaskColWidth(taskHead, loadTaskColWidth());
+    taskHead.appendChild(taskColResizer(taskHead));
     const table = h("table", { id: "task-table" },
       h("thead", null, h("tr", null,
-        h("th", { text: tr("tasks.col.task") }), h("th", { text: tr("tasks.col.state") }),
+        taskHead, h("th", { text: tr("tasks.col.state") }),
         h("th", { class: "num col-opt", text: tr("tasks.col.iter") }), h("th", { class: "num col-opt", text: tr("tasks.col.tokens") }),
         h("th", { class: "num col-opt", text: tr("tasks.col.duration") }), h("th", { class: "col-opt", text: tr("tasks.col.updated") }),
         h("th", { class: "col-opt", text: tr("tasks.col.workdir") }))),

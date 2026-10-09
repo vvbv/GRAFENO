@@ -112,6 +112,31 @@ def test_page_strings_exist_in_both_languages():
         assert key in i18n._MESSAGES["es"], key
 
 
+def test_task_column_defaults_to_60vw_and_keeps_the_resized_width():
+    """The task column starts at 60% of the viewport and its resized width persists."""
+    import re
+    from importlib import resources
+
+    static = resources.files("grafeno.server").joinpath("static")
+    css = static.joinpath("app.css").read_text(encoding="utf-8")
+    script = static.joinpath("app.js").read_text(encoding="utf-8")
+    rule = re.search(r"#task-table th\.name\s*\{([^}]*)\}", css)
+    assert rule, "missing the #task-table th.name rule"
+    declarations = dict(
+        (name.strip(), value.strip())
+        for name, _, value in (part.partition(":") for part in rule.group(1).split(";"))
+        if value.strip()
+    )
+    # min-width too: with width alone the automatic table layout shrinks the column
+    assert declarations.get("width") == "60vw"
+    assert declarations.get("min-width") == "60vw"
+    assert ".col-resizer" in css
+    assert 'TASK_COL_KEY = "grafeno.taskColWidth"' in script
+    assert "localStorage.getItem(TASK_COL_KEY)" in script
+    assert "localStorage.setItem(TASK_COL_KEY" in script
+    assert "th.style.minWidth" in script
+
+
 # ---------------------------------------------------------------------- #
 # Served page: no auth for the page, auth for the data
 # ---------------------------------------------------------------------- #

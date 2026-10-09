@@ -245,7 +245,13 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   ocupa toda la pantalla y al abrir una tarea su detalle la reemplaza a
   pantalla completa; Volver/Escape regresan conservando filtros y scroll;
   en las pestañas de artefactos la lista de archivos y el archivo abierto
-  se desplazan por separado)
+  se desplazan por separado; la columna de tareas ocupa por defecto el 60%
+  del viewport (`#task-table th.name` con `width` y `min-width` a `60vw`:
+  solo con `width` el layout automático de la tabla la encoge; si el resto
+  no cabe, la tabla hace scroll horizontal) y se redimensiona arrastrando el
+  borde de su cabecera (`.col-resizer`, también con las flechas); el ancho
+  elegido se guarda en px en `localStorage` (`grafeno.taskColWidth`) y el
+  doble clic sobre el borde vuelve al 60%)
   y las mismas opciones (lista con
   filtros y cadenas, detalle con todas las acciones del pipeline, pestañas
   de artefactos/medios (visor a pantalla completa con navegación anterior/siguiente por flechas de la GUI y del teclado)/log/tokens, editor de agentes, formulario completo
