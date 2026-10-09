@@ -78,7 +78,10 @@ class KimiDriver(CLIDriver):
 
         if role == "tool":
             content = payload.get("content")
-            summary = str(content).strip().splitlines()[0] if content else "tool"
+            text = self._extract_text(content)
+            if not text and content is not None and not isinstance(content, (dict, list)):
+                text = str(content).strip()
+            summary = text.splitlines()[0] if text else "tool"
             return RunEvent(EventKind.TOOL, summary[:200]), session_id
 
         if role in {"meta", "system"} or event_type in {"init", "system"}:

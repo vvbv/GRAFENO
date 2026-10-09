@@ -500,7 +500,10 @@ class CLIDriver:
                     log_handle.flush()
                 if on_activity:
                     on_activity()  # heartbeat: the CLI is still emitting output
-                decoded, found_session, usage = self.decode_line(line)
+                try:
+                    decoded, found_session, usage = self.decode_line(line)
+                except Exception:  # noqa: BLE001 - a driver decode bug never aborts the run
+                    continue  # the raw line is already in the phase JSONL log
                 if found_session:
                     session_id = found_session
                 if usage:

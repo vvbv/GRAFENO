@@ -310,6 +310,56 @@ def test_kimi_decode_assistant_message():
     assert event.text == "hola"
 
 
+def test_kimi_decode_tool_content_edge_cases():
+    """Tool events with blank or non-string content never crash (IndexError regression)."""
+    driver = KimiDriver()
+
+    for blank in ('{"role":"tool","content":"\\n"}', '{"role":"tool","content":"  "}',
+                  '{"role":"tool","content":""}', '{"role":"tool"}'):
+        event, _, _ = driver.decode_line(blank)
+        assert event.kind is EventKind.TOOL
+        assert event.text == "tool"
+
+    event, _, _ = driver.decode_line(
+        '{"role":"tool","content":[{"type":"text","text":"collected 4 items"}]}'
+    )
+    assert event.kind is EventKind.TOOL
+    assert event.text == "collected 4 items"
+
+    event, _, _ = driver.decode_line('{"role":"tool","content":"line1\\nline2"}')
+    assert event.text == "line1"
+
+
+def test_run_survives_decode_crash(monkeypatch, tmp_path):
+    """A driver decode bug skips the event instead of aborting the run."""
+    class CrashingKimi(KimiDriver):
+        def decode_event(self, payload):
+            if payload.get("role") == "tool":
+                raise IndexError("list index out of range")
+            return super().decode_event(payload)
+
+    async def fake_exec(*cmd, **kwargs):
+        class Proc:
+            returncode = 0
+            stdin = None
+            stdout = asyncio.StreamReader()
+            stderr = asyncio.StreamReader()
+            stdout.feed_data(b'{"role":"assistant","content":"before"}\n')
+            stdout.feed_data(b'{"role":"tool","content":"x"}\n')
+            stdout.feed_data(b'{"role":"assistant","content":"after"}\n')
+            stdout.feed_eof()
+            stderr.feed_eof()
+            async def wait(self):
+                return 0
+        return Proc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    result = asyncio.run(CrashingKimi().run(_request(workdir=tmp_path)))
+    assert result.ok
+    assert "before" in result.text
+    assert "after" in result.text
+
+
 def test_kimi_list_models(monkeypatch):
     driver = KimiDriver()
     payload = json.dumps({"models": {"kimi-code/k3": {}, "kimi-code/kimi-for-coding": {}}})
