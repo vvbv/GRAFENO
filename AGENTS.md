@@ -534,11 +534,20 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
 - Releases: se generan automáticamente al hacer push a `main` con el bump
   de versión (commit `chore(release): bump a X.Y.Z`). El workflow
   `.github/workflows/release.yml` se dispara cuando cambian
-  `src/grafeno/__init__.py` o `pyproject.toml`, detecta si la versión de
-  `__init__.py` se incrementó respecto al commit anterior, construye el
-  paquete (cuya versión se deriva de `__init__.py` vía
-  `tool.setuptools.dynamic`), valida que los artefactos construidos
-  (`dist/grafeno-X.Y.Z.tar.gz` y `dist/grafeno-X.Y.Z-py3-none-any.whl`)
-  llevan exactamente esa versión y crea el GitHub Release con el tag
-  `vX.Y.Z`. Si la versión no cambió, no publica nada. No hace falta crear
-  tags a mano.
+  `src/grafeno/__init__.py` o `pyproject.toml` (también admite
+  `workflow_dispatch` para relanzarlo manualmente, p.ej. para
+  reintentar/backfills) y detecta si la versión actual de `__init__.py`
+  ya tiene su etiqueta `vX.Y.Z` en `origin` mediante
+  `git ls-remote --exit-code --tags origin "refs/tags/v${NEW_VERSION}"`
+  (exit 0 = ya publicada, exit 2 = hay que publicar). Esta detección por
+  etiqueta remota es idempotente y robusta frente a pushes multi-commit
+  y a re-ejecuciones manuales: el orden interno de los commits dentro de
+  un push ya no afecta al release. El paso de build, la verificación de
+  que `dist/grafeno-X.Y.Z.tar.gz` y `dist/grafeno-X.Y.Z-py3-none-any.whl`
+  llevan exactamente esa versión (derivada de `__init__.py` vía
+  `tool.setuptools.dynamic`) y la creación del GitHub Release con tag
+  `vX.Y.Z` solo se ejecutan cuando la etiqueta no existe. Un bloque
+  `concurrency: group: release, cancel-in-progress: false` encola pushes
+  solapados sin perder el segundo run (la detección por etiqueta lo
+  deja en `changed=false` si el primero ya publicó). No hace falta
+  crear tags a mano.
