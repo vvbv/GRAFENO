@@ -58,7 +58,9 @@ class DirectoryPicker(Widget):
     the dropdown is shown while typing and is filled with
     ``directory_matches``. Keys: down-arrow (from the input) enters the list;
     Enter/click selects; Escape (in the list) returns to the input. Tab
-    changes focus as usual.
+    changes focus as usual. The ``placeholder`` is passed to the inner
+    Input and ``suggest_empty=False`` keeps the dropdown hidden while the
+    Input is empty.
     """
 
     DEFAULT_CSS = """
@@ -82,10 +84,19 @@ class DirectoryPicker(Widget):
             super().__init__()
             self.value = value
 
-    def __init__(self, value: str = "", *, input_id: str) -> None:
+    def __init__(
+        self,
+        value: str = "",
+        *,
+        input_id: str,
+        placeholder: str = "",
+        suggest_empty: bool = True,
+    ) -> None:
         super().__init__()
         self._input_id = input_id
         self._initial = value
+        self._placeholder = placeholder
+        self._suggest_empty = suggest_empty  # False = no dropdown while the input is empty
         self._matches: list[str] = []
 
     @property
@@ -97,7 +108,7 @@ class DirectoryPicker(Widget):
         self.query_one(Input).value = new_value
 
     def compose(self) -> ComposeResult:
-        yield Input(value=self._initial, id=self._input_id)
+        yield Input(value=self._initial, placeholder=self._placeholder, id=self._input_id)
         yield OptionList(id="dir-options")
 
     def on_mount(self) -> None:
@@ -123,7 +134,8 @@ class DirectoryPicker(Widget):
     def _refresh_options(self) -> None:
         options = self.query_one("#dir-options", OptionList)
         options.clear_options()
-        self._matches = directory_matches(self.query_one(Input).value)
+        value = self.query_one(Input).value
+        self._matches = directory_matches(value) if value or self._suggest_empty else []
         for path in self._matches:
             options.add_option(Option(path))
         options.set_class(bool(options.option_count), "visible")

@@ -469,25 +469,33 @@ const live = {
 // Rows of cli + model (with filter) + effort per role, fed by /api/v1/models.
 function rolesEditor(initial, opts) {
   opts = opts || {};
+  const roleList = opts.roles || ROLES;
   const known = (store.options && store.options.known_clis) || ["opencode", "kimi", "codex", "claude", "cursor", "minimax"];
   const values = {};
-  for (const role of ROLES) values[role] = Object.assign({ cli: "opencode", model: "", effort: "" }, (initial || {})[role]);
+  for (const role of roleList) values[role] = Object.assign({ cli: "opencode", model: "", effort: "" }, (initial || {})[role]);
   const status = h("div", { class: "help", text: tr("cfg.models.loading") });
   const grid = h("div", { class: "role-grid" },
     h("span", { class: "hdr", text: tr("web.ui.col_role") }), h("span", { class: "hdr", text: "CLI" }),
     h("span", { class: "hdr", text: tr("web.ui.col_model") }), h("span", { class: "hdr", text: tr("web.ui.col_effort") }));
   const rows = {};
   let catalog = store.models;
-  for (const role of ROLES) {
-    const cli = h("select", null, known.map((name) => option(name, name, name === values[role].cli)));
+  for (const role of roleList) {
+    const cliOptions = known.map((name) => option(name, name, name === values[role].cli));
+    const cli = h("select", null, opts.defaultCliLabel ? option(opts.defaultCliLabel, "", !values[role].cli) : null, cliOptions);
+    // CLI whose catalogue feeds the row: the selected one or the inherited fallback ("" = inherit).
+    const catalogCli = () => cli.value || (opts.fallbackCli ? opts.fallbackCli() : "");
+    let lastCatalogCli = catalogCli();
     const filter = h("input", { type: "search", placeholder: plain(tr("cfg.model.filter")) });
     const model = h("select");
     const effort = h("select");
     rows[role] = { cli, filter, model, effort };
     const refreshModels = () => {
       const current = values[role];
-      const list = catalog && catalog.models ? (catalog.models[cli.value] || []).slice() : [];
-      if (current.model && list.length && !list.includes(current.model) && current.cli !== cli.value) current.model = "";
+      const list = catalog && catalog.models ? (catalog.models[catalogCli()] || []).slice() : [];
+      // Only a changed INHERITED CLI (row CLI empty) resets the model here; an explicit CLI change
+      // already clears it in the change listener, and set() (profiles) must keep the given model.
+      if (current.model && list.length && !list.includes(current.model) && !cli.value && lastCatalogCli !== catalogCli()) current.model = "";
+      lastCatalogCli = catalogCli();
       const needle = filter.value.trim().toLowerCase();
       let shown = needle ? list.filter((name) => name.toLowerCase().includes(needle)) : list;
       if (current.model && !shown.includes(current.model)) shown = [current.model].concat(shown);
@@ -497,7 +505,7 @@ function rolesEditor(initial, opts) {
     };
     const refreshEffort = () => {
       const current = values[role];
-      const levels = catalog && catalog.variants ? ((catalog.variants[cli.value] || {})[current.model] || []).slice() : [];
+      const levels = catalog && catalog.variants ? ((catalog.variants[catalogCli()] || {})[current.model] || []).slice() : [];
       if (current.effort && !levels.includes(current.effort)) {
         if (levels.length) current.effort = ""; else levels.push(current.effort);
       }
@@ -516,7 +524,8 @@ function rolesEditor(initial, opts) {
     model.addEventListener("change", () => { values[role].model = model.value; refreshEffort(); if (opts.onChange) opts.onChange(); });
     effort.addEventListener("change", () => { values[role].effort = effort.value; if (opts.onChange) opts.onChange(); });
     rows[role].refresh = refreshModels;
-    grid.append(h("span", { class: "role-name", text: plain(tr("cfg.role." + role)) }), cli,
+    const label = (opts.labels && opts.labels[role]) || tr("cfg.role." + role);
+    grid.append(h("span", { class: "role-name", text: plain(label) }), cli,
       h("div", { class: "model-cell" }, filter, model), effort);
     refreshModels();
   }
@@ -525,17 +534,18 @@ function rolesEditor(initial, opts) {
     status.textContent = tr("cfg.models.loading");
     store.getModels(refresh).then((data) => {
       catalog = data;
-      for (const role of ROLES) rows[role].refresh();
+      for (const role of roleList) rows[role].refresh();
       status.textContent = Object.entries(data.models || {}).map(([name, list]) =>
         list.length ? tr("cfg.models.count", { cli: name, count: list.length }) : tr("cfg.models.unavailable", { cli: name })).join(" · ");
     }).catch((err) => { status.textContent = String(err.message || err); });
   };
   load(false);
   return {
-    node: h("div", null, grid, h("div", { class: "row" }, status, reload)),
-    values: () => { const out = {}; for (const role of ROLES) out[role] = Object.assign({}, values[role]); return out; },
+    node: opts.compact ? grid : h("div", null, grid, h("div", { class: "row" }, status, reload)),
+    refresh() { for (const role of roleList) rows[role].refresh(); },
+    values: () => { const out = {}; for (const role of roleList) out[role] = Object.assign({}, values[role]); return out; },
     set(roles) {
-      for (const role of ROLES) {
+      for (const role of roleList) {
         Object.assign(values[role], { cli: "opencode", model: "", effort: "" }, roles[role] || {});
         rows[role].cli.value = values[role].cli;
         rows[role].filter.value = "";
@@ -545,9 +555,30 @@ function rolesEditor(initial, opts) {
   };
 }
 
+// ---------------------------------------------------------------- directory suggestions
+// Directory autocompletion (TUI DirectoryPicker) fed by /api/v1/fs/dirs. One
+// shared <datalist> serves every input: only the focused one shows it.
+const DIRS_LIST_ID = "dir-suggestions";
+function dirSuggestions(input) {
+  let list = $(DIRS_LIST_ID);
+  if (!list) {
+    list = h("datalist", { id: DIRS_LIST_ID });
+    document.body.appendChild(list);
+  }
+  input.setAttribute("list", DIRS_LIST_ID);
+  const load = debounce(async () => {
+    try {
+      const data = await api("GET", "/api/v1/fs/dirs?path=" + enc(input.value));
+      list.replaceChildren(...data.dirs.map((dir) => option(dir, dir)));
+    } catch (err) { /* autocompletion is best effort */ }
+  }, 250);
+  input.addEventListener("input", load);
+  input.addEventListener("focus", load);
+}
+
 // ---------------------------------------------------------------- list editors
 function listEditor(columns, rows, emptyText) {
-  // columns: [{key, label, type?: "text"|"select"|"phases", options?}]
+  // columns: [{key, label, type?: "text"|"select"|"phases"|"dir", options?, placeholder?}]
   const items = (rows || []).map((row) => Object.assign({}, row));
   const body = h("tbody");
   const table = h("table", null, h("thead", null, h("tr", null, columns.map((col) => h("th", { text: col.label })), h("th"))), body);
@@ -565,7 +596,9 @@ function listEditor(columns, rows, emptyText) {
         } else if (col.type === "phases") {
           control = phasesPicker(item, col);
         } else {
-          control = h("input", { type: "text", value: item[col.key] || "", placeholder: col.placeholder || "" });
+          control = h("input", { type: "text", value: item[col.key] || "", placeholder: col.placeholder || "",
+            class: col.type === "dir" ? "mono" : undefined });
+          if (col.type === "dir") dirSuggestions(control);
           control.addEventListener("input", () => { item[col.key] = control.value; });
         }
         return h("td", null, control);
@@ -578,7 +611,15 @@ function listEditor(columns, rows, emptyText) {
   };
   render();
   const add = h("button", { type: "button", class: "small", text: "+ " + tr("web.ui.add"),
-    onclick: () => { const row = {}; columns.forEach((col) => { row[col.key] = col.default || (col.type === "select" ? col.options[0][1] : ""); }); items.push(row); render(); } });
+    onclick: () => {
+      const row = {};
+      columns.forEach((col) => { row[col.key] = col.default || (col.type === "select" ? col.options[0][1] : ""); });
+      items.push(row);
+      render();
+      // Focus the first field of the new row: adding is a single click.
+      const first = body.lastElementChild && body.lastElementChild.querySelector("input, select");
+      if (first) first.focus();
+    } });
   return {
     node: h("div", { class: "list-editor" }, table, empty, add),
     values: () => items.map((item) => Object.assign({}, item)),
@@ -865,7 +906,8 @@ const tasksView = {
     const current = this.filters.project;
     const seen = new Set();
     const names = [];
-    for (const item of this.projects) { if (!seen.has(item.workdir)) { seen.add(item.workdir); names.push([item.workdir, item.count]); } }
+    // Only projects with tasks: folders without tasks live in the Projects tab.
+    for (const item of this.projects) { if (item.count && !seen.has(item.workdir)) { seen.add(item.workdir); names.push([item.workdir, item.count]); } }
     for (const task of this.tasks) {
       const key = projectOf(task);
       if (!seen.has(key)) { seen.add(key); names.push([key, null]); }
@@ -1407,19 +1449,106 @@ const tasksView = {
   },
 };
 
+// ---------------------------------------------------------------- projects view
+// Projects found in the working directories (first-level subfolders of each
+// root, like the TUI projects screen): grouped by root, with a text filter and
+// the task count of each folder. A click (or Enter) on a project offers to
+// create a task in it: the new-task form opens with the folder preset.
+const projectsView = {
+  data: null,
+  filter: "",
+  mount() {
+    this.data = null;
+    this.search = h("input", { type: "search", placeholder: tr("projects.filter.placeholder"), value: this.filter });
+    this.search.addEventListener("input", () => { this.filter = this.search.value; this.render(); });
+    this.body = h("div", null, h("div", { class: "empty", text: tr("web.ui.loading") }));
+    $("main").replaceChildren(h("div", { class: "page" }, h("div", { class: "page-inner" },
+      h("h2", { text: tr("tasks.bind.projects") }),
+      h("p", { class: "subtitle", text: tr("projects.subtitle") }),
+      h("div", { class: "toolbar" }, this.search,
+        h("button", { type: "button", class: "small", text: tr("tasks.bind.reload"), onclick: () => this.load() }),
+        h("a", { class: "small-text", href: "#/settings/workspaces", text: tr("projects.edit_workspaces") })),
+      this.body)));
+    this.load();
+  },
+  unmount() {},
+  async load() {
+    try {
+      this.data = await api("GET", "/api/v1/projects");
+    } catch (err) { fail(err); return; }
+    this.render();
+  },
+  render() {
+    const data = this.data;
+    if (!data) return;
+    const notice = (key) => this.body.replaceChildren(h("div", { class: "empty", text: tr(key) }));
+    if (data.session) { notice("projects.session"); return; }
+    const roots = data.workspaces || [];
+    if (!roots.length) { notice("projects.empty.no_workspaces"); return; }
+    const all = (data.projects || []).filter((item) => item.workspace);
+    const needle = this.filter.trim().toLowerCase();
+    const shown = all.filter((item) => !needle || (item.name + " " + item.workdir).toLowerCase().includes(needle));
+    const rows = [];
+    for (const root of roots) {
+      const items = shown.filter((item) => item.workspace === root.path)
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+      if (needle && !items.length) continue;  // filtering: hide roots without matches
+      rows.push(h("tr", { class: "root" }, h("td", { colspan: "3" },
+        h("span", { class: "mono", text: root.entry }),
+        root.exists ? null : h("span", { class: "badge failed", text: tr("projects.root_missing") }))));
+      for (const item of items) rows.push(this.row(item));
+    }
+    let note = tr("projects.count", { shown: shown.length, total: all.length }) + " · " + tr("projects.hint");
+    if (!all.length) note = tr("projects.empty.no_projects");
+    else if (!shown.length) note = tr("projects.empty.filter");
+    this.body.replaceChildren(
+      h("div", { class: "card" }, h("div", { class: "table-wrap" }, h("table", { id: "project-table" },
+        h("thead", null, h("tr", null,
+          h("th", { text: tr("projects.col.name") }),
+          h("th", { class: "num", text: tr("projects.col.tasks") }),
+          h("th", { text: tr("projects.col.path") }))),
+        h("tbody", null, rows)))),
+      h("p", { class: "muted small-text", text: note }));
+  },
+  row(item) {
+    const row = h("tr", { class: "project", tabindex: "0" },
+      h("td", { class: "name", text: item.name }),
+      h("td", { class: "num", text: String(item.count || 0) }),
+      h("td", { class: "path mono", text: item.workdir }));
+    row.addEventListener("click", () => this.choose(item));
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); this.choose(item); }
+    });
+    return row;
+  },
+  async choose(item) {
+    const choice = await modal({ title: tr("projects.actions.title", { name: item.name }) }, (form, close) => {
+      form.append(
+        h("div", { class: "detail mono", text: item.workdir }),
+        h("div", { class: "buttons" },
+          h("button", { type: "button", text: tr("common.cancel"), onclick: () => close(undefined) }),
+          h("button", { type: "submit", class: "primary", autofocus: true, text: tr("projects.action.new_task"),
+            onclick: () => close("new") })));
+    });
+    if (choice === "new") location.hash = "#/new/" + enc(item.workdir);
+  },
+};
+
 // ---------------------------------------------------------------- new task view
 const newTaskView = {
-  async mount() {
+  // params[0]: project folder preset from the Projects tab (#/new/<folder>).
+  async mount(params) {
+    const preset = (params && params[0]) || "";
     const main = $("main");
     main.replaceChildren(h("div", { class: "page" }, h("div", { class: "empty", text: tr("web.ui.loading") })));
     let options, tasks;
     try {
       [options, tasks] = await Promise.all([store.getOptions(true), api("GET", "/api/v1/tasks")]);
     } catch (err) { fail(err); return; }
-    main.replaceChildren(this.build(options, tasks.tasks || []));
+    main.replaceChildren(this.build(options, tasks.tasks || [], preset));
   },
   unmount() {},
-  build(options, tasks) {
+  build(options, tasks, preset) {
     const def = options.defaults;
     const session = options.session && options.session.active;
     const name = h("input", { type: "text", placeholder: tr("nt.name.placeholder"), required: true });
@@ -1435,16 +1564,9 @@ const newTaskView = {
       name.value = issue.title;
       desc.value = (issue.body || "").trim() || issue.title;
     });
-    const workdir = h("input", { type: "text", list: "nt-dirs", value: session ? "" : def.workdir, class: "mono",
+    const workdir = h("input", { type: "text", value: preset || (session ? "" : def.workdir), class: "mono",
       placeholder: session ? tr("nt.workdir.remote.placeholder") : "" });
-    const dirs = h("datalist", { id: "nt-dirs" });
-    const loadDirs = debounce(async () => {
-      if (session) return;
-      try {
-        const data = await api("GET", "/api/v1/fs/dirs?path=" + enc(workdir.value));
-        dirs.replaceChildren(...data.dirs.map((dir) => option(dir, dir)));
-      } catch (err) { /* autocompletion is best effort */ }
-    }, 250);
+    if (!session) dirSuggestions(workdir);
     const loadIssues = debounce(async () => {
       if (session) return;
       try {
@@ -1454,8 +1576,7 @@ const newTaskView = {
         issueField.hidden = !issues.length;
       } catch (err) { issueField.hidden = true; }
     }, 700);
-    workdir.addEventListener("input", () => { loadDirs(); loadIssues(); });
-    loadDirs();
+    workdir.addEventListener("input", loadIssues);
     loadIssues();
     const remoteInput = h("input", { type: "text", class: "mono", placeholder: tr("nt.remote.placeholder") });
     const profile = h("select", null, option(tr("nt.profile.default"), ""), options.profiles.map((p) => option(p.name, p.name)));
@@ -1506,7 +1627,7 @@ const newTaskView = {
         h("div", { class: "field full" }, h("span", { class: "lbl", text: tr("web.ui.attachments") }), files.node),
         session
           ? field(tr("nt.workdir.remote"), workdir, { full: true, help: options.session.label })
-          : field(tr("nt.workdir"), h("div", null, workdir, dirs), { full: true }),
+          : field(tr("nt.workdir"), workdir, { full: true }),
         session ? null : field(tr("nt.remote"), remoteInput, { full: true }),
         options.profiles.length ? field(tr("nt.profile"), h("div", null, profile, profileHelp), { full: true }) : null)),
       h("div", { class: "card" }, h("h3", { text: tr("web.ui.section_pipeline") }),
@@ -1530,7 +1651,7 @@ const newTaskView = {
         h("div", { class: "checks" }, useGlobal.node, useProject.node),
         h("div", { class: "lbl small-text muted", style: { margin: "10px 0 4px" }, text: tr("nt.refs.task") }), refs.node),
       h("div", { class: "form-actions" }, startNow.node, h("span", { class: "grow" }),
-        h("button", { type: "button", text: tr("common.cancel"), onclick: () => { location.hash = "#/tasks"; } }), submit));
+        h("button", { type: "button", text: tr("common.cancel"), onclick: () => { location.hash = preset ? "#/projects" : "#/tasks"; } }), submit));
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (!name.value.trim()) { toast(tr("nt.error.name_required"), "error"); return; }
@@ -1638,17 +1759,23 @@ const reportsView = {
 
 // ---------------------------------------------------------------- settings view
 const settingsView = {
-  async mount() {
+  // params[0] === "workspaces": open scrolled to the working directories card.
+  async mount(params) {
     $("main").replaceChildren(h("div", { class: "page" }));
     let data;
     try {
       [data] = await Promise.all([api("GET", "/api/v1/settings"), store.getOptions().catch(() => null)]);
     } catch (err) { fail(err); return; }
     $("main").replaceChildren(this.build(data));
+    if (params && params[0] === "workspaces") {
+      const target = $("cfg-workspaces");
+      if (target) target.scrollIntoView({ block: "start" });
+    }
   },
   unmount() {},
   build(data) {
-    const roles = rolesEditor(data.roles);
+    let tgParser = null;  // Telegram parser row; follows the planner CLI when it inherits it
+    const roles = rolesEditor(data.roles, { onChange: () => { if (tgParser) tgParser.refresh(); } });
     const am = data.automode;
     const amEnabled = check(tr("cfg.am.enabled"), am.enabled);
     const amBranch = check(tr("cfg.am.branch"), am.create_branch);
@@ -1671,7 +1798,9 @@ const settingsView = {
     const language = h("select", null, option("English", "en", data.language === "en"), option("Español", "es", data.language === "es"));
     const promptLanguage = h("select", null, option(tr("cfg.language.prompts.same"), "", !data.prompt_language),
       option("English", "en", data.prompt_language === "en"), option("Español", "es", data.prompt_language === "es"));
-    const workspaces = h("input", { type: "text", class: "mono", value: data.workspaces.join(", "), placeholder: "~/code, ~/work" });
+    const workspaces = listEditor([
+      { key: "path", label: tr("cfg.workspaces.col.path"), type: "dir", placeholder: "~/code" },
+    ], (data.workspaces || []).map((path) => ({ path })), tr("cfg.workspaces.empty"));
     const refs = listEditor([
       { key: "name", label: tr("refs.name") },
       { key: "description", label: tr("refs.description") },
@@ -1696,8 +1825,11 @@ const settingsView = {
     };
     const tgToken = secret(tg.bot_token_set, tr("cfg.tg.token.placeholder"));
     const tgChats = h("input", { type: "text", value: tg.allowed_chat_ids });
-    const tgParserCli = h("select", null, option(tr("cfg.tg.parser.default"), ""), data.known_clis.map((cli) => option(cli, cli, cli === tg.parser_cli)));
-    const tgParserModel = h("input", { type: "text", value: tg.parser_model });
+    tgParser = rolesEditor({ parser: { cli: tg.parser_cli || "", model: tg.parser_model, effort: tg.parser_effort || "" } }, {
+      roles: ["parser"], compact: true, defaultCliLabel: plain(tr("cfg.tg.parser.default")),
+      fallbackCli: () => roles.values().planner.cli, labels: { parser: tr("cfg.tg.parser.title") },
+    });
+    const tgParserTimeout = h("input", { type: "number", min: 30, max: 3600, value: tg.parser_timeout });
     const tgWorkdir = h("input", { type: "text", class: "mono", value: tg.default_workdir });
     const sttUrl = h("input", { type: "text", class: "mono", value: tg.stt_url });
     const sttKey = secret(tg.stt_key_set, tr("cfg.tg.stt.key.placeholder"));
@@ -1726,7 +1858,8 @@ const settingsView = {
       card(tr("cfg.updates"), h("div", { class: "checks" }, autoUpdate.node, selfUpdate.node)),
       card(tr("cfg.language"), h("p", { class: "help", text: tr("cfg.language.help") }),
         h("div", { class: "form-grid" }, field(tr("cfg.language.gui"), language), field(tr("cfg.language.prompts"), promptLanguage))),
-      card(tr("cfg.workspaces"), h("p", { class: "help", text: tr("cfg.workspaces.help") }), field(tr("cfg.workspaces.label"), workspaces)),
+      h("div", { class: "card", id: "cfg-workspaces" }, h("h3", { text: plain(tr("cfg.workspaces")) }),
+        h("p", { class: "help", text: tr("cfg.workspaces.help") }), workspaces.node),
       card(tr("cfg.editor"), h("div", { class: "checks" }, editorEnabled.node),
         h("div", { class: "form-grid", style: { marginTop: "12px" } }, field(tr("cfg.editor.name"), editorName), field(tr("cfg.editor.mode"), editorMode), field(tr("cfg.editor.side"), editorSide))),
       card(tr("cfg.references"), h("p", { class: "help", text: tr("refs.warning") }), refs.node),
@@ -1736,7 +1869,8 @@ const settingsView = {
         h("div", { class: "checks" }, tgEnabled.node, tgConfirm.node, tgGroupAll.node),
         h("div", { class: "form-grid", style: { marginTop: "12px" } },
           field(tr("cfg.tg.token"), tgToken.node), field(tr("cfg.tg.chats"), tgChats),
-          field(tr("cfg.tg.parser"), tgParserCli), field(tr("cfg.tg.parser_model"), tgParserModel),
+          h("div", { class: "full" }, h("p", { class: "help", text: tr("cfg.tg.parser.help") }), tgParser.node),
+          field(tr("cfg.tg.parser_timeout"), tgParserTimeout),
           field(tr("cfg.tg.workdir"), tgWorkdir, { full: true }),
           h("div", { class: "full lbl small-text muted", text: tr("cfg.tg.stt") }),
           field(tr("cfg.tg.stt.url"), sttUrl, { full: true }), field(tr("cfg.tg.stt.key"), sttKey.node), field(tr("cfg.tg.stt.model"), sttModel),
@@ -1755,9 +1889,11 @@ const settingsView = {
     };
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      const parser = tgParser.values().parser;
       const telegram = {
         enabled: tgEnabled.box.checked, confirm_create: tgConfirm.box.checked, group_all: tgGroupAll.box.checked,
-        allowed_chat_ids: tgChats.value, parser_cli: tgParserCli.value, parser_model: tgParserModel.value,
+        allowed_chat_ids: tgChats.value, parser_cli: parser.cli, parser_model: parser.model,
+        parser_effort: parser.effort, parser_timeout: Number(tgParserTimeout.value),
         default_workdir: tgWorkdir.value, stt_url: sttUrl.value, stt_model: sttModel.value,
         tts_enabled: ttsEnabled.box.checked, tts_url: ttsUrl.value, tts_model: ttsModel.value, tts_voice: ttsVoice.value,
       };
@@ -1775,7 +1911,7 @@ const settingsView = {
         hook: { command: hookCommand.value, stages: hookStages.filter(([, item]) => item.box.checked).map(([stage]) => stage) },
         editor: { enabled: editorEnabled.box.checked, editor: editorName.value, mode: editorMode.value, side: editorSide.value },
         language: language.value, prompt_language: promptLanguage.value,
-        workspaces: workspaces.value.split(",").map((item) => item.trim()).filter(Boolean),
+        workspaces: workspaces.values().map((item) => (item.path || "").trim()).filter(Boolean),
         references: refs.values().filter((ref) => (ref.name || "").trim() && (ref.path || "").trim()),
         triggers: triggers.values().filter((item) => (item.name || "").trim() && (item.description || "").trim()),
         profiles: profiles.values(),
@@ -1829,7 +1965,7 @@ const settingsView = {
 // ---------------------------------------------------------------- router
 const router = {
   current: null,
-  views: { tasks: tasksView, new: newTaskView, reports: reportsView, settings: settingsView },
+  views: { tasks: tasksView, projects: projectsView, new: newTaskView, reports: reportsView, settings: settingsView },
   parse() {
     const parts = (location.hash.replace(/^#\/?/, "") || "tasks").split("/").map(decodeURIComponent);
     const name = this.views[parts[0]] ? parts[0] : "tasks";
@@ -1876,6 +2012,7 @@ function boot() {
   document.title = tr("web.ui.title");
   $("version").textContent = "v" + BOOT.version;
   $("nav-tasks").textContent = tr("web.nav.tasks");
+  $("nav-projects").textContent = tr("tasks.bind.projects");
   $("nav-new").textContent = tr("web.nav.new");
   $("nav-reports").textContent = tr("tasks.bind.reports");
   $("nav-settings").textContent = tr("tasks.bind.config");

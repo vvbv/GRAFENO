@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..config import DEFAULT_PARSER_TIMEOUT, PARSER_TIMEOUT_MAX
 from ..drivers.base import CLIDriver, RunRequest
 from ..i18n import LANGUAGES, prompt_language, prompt_template, t_lang
 from ..models import Task
@@ -33,7 +34,8 @@ ACTIONS = (
 )
 
 MAX_TASKS_PER_INTENT = 10
-PARSER_TIMEOUT = 120.0  # seconds; a hung parser CLI must not wedge the bot
+PARSER_TIMEOUT = float(DEFAULT_PARSER_TIMEOUT)  # seconds; a hung parser CLI must not wedge the bot
+PARSER_CHARS_PER_SECOND = 40.0  # extra second per N chars: the JSON echoes the whole message
 PARSER_RETRIES = 2      # extra attempts after a transient parser CLI failure
 PARSER_RETRY_DELAY = 5.0       # seconds between attempts without a wait hint
 PARSER_RETRY_MAX_WAIT = 90.0   # cap for a usage "retry-after" hint
@@ -75,6 +77,7 @@ class Intent:
     question: str = ""      # question for the "ask" action
     project_ref: str = ""   # directory or name fragment of a project (list_project_tasks)
     error: str = ""         # parser CLI infrastructure failure (not "unknown")
+    timed_out: bool = False  # the parser CLI exceeded its timeout
     lang: str = ""          # ISO code of the user's language ("" = unknown)
 
 
@@ -410,6 +413,12 @@ def parse_intent_payload(text: str) -> Intent:
     return intent
 
 
+def parser_timeout_for(text: str, base: float = PARSER_TIMEOUT) -> float:
+    """Timeout for one parser run: ``base`` plus time for long messages, capped."""
+    extra = len(text) / PARSER_CHARS_PER_SECOND
+    return min(float(base) + extra, float(PARSER_TIMEOUT_MAX))
+
+
 async def parse_intent(
     driver: CLIDriver,
     model: str,
@@ -422,16 +431,19 @@ async def parse_intent(
     timeout: float = PARSER_TIMEOUT,
     retries: int = PARSER_RETRIES,
     retry_delay: float = PARSER_RETRY_DELAY,
+    effort: str = "",
 ) -> Intent:
     """Run the parser CLI one-shot and interpret its JSON answer.
 
-    Infrastructure failures (timeout, crash, non-zero exit, empty output) are
+    Infrastructure failures (crash, non-zero exit, empty output) are
     retried a few times — they are usually transient (provider hiccup, quota
     reset) and the one-shot has no side effects. A usage-limit hint
     (``RunResult.usage_wait``) sets the wait between attempts, capped at
     ``PARSER_RETRY_MAX_WAIT`` so the chat is not held for long. The last
     failure is reported in ``Intent.error`` so the caller can tell it apart
     from a genuine "unknown" intent and surface it instead of staying silent.
+    A timeout is not retried (it would replay the same slow work): it is
+    reported at once with ``Intent.timed_out``.
     """
     prompt = build_parser_prompt(user_text, summary, default_workdir, projects)
     request = RunRequest(
@@ -439,6 +451,7 @@ async def parse_intent(
         model=model,
         workdir=workdir,
         title="grafeno:telegram:intent",
+        effort=effort,
     )
     attempts = 1 + max(0, retries)
     error = ""
@@ -447,7 +460,8 @@ async def parse_intent(
         try:
             result = await asyncio.wait_for(driver.run(request), timeout=timeout)
         except TimeoutError:
-            error = f"timeout after {timeout:.0f}s"
+            # Retrying replays the same slow work: report it at once.
+            return Intent(action="unknown", error=f"timeout after {timeout:.0f}s", timed_out=True)
         except Exception as exc:  # noqa: BLE001 - the bot never propagates CLI errors
             error = str(exc)[:300]
         else:

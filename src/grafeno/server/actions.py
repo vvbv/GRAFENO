@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .. import media, models, paths, profiles as profiles_module, remote, remotesession, scheduler
+from .. import config as config_module
+from .. import workspaces as workspaces_module
 from ..config import KNOWN_CLIS, RoleConfig
 from ..i18n import t
 from ..mdnorm import normalize_markdown
@@ -325,29 +327,59 @@ def _detail_extras(service: "ServerService", task: Task) -> dict:
 
 
 def list_projects(service: "ServerService") -> dict:
-    """Distinct task workdirs with their task counts (best effort)."""
+    """Projects: task workdirs plus the folders of the working directories.
+
+    Every item has its task ``count``; folders found in a working directory
+    also carry their root (``workspace``; empty for workdirs only known
+    from tasks). ``workspaces`` reports each configured root (global +
+    project level of the cwd) with its resolved path and whether it
+    exists. Discovery is skipped in remote session mode, where the roots
+    live on the remote host (``session`` is then true).
+    """
     counts: dict[str, int] = {}
     for task in models.list_all():
         if not task.workdir:
             continue
         counts[task.workdir] = counts.get(task.workdir, 0) + 1
-    try:
-        from .. import workspaces as workspaces_module
-
-        discovered = [
-            str(path)
-            for path in workspaces_module.discover(workspaces_module.resolve([]))
-        ]
-    except Exception:  # noqa: BLE001 - workspaces discovery is best effort
-        discovered = []
-    seen: set[str] = set()
+    session = remotesession.active()
+    roots: list[workspaces_module.Root] = []
+    found: dict[str, workspaces_module.Project] = {}
+    if not session:
+        try:
+            entries = workspaces_module.effective_entries(
+                config_module.load().workspaces, Path.cwd()
+            )
+            roots = workspaces_module.roots(entries)
+            existing = [Path(root.path) for root in roots if root.exists]
+            for project in workspaces_module.projects(existing):
+                found[str(project.path)] = project
+        except Exception:  # noqa: BLE001 - workspaces discovery is best effort
+            roots, found = [], {}
     items: list[dict] = []
     for workdir, count in sorted(counts.items()):
-        seen.add(workdir)
-        items.append({"workdir": workdir, "count": count})
-    for workdir in sorted(set(discovered) - seen):
-        items.append({"workdir": workdir, "count": 0})
-    return {"projects": items}
+        items.append(_project_item(workdir, count, found.pop(workdir, None)))
+    for workdir in sorted(found):
+        items.append(_project_item(workdir, 0, found[workdir]))
+    return {
+        "projects": items,
+        "workspaces": [
+            {"entry": root.entry, "path": root.path, "exists": root.exists}
+            for root in roots
+        ],
+        "session": session,
+    }
+
+
+def _project_item(
+    workdir: str, count: int, project: workspaces_module.Project | None
+) -> dict:
+    """One ``list_projects`` item; ``project`` is the discovered folder, if any."""
+    return {
+        "workdir": workdir,
+        "count": count,
+        "name": project.name if project is not None else Path(workdir).name,
+        "workspace": str(project.workspace) if project is not None else "",
+    }
 
 
 def get_logs(service: "ServerService", task_id: str, limit: int = 200) -> dict:

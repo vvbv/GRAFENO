@@ -263,6 +263,14 @@ dl.info dd { margin: 0; word-break: break-word; white-space: pre-line; }
 .profile-card { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: var(--panel-2); }
 .secret-state { font-size: 12px; color: var(--ok); }
 
+/* ------------------------------------------------------------ projects */
+.toolbar input[type=search] { flex: 1 1 240px; min-width: 0; }
+#project-table tr.project { cursor: pointer; }
+#project-table tr.project:hover, #project-table tr.project:focus-visible { background: var(--row-hover); }
+#project-table tr.root td { background: var(--panel-2); font-weight: 600; }
+#project-table tr.root .badge { margin-left: 8px; font-weight: 400; }
+#project-table td.path { color: var(--muted); font-size: 12px; word-break: break-all; }
+
 /* ------------------------------------------------------------ reports */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
 .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }

@@ -435,3 +435,73 @@ ConsoleView RichLog {
     color: #8b949e;
     padding: 1 2;
 }
+
+/* ---- Projects (working directories) ---- */
+#projects-header {
+    height: auto;
+}
+
+#projects-filter {
+    width: 32;
+    height: 1;
+    padding: 0;
+    margin-right: 2;
+    border: none;
+    background: #161b22;
+}
+
+#projects-filter:focus {
+    background: #21262d;
+}
+
+#projects-workspaces {
+    width: auto;
+    margin-right: 1;
+}
+
+#projects-table {
+    margin: 0 2;
+    border: round #30363d;
+    height: 1fr;
+}
+
+#projects-table:focus {
+    border: round #7ee787;
+}
+
+#projects-hint {
+    color: #8b949e;
+    padding: 0 2;
+    margin-bottom: 1;
+    height: auto;
+}
+
+/* ---- Project actions (modal) ---- */
+#project-actions-dialog {
+    background: #161b22;
+    border: round #7ee787;
+    padding: 1 2;
+    width: 72;
+    height: auto;
+    margin: 2 4;
+}
+
+#project-actions-title {
+    text-style: bold;
+    color: #7ee787;
+    margin-bottom: 1;
+}
+
+#pa-buttons {
+    margin-top: 1;
+    height: auto;
+}
+
+#pa-buttons Button {
+    margin-right: 2;
+}
+
+/* ---- Working directories editor ---- */
+#ws-empty {
+    color: #8b949e;
+}

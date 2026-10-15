@@ -156,3 +156,40 @@ def test_models_catalog_is_cached(monkeypatch) -> None:
     asyncio.run(settings.models_catalog(service, refresh=True))
     assert calls == ["models", "models"]
     assert first["variants"]["claude"]["claude/m"] == ["high"]
+
+
+def test_update_settings_normalizes_workspaces() -> None:
+    settings.update_settings(FakeService(), {"workspaces": ["~/a/", " ~/a ", "", "/srv/b"]})
+    assert config_module.load().workspaces == ["~/a", "/srv/b"]
+    with pytest.raises(ApiError):
+        settings.update_settings(FakeService(), {"workspaces": {"bad": 1}})
+
+
+def test_parser_settings_roundtrip_and_hot_apply() -> None:
+    assert settings.get_settings(FakeService())["telegram"]["parser_effort"] == ""
+    assert settings.get_settings(FakeService())["telegram"]["parser_timeout"] == 300
+
+    applied: list = []
+
+    class App:
+        def apply_telegram_parser(self, cfg) -> None:
+            applied.append(cfg)
+
+    class AppService(FakeService):
+        app = App()
+
+    result = settings.update_settings(AppService(), {"telegram": {
+        "parser_cli": "kimi", "parser_model": "m", "parser_effort": "low", "parser_timeout": 600,
+    }})
+    tg = result["telegram"]
+    assert (tg["parser_cli"], tg["parser_model"], tg["parser_effort"], tg["parser_timeout"]) == ("kimi", "m", "low", 600)
+    assert len(applied) == 1
+    assert applied[0].telegram.parser_timeout == 600
+
+
+@pytest.mark.parametrize("value", [5, "abc", 99999])
+def test_parser_timeout_validation(value) -> None:
+    with pytest.raises(ApiError) as exc:
+        settings.update_settings(FakeService(), {"telegram": {"parser_timeout": value}})
+    assert exc.value.status == 400
+    assert config_module.load().telegram.parser_timeout == 300

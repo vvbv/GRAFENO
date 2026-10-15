@@ -137,6 +137,30 @@ def test_task_column_defaults_to_60vw_and_keeps_the_resized_width():
     assert "th.style.minWidth" in script
 
 
+def test_projects_tab_and_preset_new_task_route():
+    """The panel has a Projects tab that opens the new-task form with the folder preset."""
+    from importlib import resources
+
+    static = resources.files("grafeno.server").joinpath("static")
+    html = static.joinpath("index.html").read_text(encoding="utf-8")
+    script = static.joinpath("app.js").read_text(encoding="utf-8")
+    assert 'href="#/projects" data-route="projects" id="nav-projects"' in html
+    assert "projects: projectsView" in script
+    assert '"#/new/" + enc(item.workdir)' in script
+    assert 'api("GET", "/api/v1/projects")' in script
+    assert "build(options, tasks, preset)" in script
+
+
+def test_working_directories_use_the_list_editor():
+    """Settings edit the working directories as a list with directory suggestions."""
+    from importlib import resources
+
+    script = resources.files("grafeno.server").joinpath("static/app.js").read_text(encoding="utf-8")
+    assert 'type: "dir"' in script
+    assert "function dirSuggestions(input)" in script
+    assert 'workspaces.value.split(",")' not in script
+
+
 # ---------------------------------------------------------------------- #
 # Served page: no auth for the page, auth for the data
 # ---------------------------------------------------------------------- #

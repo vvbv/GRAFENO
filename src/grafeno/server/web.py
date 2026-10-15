@@ -46,7 +46,7 @@ ASSETS = {
 UI_PREFIXES = (
     "web.", "state.", "phase.", "common.", "tasks.", "nt.", "det.", "act.",
     "pc.", "pconf.", "phaseinfo.", "rm.", "et.", "roles.", "cfg.", "hook.",
-    "refs.", "trig.", "prof.", "reports.", "media.",
+    "refs.", "trig.", "prof.", "reports.", "media.", "projects.",
 )
 # The page only loads its own assets; inline scripts are not allowed (the
 # boot data travels as a non-executable JSON block).

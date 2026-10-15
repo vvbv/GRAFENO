@@ -212,11 +212,14 @@ class GrafenoApp(App):
         if not cfg.telegram.resolve_token():
             self.notify(t("tg.no_token"), severity="warning", timeout=10)
             return
+        parser = cfg.telegram.parser_role(cfg.planner)
         self.telegram = TelegramService(
             cfg.telegram,
             default_workdir=cfg.telegram.default_workdir or os.getcwd(),
-            parser_cli=cfg.telegram.parser_cli or cfg.planner.cli,
-            parser_model=cfg.telegram.parser_model or cfg.planner.model,
+            parser_cli=parser.cli,
+            parser_model=parser.model,
+            parser_effort=parser.effort,
+            parser_timeout=float(cfg.telegram.parser_timeout),
             on_info=lambda message: self.notify(message, timeout=8),
             workspaces=cfg.workspaces,
         )
@@ -224,6 +227,13 @@ class GrafenoApp(App):
             self.telegram.run(), exclusive=True,
             group="telegram", exit_on_error=False,
         )
+
+    def apply_telegram_parser(self, cfg) -> None:
+        """Hot-apply the saved parser settings to the running bot (no restart needed)."""
+        if self.telegram is None:
+            return
+        parser = cfg.telegram.parser_role(cfg.planner)
+        self.telegram.apply_parser(parser.cli, parser.model, parser.effort, float(cfg.telegram.parser_timeout))
 
     def _start_api(self, cfg) -> None:
         """Start the REST + WebSocket API server worker when enabled."""

@@ -27,7 +27,15 @@ from .. import references as references_module
 from .. import remotesession
 from .. import triggers as triggers_module
 from .. import usage
-from ..config import DEFAULT_API_HOST, DEFAULT_API_PORT, KNOWN_CLIS, RoleConfig
+from .. import workspaces as workspaces_module
+from ..config import (
+    DEFAULT_API_HOST,
+    DEFAULT_API_PORT,
+    KNOWN_CLIS,
+    PARSER_TIMEOUT_MAX,
+    PARSER_TIMEOUT_MIN,
+    RoleConfig,
+)
 from ..i18n import LANGUAGES, set_language, set_prompt_language, t
 from ..pipeline.hooks import HOOK_STAGES, format_stages, parse_stages
 from ..profiles import Profile, roles_summary
@@ -244,6 +252,8 @@ def get_settings(service: "ServerService") -> dict:
             "allowed_chat_ids": tg.allowed_chat_ids,
             "parser_cli": tg.parser_cli,
             "parser_model": tg.parser_model,
+            "parser_effort": tg.parser_effort,
+            "parser_timeout": tg.parser_timeout,
             "default_workdir": tg.default_workdir,
             "stt_url": tg.stt_url,
             "stt_key_set": bool(tg.stt_key),
@@ -328,7 +338,8 @@ def update_settings(service: "ServerService", payload: dict) -> dict:
 
     Starts from the saved config, so fields the web panel does not manage
     (theme...) are kept. Language changes apply at once, like the TUI.
-    Changes to ``[telegram]``/``[api]`` apply on the next TUI start.
+    The Telegram parser settings (``parser_*``) apply at once to the running
+    bot; the rest of ``[telegram]``/``[api]`` applies on the next TUI start.
     """
     if not isinstance(payload, dict):
         raise ApiError(400, "payload must be an object")
@@ -389,20 +400,30 @@ def update_settings(service: "ServerService", payload: dict) -> dict:
         raw = payload.get("workspaces") or []
         if isinstance(raw, str):
             raw = raw.split(",")
-        cfg.workspaces = [str(item).strip() for item in raw if str(item).strip()]
+        if not isinstance(raw, list):
+            raise ApiError(400, "workspaces must be a list")
+        cfg.workspaces = workspaces_module.normalize_entries(str(item) for item in raw)
     tg_data = payload.get("telegram")
     if isinstance(tg_data, dict):
         tg = cfg.telegram
         for key in ("enabled", "confirm_create", "group_all", "tts_enabled"):
             if key in tg_data:
                 setattr(tg, key, _coerce_bool(tg_data[key], getattr(tg, key)))
-        for key in ("allowed_chat_ids", "parser_model", "default_workdir", "stt_url",
+        for key in ("allowed_chat_ids", "parser_model", "parser_effort", "default_workdir", "stt_url",
                     "stt_model", "tts_url", "tts_model", "tts_voice"):
             if key in tg_data:
                 setattr(tg, key, str(tg_data.get(key) or "").strip())
         if "parser_cli" in tg_data:
             parser_cli = str(tg_data.get("parser_cli") or "")
             tg.parser_cli = parser_cli if parser_cli in KNOWN_CLIS else ""
+        if "parser_timeout" in tg_data:
+            try:
+                parser_timeout = int(tg_data.get("parser_timeout"))
+            except (TypeError, ValueError) as exc:
+                raise ApiError(400, t("cfg.error.tg_timeout")) from exc
+            if not PARSER_TIMEOUT_MIN <= parser_timeout <= PARSER_TIMEOUT_MAX:
+                raise ApiError(400, t("cfg.error.tg_timeout"))
+            tg.parser_timeout = parser_timeout
         for key in ("bot_token", "stt_key", "tts_key"):
             _apply_secret(tg, key, tg_data)
     api_data = payload.get("api")
@@ -432,6 +453,9 @@ def update_settings(service: "ServerService", payload: dict) -> dict:
     if "profiles" in payload:
         profiles = _parse_profiles(payload.get("profiles"))
     config_module.save(cfg)
+    apply_parser = getattr(getattr(service, "app", None), "apply_telegram_parser", None)
+    if apply_parser is not None:
+        apply_parser(cfg)  # parser settings apply at once; the rest of [telegram] on restart
     if references is not None:
         references_module.save_global(references)
     if triggers is not None:

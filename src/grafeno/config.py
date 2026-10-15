@@ -22,6 +22,9 @@ DEFAULT_STT_MODEL = "whisper-large-v3-turbo"
 DEFAULT_TTS_URL = "https://api.groq.com/openai/v1/audio/speech"
 DEFAULT_TTS_MODEL = "canopylabs/orpheus-v1-english"
 DEFAULT_TTS_VOICE = "troy"  # male voice
+DEFAULT_PARSER_TIMEOUT = 300  # seconds; base timeout of the Telegram parser one-shot
+PARSER_TIMEOUT_MIN = 30
+PARSER_TIMEOUT_MAX = 3600
 
 # API server defaults (REST + WebSocket remote clients).
 API_TOKEN_ENV = "GRAFENO_API_TOKEN"
@@ -134,6 +137,15 @@ def _sanitize_key(value: str) -> str:
     return parts[-1] if parts else ""
 
 
+def clamp_parser_timeout(value: Any) -> int:
+    """Parser timeout as an int within bounds; invalid values fall back to the default."""
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_PARSER_TIMEOUT
+    return max(PARSER_TIMEOUT_MIN, min(PARSER_TIMEOUT_MAX, seconds))
+
+
 @dataclass
 class TelegramConfig:
     """Telegram bot integration: voice/text notes become GRAFENO tasks.
@@ -149,7 +161,9 @@ class TelegramConfig:
     bot_token: str = ""        # GRAFENO_TELEGRAM_TOKEN overrides
     allowed_chat_ids: str = "" # comma-separated chat ids; empty = deny all
     parser_cli: str = ""       # empty = planner role CLI
-    parser_model: str = ""     # empty = default model of the parser CLI
+    parser_model: str = ""     # empty = planner model when parser_cli is empty, else CLI default
+    parser_effort: str = ""    # empty = default effort of the parser CLI/model
+    parser_timeout: int = DEFAULT_PARSER_TIMEOUT  # base seconds; long messages get extra time
     confirm_create: bool = True  # inline Create/Cancel buttons before creating
     group_all: bool = False    # True = answer every whitelisted group message (no mention needed)
     default_workdir: str = ""  # empty = app cwd
@@ -173,6 +187,21 @@ class TelegramConfig:
         """TTS key: own env/field first, then the STT key (usually same provider)."""
         from_env = _sanitize_key(os.environ.get(TELEGRAM_TTS_KEY_ENV, ""))
         return from_env or _sanitize_key(self.tts_key) or self.resolve_stt_key()
+
+    def parser_role(self, planner: RoleConfig) -> RoleConfig:
+        """Effective CLI + model + effort of the intent parser.
+
+        Empty ``parser_cli`` reuses the planner CLI and, unless a parser
+        model is set, the planner model. An explicit CLI never inherits the
+        planner model (it may belong to another CLI): empty = CLI default.
+        The effort is never inherited (the parser should stay fast).
+        """
+        cli = self.parser_cli.strip()
+        model = self.parser_model.strip()
+        effort = self.parser_effort.strip()
+        if not cli:
+            return RoleConfig(cli=planner.cli, model=model or planner.model, effort=effort)
+        return RoleConfig(cli=cli, model=model, effort=effort)
 
     def chat_ids(self) -> set[int]:
         """Whitelisted chat ids (unparseable entries are ignored)."""
@@ -199,6 +228,8 @@ class TelegramConfig:
             "allowed_chat_ids": self.allowed_chat_ids,
             "parser_cli": self.parser_cli,
             "parser_model": self.parser_model,
+            "parser_effort": self.parser_effort,
+            "parser_timeout": self.parser_timeout,
             "confirm_create": self.confirm_create,
             "group_all": self.group_all,
             "default_workdir": self.default_workdir,
@@ -220,6 +251,8 @@ class TelegramConfig:
             allowed_chat_ids=str(data.get("allowed_chat_ids", "")),
             parser_cli=str(data.get("parser_cli", "")),
             parser_model=str(data.get("parser_model", "")),
+            parser_effort=str(data.get("parser_effort", "")),
+            parser_timeout=clamp_parser_timeout(data.get("parser_timeout", DEFAULT_PARSER_TIMEOUT)),
             confirm_create=bool(data.get("confirm_create", True)),
             group_all=bool(data.get("group_all", False)),
             default_workdir=str(data.get("default_workdir", "")),

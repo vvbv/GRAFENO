@@ -2042,3 +2042,38 @@ def test_confirm_create_false_still_asks_profile(tmp_path, monkeypatch):
         for button in row
     ]
     assert any(data.startswith("tg:p:") for data in callbacks)
+
+
+def test_apply_parser_updates_attributes_and_keeps_timeout(tmp_path, monkeypatch):
+    service, _ = _make_service(tmp_path, monkeypatch, FakeDriver([]))
+    service.apply_parser("kimi", "m", "low", 90)
+    assert (service.parser_cli, service.parser_model, service.parser_effort) == ("kimi", "m", "low")
+    assert service.parser_timeout == 90.0
+    service.apply_parser("claude", "", "")
+    assert service.parser_timeout == 90.0  # timeout=None keeps the previous one
+
+
+def test_parser_timeout_is_reported_in_chat(tmp_path, monkeypatch):
+    class SlowDriver(FakeDriver):
+        async def run(self, request, on_event=None, on_activity=None):
+            await asyncio.sleep(30)
+            return RunResult(ok=True, text="{}")
+
+    service, client = _make_service(tmp_path, monkeypatch, SlowDriver([]))
+    service.parser_timeout = 0.1
+    _run(service._parse_and_reply(555, "hola"))
+    assert "did not answer" in client.sent[-1][1]
+
+
+def test_parser_effort_reaches_the_run_request(tmp_path, monkeypatch):
+    seen: list[str] = []
+
+    class EffortDriver(FakeDriver):
+        async def run(self, request, on_event=None, on_activity=None):
+            seen.append(request.effort)
+            return RunResult(ok=True, text='{"action": "list_tasks"}')
+
+    service, _ = _make_service(tmp_path, monkeypatch, EffortDriver([]))
+    service.apply_parser("fake", "", "low")
+    _run(service._parse_and_reply(555, "lista"))
+    assert seen == ["low"]

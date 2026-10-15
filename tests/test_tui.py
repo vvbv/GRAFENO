@@ -2144,3 +2144,17 @@ def test_task_list_date_filter_combines_with_scope():
             assert table.row_count == 2
 
     asyncio.run(scenario())
+
+
+def test_new_task_screen_presets_the_workdir(tmp_path):
+    """``NewTaskScreen(workdir)`` starts with that folder in the directory field."""
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            app.push_screen(NewTaskScreen(str(tmp_path)))
+            await pilot.pause()
+            assert app.screen.query_one("#nt-workdir", Input).value == str(tmp_path)
+
+    asyncio.run(scenario())

@@ -1,6 +1,7 @@
 """Reusable pipeline roles form (CLI + model + effort per role).
 
-Used by the global settings screen and by the per-task settings modal.
+Used by the global settings screen, the per-task settings modal and the
+Telegram parser row (a parametrized form with one custom role).
 The model and variant loading is done by the container (screen), which
 calls ``set_models`` and ``set_variants`` when ``fetch_all_models`` and
 ``fetch_all_variants`` finish.
@@ -44,16 +45,20 @@ def filter_models(models: list[str], query: str) -> list[str]:
 class RoleRow(Static):
     """Configuration row for a role: CLI Select + model + effort."""
 
-    def __init__(self, role: str, title_key: str):
+    def __init__(self, role: str, title_key: str, *, default_cli_label: str = ""):
         super().__init__(classes="role-row")
         self.role = role
         self._title_key = title_key
+        self._default_cli_label = default_cli_label
 
     def compose(self) -> ComposeResult:
+        options = [(cli, cli) for cli in KNOWN_CLIS]
+        if self._default_cli_label:
+            options = [(self._default_cli_label, "")] + options  # "" = inherit (e.g. planner role)
         yield Label(t(self._title_key), classes="role-title")
         with Horizontal(classes="role-row-fields"):
             yield Select(
-                [(cli, cli) for cli in KNOWN_CLIS],
+                options,
                 id=f"{self.role}-cli",
                 allow_blank=False,
                 classes="cli-select",
@@ -82,16 +87,38 @@ class RoleRow(Static):
 
 
 class RolesForm(Static):
-    """One ``RoleRow`` per pipeline role + option refresh logic."""
+    """One ``RoleRow`` per role (pipeline roles by default) + option refresh logic."""
 
-    def __init__(self):
-        super().__init__()
+    def __init__(
+        self,
+        roles: tuple[tuple[str, str], ...] = ROLES,
+        *,
+        default_cli_label: str = "",
+        id: str | None = None,
+    ):
+        super().__init__(id=id)
+        self.roles = tuple(roles)
+        self._default_cli_label = default_cli_label
+        self.fallback_cli = ""  # CLI whose catalogue feeds rows whose CLI is ""
         self.models: dict[str, list[str]] = {}
         self.variants: dict[str, dict[str, list[str]]] = {}
 
     def compose(self) -> ComposeResult:
-        for role, title_key in ROLES:
-            yield RoleRow(role, title_key)
+        for role, title_key in self.roles:
+            yield RoleRow(role, title_key, default_cli_label=self._default_cli_label)
+
+    def _catalog_cli(self, role: str) -> str:
+        """CLI whose catalogue feeds the row: the selected one or ``fallback_cli`` for ""."""
+        cli = str(self.query_one(f"#{role}-cli", Select).value)
+        return cli or self.fallback_cli
+
+    def set_fallback_cli(self, cli: str) -> None:
+        """CLI inherited by rows whose CLI is "" (refreshes those rows)."""
+        self.fallback_cli = cli
+        for role, _ in self.roles:
+            if not str(self.query_one(f"#{role}-cli", Select).value):
+                self._refresh_model_options(role)
+                self._refresh_effort_options(role)
 
     # -------------------------------------------------------------- #
     # Values
@@ -127,13 +154,13 @@ class RolesForm(Static):
     def set_models(self, models_map: dict[str, list[str]]) -> None:
         """Apply the already-loaded model catalogue (repopulates the selects)."""
         self.models = models_map
-        for role, _ in ROLES:
+        for role, _ in self.roles:
             self._refresh_model_options(role)
 
     def set_variants(self, variants_map: dict[str, dict[str, list[str]]]) -> None:
         """Apply the already-loaded per-CLI+model variants catalogue."""
         self.variants = variants_map
-        for role, _ in ROLES:
+        for role, _ in self.roles:
             self._refresh_effort_options(role)
 
     def _refresh_model_options(self, role: str) -> None:
@@ -149,7 +176,7 @@ class RolesForm(Static):
         select = self.query_one(f"#{role}-model", Select)
         current = select.value
         chosen = "" if current is Select.NULL else str(current)
-        cli = str(self.query_one(f"#{role}-cli", Select).value)
+        cli = self._catalog_cli(role)
         models = list(self.models.get(cli, []))
         if chosen and models and chosen not in models:
             chosen = ""  # CLI changed: the previous model no longer applies
@@ -174,7 +201,7 @@ class RolesForm(Static):
         select = self.query_one(f"#{role}-effort", Select)
         current = select.value
         chosen = "" if current is Select.NULL else str(current)
-        cli = str(self.query_one(f"#{role}-cli", Select).value)
+        cli = self._catalog_cli(role)
         model_value = self.query_one(f"#{role}-model", Select).value
         model = "" if model_value is Select.NULL else str(model_value)
         levels = list(self.variants.get(cli, {}).get(model, []))
@@ -186,7 +213,7 @@ class RolesForm(Static):
         select.value = chosen if chosen else Select.NULL
 
     def on_select_changed(self, event: Select.Changed) -> None:
-        for role, _ in ROLES:
+        for role, _ in self.roles:
             if event.select.id == f"{role}-cli":
                 self.query_one(f"#{role}-model-filter", Input).value = ""
                 self._refresh_model_options(role)
@@ -195,6 +222,6 @@ class RolesForm(Static):
                 self._refresh_effort_options(role)
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        for role, _ in ROLES:
+        for role, _ in self.roles:
             if event.input.id == f"{role}-model-filter":
                 self._refresh_model_options(role)

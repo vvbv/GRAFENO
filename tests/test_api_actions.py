@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -358,3 +359,54 @@ def test_update_roles_and_profile(tmp_path) -> None:
     assert reloaded.planner.cli == "codex" and reloaded.profile == ""
     with pytest.raises(ApiError):
         actions.update_roles(service, task.id, {"roles": {"planner": {"cli": "nope"}}})
+
+
+# ---------------------------------------------------------------------- #
+# Projects of the working directories
+# ---------------------------------------------------------------------- #
+def test_list_projects_includes_working_directory_folders(tmp_path, monkeypatch) -> None:
+    from grafeno import config as config_module
+
+    monkeypatch.chdir(tmp_path)  # no .grafeno.toml with extra workspaces
+    ws = (tmp_path / "ws").resolve()
+    (ws / "alpha").mkdir(parents=True)
+    (ws / "Beta").mkdir()
+    cfg = config_module.load()
+    cfg.workspaces = [str(ws), str(tmp_path / "missing")]
+    config_module.save(cfg)
+    _task(ws / "alpha", name="A")
+    data = actions.list_projects(FakeService(None))
+    by_dir = {item["workdir"]: item for item in data["projects"]}
+    alpha = by_dir[str(ws / "alpha")]
+    assert (alpha["count"], alpha["name"], alpha["workspace"]) == (1, "alpha", str(ws))
+    beta = by_dir[str(ws / "Beta")]
+    assert (beta["count"], beta["name"], beta["workspace"]) == (0, "Beta", str(ws))
+    assert [(root["entry"], root["exists"]) for root in data["workspaces"]] == [
+        (str(ws), True),
+        (str(tmp_path / "missing"), False),
+    ]
+    assert data["session"] is False
+
+
+def test_list_projects_task_only_workdir_has_no_workspace(tmp_path) -> None:
+    task = _task(tmp_path, name="Solo")
+    data = actions.list_projects(FakeService(None))
+    [item] = [entry for entry in data["projects"] if entry["workdir"] == task.workdir]
+    assert item["count"] == 1
+    assert item["workspace"] == ""
+    assert item["name"] == Path(task.workdir).name
+
+
+def test_list_projects_skips_discovery_in_session_mode(tmp_path) -> None:
+    from grafeno import config as config_module, remote, remotesession
+
+    ws = tmp_path / "ws"
+    (ws / "alpha").mkdir(parents=True)
+    cfg = config_module.load()
+    cfg.workspaces = [str(ws)]
+    config_module.save(cfg)
+    remotesession._current = remotesession.RemoteSession(
+        spec=remote.RemoteSpec(user="root", host="h", path="/root"), remote_home="/root",
+    )
+    data = actions.list_projects(FakeService(None))
+    assert data == {"projects": [], "workspaces": [], "session": True}

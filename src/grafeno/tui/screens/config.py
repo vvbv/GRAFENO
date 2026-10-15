@@ -23,7 +23,15 @@ from ... import paths
 from ... import profiles as profiles_module
 from ... import references as references_module
 from ... import triggers as triggers_module
-from ...config import DEFAULT_API_HOST, DEFAULT_API_PORT, KNOWN_CLIS, Config
+from ...config import (
+    DEFAULT_API_HOST,
+    DEFAULT_API_PORT,
+    DEFAULT_PARSER_TIMEOUT,
+    KNOWN_CLIS,
+    PARSER_TIMEOUT_MAX,
+    PARSER_TIMEOUT_MIN,
+    Config,
+)
 from ...drivers import fetch_all_models, fetch_all_variants
 from ...i18n import LANGUAGES, set_language, set_prompt_language, t
 from ...pipeline.hooks import HOOK_STAGES, format_stages, parse_stages
@@ -32,12 +40,19 @@ from ..refform import ReferencesForm
 from ..rolesform import ROLES, RolesForm
 from ..trigform import TriggersForm
 from ..widgets import GrafenoHeader, LocationBar
+from ..workspacesform import WorkspacesForm
 
 PROMPT_LANGUAGE_SAME = "same"  # Select value of "same as the GUI" (saved as "")
+PARSER_ROLE = "tg-parser"  # widget id prefix of the Telegram parser row (#tg-parser-cli...)
+PARSER_ROLES = ((PARSER_ROLE, "cfg.tg.parser.title"),)
 
 
 class ConfigScreen(Screen[None]):
     BINDINGS = [Binding("escape", "back", t("common.back"))]
+
+    def __init__(self, section: str = "") -> None:
+        super().__init__()
+        self._section = section  # "workspaces" = open scrolled to that section
 
     def compose(self) -> ComposeResult:
         yield GrafenoHeader()
@@ -45,7 +60,7 @@ class ConfigScreen(Screen[None]):
         with Vertical(id="config-container"):
             yield Label(t("cfg.title", path=paths.config_path()), id="config-title")
             yield Static(t("cfg.roles"), classes="section-title")
-            yield RolesForm()
+            yield RolesForm(id="cfg-roles")
             yield Static(t("cfg.models.loading"), id="models-status")
             yield Static(t("cfg.automode"), classes="section-title")
             with Horizontal(classes="automode-row"):
@@ -114,11 +129,9 @@ class ConfigScreen(Screen[None]):
                     id="cfg-prompt-language",
                     allow_blank=False,
                 )
-            yield Static(t("cfg.workspaces"), classes="section-title")
+            yield Static(t("cfg.workspaces"), classes="section-title", id="cfg-workspaces-title")
             yield Static(t("cfg.workspaces.help"))
-            with Horizontal(classes="automode-row"):
-                yield Label(t("cfg.workspaces.label"))
-                yield Input(id="cfg-workspaces", placeholder="~/Documents/GitHub, ~/code")
+            yield WorkspacesForm(id="cfg-workspaces")
             yield Static(t("cfg.references"), classes="section-title")
             yield Static(t("refs.warning"))
             yield ReferencesForm(id="cfg-refs")
@@ -139,15 +152,11 @@ class ConfigScreen(Screen[None]):
             with Horizontal(classes="automode-row"):
                 yield Label(t("cfg.tg.chats"))
                 yield Input(id="tg-chats", placeholder="123456789, 987654321")
+            yield Static(t("cfg.tg.parser.help"))
+            yield RolesForm(PARSER_ROLES, default_cli_label=t("cfg.tg.parser.default"), id="tg-parser-form")
             with Horizontal(classes="automode-row"):
-                yield Label(t("cfg.tg.parser"))
-                yield Select(
-                    [(t("cfg.tg.parser.default"), "")] + [(cli, cli) for cli in KNOWN_CLIS],
-                    id="tg-parser-cli",
-                    allow_blank=False,
-                )
-                yield Label(t("cfg.tg.parser_model"))
-                yield Input(id="tg-parser-model")
+                yield Label(t("cfg.tg.parser_timeout"))
+                yield Input(id="tg-parser-timeout", type="integer", placeholder=str(DEFAULT_PARSER_TIMEOUT))
             with Horizontal(classes="automode-row"):
                 yield Label(t("cfg.tg.workdir"))
                 yield Input(id="tg-workdir")
@@ -194,7 +203,7 @@ class ConfigScreen(Screen[None]):
     def on_mount(self) -> None:
         self._config = config_module.load()
         self._loading = False
-        form = self.query_one(RolesForm)
+        form = self.query_one("#cfg-roles", RolesForm)
         for role, _ in ROLES:
             role_cfg = self._config.role(role)
             form.set_role(role, role_cfg.cli, role_cfg.model, role_cfg.effort)
@@ -231,7 +240,7 @@ class ConfigScreen(Screen[None]):
             if self._config.prompt_language in LANGUAGES
             else PROMPT_LANGUAGE_SAME
         )
-        self.query_one("#cfg-workspaces", Input).value = ", ".join(self._config.workspaces)
+        self.query_one("#cfg-workspaces", WorkspacesForm).set_workspaces(self._config.workspaces)
         self.query_one("#cfg-refs", ReferencesForm).set_references(
             references_module.load_global()
         )
@@ -247,9 +256,15 @@ class ConfigScreen(Screen[None]):
         self.query_one("#tg-group-all", Checkbox).value = tg.group_all
         self.query_one("#tg-token", Input).value = tg.bot_token
         self.query_one("#tg-chats", Input).value = tg.allowed_chat_ids
-        parser_select = self.query_one("#tg-parser-cli", Select)
-        parser_select.value = tg.parser_cli if tg.parser_cli in KNOWN_CLIS else ""
-        self.query_one("#tg-parser-model", Input).value = tg.parser_model
+        parser_form = self.query_one("#tg-parser-form", RolesForm)
+        parser_form.set_fallback_cli(self._config.planner.cli)
+        parser_form.set_role(
+            PARSER_ROLE,
+            tg.parser_cli if tg.parser_cli in KNOWN_CLIS else "",
+            tg.parser_model,
+            tg.parser_effort,
+        )
+        self.query_one("#tg-parser-timeout", Input).value = str(tg.parser_timeout)
         self.query_one("#tg-workdir", Input).value = tg.default_workdir
         self.query_one("#tg-stt-url", Input).value = tg.stt_url
         self.query_one("#tg-stt-key", Input).value = tg.stt_key
@@ -265,6 +280,8 @@ class ConfigScreen(Screen[None]):
         self.query_one("#api-port", Input).value = str(api.port)
         self.query_one("#api-tokens", Input).value = api.tokens
         self._load_models()
+        if self._section == "workspaces":
+            self.call_after_refresh(self._show_workspaces)
 
     # ------------------------------------------------------------------ #
     # Model loading (async worker: cancelable with Esc)
@@ -289,10 +306,10 @@ class ConfigScreen(Screen[None]):
         variants_map: dict[str, dict[str, list[str]]] | None = None,
     ) -> None:
         self._loading = False
-        form = self.query_one(RolesForm)
-        form.set_models(models_map)
-        if variants_map is not None:
-            form.set_variants(variants_map)
+        for form in self.query(RolesForm):
+            form.set_models(models_map)
+            if variants_map is not None:
+                form.set_variants(variants_map)
         summary = " · ".join(
             t("cfg.models.count", cli=cli, count=len(models)) if models else t("cfg.models.unavailable", cli=cli)
             for cli, models in models_map.items()
@@ -310,6 +327,11 @@ class ConfigScreen(Screen[None]):
             return True
         return False
 
+    def _show_workspaces(self) -> None:
+        """Scroll to the working-directories section and focus its add input."""
+        self.query_one("#ws-path", Input).focus(scroll_visible=False)
+        self.query_one("#cfg-workspaces-title", Static).scroll_visible(top=True, animate=False)
+
     # ------------------------------------------------------------------ #
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "cfg-back":
@@ -324,6 +346,11 @@ class ConfigScreen(Screen[None]):
             return
         self.dismiss()
 
+    def on_select_changed(self, event: Select.Changed) -> None:
+        # Keep the parser row's inherited catalogue in sync with the planner CLI.
+        if event.select.id == "planner-cli":
+            self.query_one("#tg-parser-form", RolesForm).set_fallback_cli(str(event.value))
+
     def _save(self) -> None:
         try:
             max_iter = int(self.query_one("#am-max-iter", Input).value or "5")
@@ -333,10 +360,19 @@ class ConfigScreen(Screen[None]):
         if max_iter < 1:
             self.notify(t("cfg.error.max_iter_min"), severity="error")
             return
+        timeout_text = self.query_one("#tg-parser-timeout", Input).value.strip()
+        try:
+            parser_timeout = int(timeout_text) if timeout_text else DEFAULT_PARSER_TIMEOUT
+        except ValueError:
+            self.notify(t("cfg.error.tg_timeout"), severity="error")
+            return
+        if not PARSER_TIMEOUT_MIN <= parser_timeout <= PARSER_TIMEOUT_MAX:
+            self.notify(t("cfg.error.tg_timeout"), severity="error")
+            return
 
         previous_language = self._config.language
         cfg = Config()
-        form = self.query_one(RolesForm)
+        form = self.query_one("#cfg-roles", RolesForm)
         for role, _ in ROLES:
             role_cfg = cfg.role(role)
             role_cfg.cli, role_cfg.model, role_cfg.effort = form.role_values(role)
@@ -362,19 +398,17 @@ class ConfigScreen(Screen[None]):
         cfg.language = str(self.query_one("#cfg-language", Select).value)
         prompt_language = str(self.query_one("#cfg-prompt-language", Select).value)
         cfg.prompt_language = "" if prompt_language == PROMPT_LANGUAGE_SAME else prompt_language
-        cfg.workspaces = [                     # comma-separated: paths with commas are unsupported
-            part.strip()
-            for part in self.query_one("#cfg-workspaces", Input).value.split(",")
-            if part.strip()
-        ]
+        cfg.workspaces = self.query_one("#cfg-workspaces", WorkspacesForm).workspaces()
         tg = cfg.telegram
         tg.enabled = self.query_one("#tg-enabled", Checkbox).value
         tg.confirm_create = self.query_one("#tg-confirm", Checkbox).value
         tg.group_all = self.query_one("#tg-group-all", Checkbox).value
         tg.bot_token = self.query_one("#tg-token", Input).value.strip()
         tg.allowed_chat_ids = self.query_one("#tg-chats", Input).value.strip()
-        tg.parser_cli = str(self.query_one("#tg-parser-cli", Select).value)
-        tg.parser_model = self.query_one("#tg-parser-model", Input).value.strip()
+        tg.parser_cli, tg.parser_model, tg.parser_effort = (
+            self.query_one("#tg-parser-form", RolesForm).role_values(PARSER_ROLE)
+        )
+        tg.parser_timeout = parser_timeout
         tg.default_workdir = self.query_one("#tg-workdir", Input).value.strip()
         tg.stt_url = self.query_one("#tg-stt-url", Input).value.strip()
         tg.stt_key = self.query_one("#tg-stt-key", Input).value.strip()
@@ -399,6 +433,9 @@ class ConfigScreen(Screen[None]):
         api.port = api_port
         api.tokens = self.query_one("#api-tokens", Input).value.strip()
         config_module.save(cfg)
+        apply_parser = getattr(self.app, "apply_telegram_parser", None)
+        if apply_parser is not None:
+            apply_parser(cfg)  # parser settings apply to the running bot at once
         references_module.save_global(
             self.query_one("#cfg-refs", ReferencesForm).references()
         )

@@ -74,3 +74,24 @@ def test_picker_smoke_in_new_task_dialog(tmp_path):
             assert workdir.value == str(tmp_path / "alfa") + os.sep
 
     asyncio.run(scenario())
+
+
+def test_picker_placeholder_and_no_suggestions_when_empty():
+    """``suggest_empty=False`` keeps the dropdown hidden while the input is empty."""
+    from textual.app import App
+    from textual.widgets import Input, OptionList
+
+    from grafeno.tui.dirpicker import DirectoryPicker
+
+    class Holder(App):
+        def compose(self):
+            yield DirectoryPicker("", input_id="pick", placeholder="where", suggest_empty=False)
+
+    async def scenario():
+        app = Holder()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.query_one("#pick", Input).placeholder == "where"
+            assert app.query_one("#dir-options", OptionList).option_count == 0
+
+    asyncio.run(scenario())

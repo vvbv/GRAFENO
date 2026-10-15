@@ -195,6 +195,8 @@ class TelegramService:
         default_workdir: str = "",
         parser_cli: str = "",
         parser_model: str = "",
+        parser_effort: str = "",
+        parser_timeout: float = intents.PARSER_TIMEOUT,
         on_info: Callable[[str], None] | None = None,
         workspaces: list[str] | None = None,
     ):
@@ -203,6 +205,8 @@ class TelegramService:
         self.default_workdir = default_workdir
         self.parser_cli = parser_cli
         self.parser_model = parser_model
+        self.parser_effort = parser_effort
+        self.parser_timeout = parser_timeout
         self.workspaces = list(workspaces or [])
         self._on_info = on_info or (lambda message: None)
         self._state = _load_state()
@@ -490,6 +494,14 @@ class TelegramService:
     # ------------------------------------------------------------------ #
     # Intent dispatch
     # ------------------------------------------------------------------ #
+    def apply_parser(self, cli: str, model: str, effort: str = "", timeout: float | None = None) -> None:
+        """Hot-apply the parser CLI/model/effort/timeout (settings saved while running)."""
+        self.parser_cli = cli
+        self.parser_model = model
+        self.parser_effort = effort
+        if timeout is not None:
+            self.parser_timeout = float(timeout)
+
     def _parser_driver(self) -> CLIDriver | None:
         try:
             driver = get_driver(self.parser_cli)
@@ -510,6 +522,7 @@ class TelegramService:
                 await self._send(chat_id, self._tt(chat_id, "tg.heard", text=heard))
             await self._send(chat_id, self._tt(chat_id, "tg.parser_unavailable", cli=self.parser_cli))
             return
+        timeout = intents.parser_timeout_for(text, self.parser_timeout)
         async with self._typing(chat_id):
             intent = await intents.parse_intent(
                 driver,
@@ -521,6 +534,8 @@ class TelegramService:
                 projects=intents.projects_summary(tasks, self._discovered_projects()),
                 retries=intents.PARSER_RETRIES,
                 retry_delay=intents.PARSER_RETRY_DELAY,
+                effort=self.parser_effort,
+                timeout=timeout,
             )
         if intent.lang:
             self._chat_lang[chat_id] = intent.lang  # answer in the user's language
@@ -530,6 +545,9 @@ class TelegramService:
             # Infrastructure failure (timeout, crash): surface it, don't
             # hide it behind the generic help text.
             self._log(f"parser error for chat {chat_id}: {intent.error}")
+            if intent.timed_out:
+                await self._send(chat_id, self._tt(chat_id, "tg.parser_timeout", seconds=int(timeout)))
+                return
             await self._send(chat_id, self._tt(chat_id, "tg.parser_error", error=intent.error))
             return
         self._log(f"chat {chat_id}: intent={intent.action} tasks={len(intent.tasks)} ref={intent.task_ref!r}")
@@ -738,18 +756,25 @@ class TelegramService:
             return
         context = self._task_context(task)
         prompt = prompt_template(_ASK_PROMPT).format(context=context, question=intent.question)
+        timed_out = False
         async with self._typing(chat_id):
             try:
-                result = await driver.run(
-                    RunRequest(
-                        prompt=prompt,
-                        model=self.parser_model,
-                        workdir=self._run_workdir(),
-                        title="grafeno:telegram:ask",
-                    )
+                request = RunRequest(
+                    prompt=prompt,
+                    model=self.parser_model,
+                    workdir=self._run_workdir(),
+                    title="grafeno:telegram:ask",
+                    effort=self.parser_effort,
                 )
+                result = await asyncio.wait_for(driver.run(request), timeout=self.parser_timeout)
+            except TimeoutError:
+                result = None
+                timed_out = True
             except Exception:  # noqa: BLE001 - the bot never propagates CLI errors
                 result = None
+        if timed_out:
+            await self._send(chat_id, self._tt(chat_id, "tg.parser_timeout", seconds=int(self.parser_timeout)))
+            return
         answer = result.text.strip() if result is not None and result.ok else ""
         await self._send(chat_id, answer or self._tt(chat_id, "tg.ask.failed"))
 

@@ -71,13 +71,10 @@ def collect_config_roles(cfg: Config) -> list[ModelIssue]:
         ModelIssue(role=name, cli=role.cli, model=role.model)
         for name, role in role_items(cfg)
     ]
-    parser_model = cfg.telegram.parser_model.strip()
-    if parser_model:
-        pairs.append(ModelIssue(
-            role="telegram_parser",
-            cli=cfg.telegram.parser_cli.strip() or cfg.planner.cli,
-            model=parser_model,
-        ))
+    tg = cfg.telegram
+    if tg.parser_model.strip():  # an inherited planner model is already covered
+        parser = tg.parser_role(cfg.planner)
+        pairs.append(ModelIssue(role="telegram_parser", cli=parser.cli, model=parser.model))
     return pairs
 
 

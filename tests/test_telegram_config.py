@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from grafeno import config
 from grafeno.config import (
+    DEFAULT_PARSER_TIMEOUT,
+    RoleConfig,
     API_TOKEN_ENV,
     DEFAULT_STT_MODEL,
     DEFAULT_STT_URL,
@@ -23,6 +25,8 @@ def test_telegram_defaults():
     assert tg.allowed_chat_ids == ""
     assert tg.parser_cli == ""
     assert tg.parser_model == ""
+    assert tg.parser_effort == ""
+    assert tg.parser_timeout == 300
     assert tg.confirm_create is True
     assert tg.group_all is False
     assert tg.default_workdir == ""
@@ -142,3 +146,32 @@ def test_keys_tolerate_pasted_labels_and_whitespace():
     tg = TelegramConfig(tts_key="Bearer tts-9")
     assert tg.resolve_tts_key() == "tts-9"
     assert TelegramConfig(bot_token="  tok \n").resolve_token() == "tok"
+
+
+def test_parser_effort_and_timeout_roundtrip():
+    cfg = Config()
+    cfg.telegram.parser_effort = "low"
+    cfg.telegram.parser_timeout = 600
+    config.save(cfg)
+    loaded = config.load().telegram
+    assert loaded.parser_effort == "low"
+    assert loaded.parser_timeout == 600
+
+
+def test_parser_timeout_is_clamped_on_load():
+    assert TelegramConfig.from_dict({"parser_timeout": "abc"}).parser_timeout == DEFAULT_PARSER_TIMEOUT
+    assert TelegramConfig.from_dict({"parser_timeout": 5}).parser_timeout == 30
+    assert TelegramConfig.from_dict({"parser_timeout": 99999}).parser_timeout == 3600
+
+
+def test_parser_role_resolution():
+    planner = RoleConfig(cli="claude", model="opus", effort="high")
+    # empty CLI: planner CLI + model, own effort only
+    role = TelegramConfig(parser_effort="low").parser_role(planner)
+    assert (role.cli, role.model, role.effort) == ("claude", "opus", "low")
+    # empty CLI + own model: planner CLI, own model
+    role = TelegramConfig(parser_model="haiku").parser_role(planner)
+    assert (role.cli, role.model, role.effort) == ("claude", "haiku", "")
+    # explicit CLI without model: never inherits the planner model
+    role = TelegramConfig(parser_cli="kimi").parser_role(planner)
+    assert (role.cli, role.model, role.effort) == ("kimi", "", "")

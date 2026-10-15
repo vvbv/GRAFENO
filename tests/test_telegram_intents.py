@@ -211,6 +211,53 @@ def test_parse_intent_timeout_carries_error(tmp_path):
     intent = _run(intents.parse_intent(SlowDriver([]), "", "texto", "", tmp_path, timeout=0.2))
     assert intent.action == "unknown"
     assert "timeout" in intent.error
+    assert intent.timed_out is True
+
+
+def test_parse_intent_timeout_is_not_retried(tmp_path):
+    class SlowDriver(FakeDriver):
+        calls = 0
+
+        async def run(self, request, on_event=None, on_activity=None):
+            type(self).calls += 1
+            await asyncio.sleep(30)
+            return RunResult(ok=True, text="{}")
+
+    intent = _run(intents.parse_intent(
+        SlowDriver([]), "", "texto", "", tmp_path, timeout=0.1, retries=2, retry_delay=0,
+    ))
+    assert SlowDriver.calls == 1
+    assert intent.timed_out is True
+    assert "timeout" in intent.error
+
+
+def test_parse_intent_generic_failure_still_retries(tmp_path):
+    driver = FakeDriver([
+        RunResult(ok=False, error="boom"),
+        RunResult(ok=False, error="boom"),
+        _ok('{"action": "list_tasks"}'),
+    ])
+    intent = _run(intents.parse_intent(driver, "", "texto", "", tmp_path, retries=2, retry_delay=0))
+    assert intent.action == "list_tasks"
+    assert intent.timed_out is False
+
+
+def test_parser_timeout_for_scales_with_length():
+    assert intents.parser_timeout_for("", 300) == 300
+    assert intents.parser_timeout_for("x" * 4000, 300) == 400
+    assert intents.parser_timeout_for("x" * 10_000_000, 300) == intents.PARSER_TIMEOUT_MAX
+
+
+def test_parse_intent_passes_effort(tmp_path):
+    seen: list[str] = []
+
+    class EffortDriver(FakeDriver):
+        async def run(self, request, on_event=None, on_activity=None):
+            seen.append(request.effort)
+            return RunResult(ok=True, text='{"action": "list_tasks"}')
+
+    _run(intents.parse_intent(EffortDriver([]), "", "texto", "", tmp_path, effort="low"))
+    assert seen == ["low"]
 
 
 def test_parse_intent_bad_json_is_unknown_without_error(tmp_path):

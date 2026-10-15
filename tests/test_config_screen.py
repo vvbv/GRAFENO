@@ -509,12 +509,17 @@ def test_config_screen_telegram_section_roundtrip(monkeypatch):
     asyncio.run(scenario())
 
 
-def test_workspaces_input_roundtrip(monkeypatch):
-    """The Workspaces input persists a comma-separated list of root folders."""
+def test_workspaces_form_roundtrip(monkeypatch):
+    """The working-directories list adds folders and persists them on save."""
     from textual.widgets import Input
+
+    from grafeno.tui.workspacesform import WorkspacesForm
 
     monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
     monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
+    cfg = config_module.load()
+    cfg.workspaces = ["/tmp/a"]
+    config_module.save(cfg)
 
     async def scenario():
         app = GrafenoApp()
@@ -530,8 +535,11 @@ def test_workspaces_input_roundtrip(monkeypatch):
                     break
             await pilot.pause()
 
-            assert app.screen.query_one("#cfg-workspaces", Input).value == ""
-            app.screen.query_one("#cfg-workspaces", Input).value = "/tmp/a, /tmp/b"
+            form = app.screen.query_one("#cfg-workspaces", WorkspacesForm)
+            assert form.workspaces() == ["/tmp/a"]
+            app.screen.query_one("#ws-path", Input).value = "/tmp/b/"
+            form._add()
+            await pilot.pause()
 
             app.screen.query_one("#cfg-save").scroll_visible()
             for _ in range(5):
@@ -540,6 +548,25 @@ def test_workspaces_input_roundtrip(monkeypatch):
             await pilot.pause()
 
         assert config_module.load().workspaces == ["/tmp/a", "/tmp/b"]
+
+    asyncio.run(scenario())
+
+
+def test_config_screen_can_open_on_workspaces_section(monkeypatch):
+    """``ConfigScreen(section="workspaces")`` focuses the add input of the list."""
+    from textual.widgets import Input
+
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 50)) as pilot:
+            await pilot.pause()
+            app.push_screen(ConfigScreen(section="workspaces"))
+            for _ in range(10):
+                await pilot.pause(0.05)
+            assert app.focused is app.screen.query_one("#ws-path", Input)
 
     asyncio.run(scenario())
 
@@ -613,3 +640,91 @@ def test_prompt_language_select_roundtrip(monkeypatch):
     asyncio.run(open_and_save("same"))
     assert config_module.load().prompt_language == ""
     assert i18n.prompt_language() == "en"
+
+
+def _open_config(app):
+    async def _go(pilot):
+        await pilot.pause()
+        await pilot.press("c")
+        await pilot.pause()
+        for _ in range(20):
+            await pilot.pause(0.1)
+            if app.screen.query_one("#cfg-roles", RolesForm).models:
+                break
+        await pilot.pause()
+    return _go
+
+
+def test_config_screen_parser_row_saves_and_hot_applies(monkeypatch):
+    from textual.widgets import Input
+
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
+
+    async def scenario():
+        app = GrafenoApp()
+        applied = []
+        monkeypatch.setattr(app, "apply_telegram_parser", lambda cfg: applied.append(cfg), raising=False)
+        async with app.run_test(size=(110, 160)) as pilot:
+            await _open_config(app)(pilot)
+            screen = app.screen
+            screen.query_one("#tg-parser-cli", Select).value = "kimi"
+            await pilot.pause()
+            screen.query_one("#tg-parser-model", Select).value = "kimi-code/k3"
+            screen.query_one("#tg-parser-timeout", Input).value = "600"
+            screen.query_one("#cfg-save").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#cfg-save")
+            await pilot.pause()
+        saved = config_module.load().telegram
+        assert (saved.parser_cli, saved.parser_model, saved.parser_timeout) == ("kimi", "kimi-code/k3", 600)
+        assert len(applied) == 1
+
+    asyncio.run(scenario())
+
+
+def test_config_screen_parser_timeout_invalid_blocks_save(monkeypatch):
+    from textual.widgets import Input
+
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 160)) as pilot:
+            await _open_config(app)(pilot)
+            for bad in ("5", "99999"):
+                app.screen.query_one("#tg-parser-timeout", Input).value = bad
+                app.screen.query_one("#cfg-save").scroll_visible()
+                for _ in range(5):
+                    await pilot.pause(0.05)
+                await pilot.click("#cfg-save")
+                await pilot.pause()
+                assert isinstance(app.screen, ConfigScreen)
+        assert config_module.load().telegram.parser_timeout == 300
+
+    asyncio.run(scenario())
+
+
+def test_config_screen_parser_row_follows_planner_cli(monkeypatch):
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 160)) as pilot:
+            await _open_config(app)(pilot)
+            screen = app.screen
+            screen.query_one("#planner-cli", Select).value = "opencode"
+            await pilot.pause()
+            parser_model = screen.query_one("#tg-parser-model", Select)
+            assert str(screen.query_one("#tg-parser-cli", Select).value) == ""
+            options = [v for _, v in parser_model._options if v is not Select.NULL]
+            assert "opencode/big-pickle" in options
+            screen.query_one("#planner-cli", Select).value = "kimi"
+            await pilot.pause()
+            options = [v for _, v in parser_model._options if v is not Select.NULL]
+            assert options == ["kimi-code/k3"]
+
+    asyncio.run(scenario())

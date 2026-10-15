@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GRAFENO Remote API
-  version: 1.3.0
+  version: 1.4.0
   summary: REST API of the GRAFENO remote server (optional token authentication).
   description: |
     REST control API exposed by the GRAFENO TUI while it is running
@@ -30,7 +30,7 @@ tags:
   - name: tasks
     description: Task lifecycle, logs and artifacts.
   - name: projects
-    description: Project list with task counts.
+    description: Projects - task workdirs and folders of the working directories, with task counts.
   - name: audio
     description: Audio synthesis (TTS) endpoint.
   - name: catalog
@@ -142,7 +142,13 @@ paths:
   /api/v1/projects:
     get:
       tags: [projects]
-      summary: Distinct task workdirs with their task counts (plus discovered workspaces).
+      summary: Task workdirs plus the folders found in the working directories, with task counts.
+      description: |
+        Items keep `workdir` and `count`; folders found in a working directory
+        (first-level subfolders of each configured root) also carry `name` and
+        `workspace`. `workspaces` lists the configured roots (global + project
+        level of the TUI cwd) with their state. In remote session mode no folder
+        is discovered and `session` is true.
       operationId: listProjects
       responses:
         "200":
@@ -1256,8 +1262,30 @@ components:
     ProjectItem:
       type: object
       properties:
-        workdir: {type: string}
-        count: {type: integer}
+        workdir:
+          type: string
+          description: Project folder (task workdir or folder found in a working directory).
+        count:
+          type: integer
+          description: Number of tasks whose workdir is this folder.
+        name:
+          type: string
+          description: Folder name.
+        workspace:
+          type: string
+          description: Resolved working directory where the folder was found; empty for workdirs only known from tasks.
+    WorkspaceRoot:
+      type: object
+      properties:
+        entry:
+          type: string
+          description: Working directory as configured (e.g. `~/code`).
+        path:
+          type: string
+          description: Expanded and resolved absolute path (empty when it cannot be resolved).
+        exists:
+          type: boolean
+          description: True when the path is an existing directory.
     ProjectListResponse:
       type: object
       properties:
@@ -1265,6 +1293,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ProjectItem"
+        workspaces:
+          type: array
+          description: Configured working directories; empty in remote session mode.
+          items:
+            $ref: "#/components/schemas/WorkspaceRoot"
+        session:
+          type: boolean
+          description: True in remote session mode (folder discovery skipped).
     StatusResponse:
       type: object
       properties:
@@ -1503,8 +1539,10 @@ components:
         only the present sections change. Secrets (`telegram.bot_token`,
         `telegram.stt_key`, `telegram.tts_key`, `api.tokens`) are write-only:
         GET returns `<key>_set`, a non-empty value replaces them and
-        `<key>_clear: true` empties them. `[telegram]` and `[api]` changes
-        apply on the next TUI start.
+        `<key>_clear: true` empties them. `telegram.parser_cli`,
+        `parser_model`, `parser_effort` and `parser_timeout` apply at once to
+        the running bot; the rest of `[telegram]` and `[api]` applies on the
+        next TUI start.
       properties:
         roles:
           type: object
@@ -1542,6 +1580,7 @@ components:
           description: Empty = same as the GUI language.
         workspaces:
           type: array
+          description: Working directories (root folders whose first-level subfolders are the projects). On update a comma-separated string is also accepted; entries are normalized and deduplicated.
           items: {type: string}
         references:
           type: array
@@ -1566,6 +1605,16 @@ components:
         telegram:
           type: object
           additionalProperties: true
+          properties:
+            parser_cli: {type: string, description: 'Empty means the planner role CLI.'}
+            parser_model: {type: string}
+            parser_effort: {type: string}
+            parser_timeout:
+              type: integer
+              minimum: 30
+              maximum: 3600
+              default: 300
+              description: Base parser timeout in seconds; long messages get extra time.
         api:
           type: object
           properties:

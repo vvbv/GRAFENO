@@ -69,3 +69,60 @@ def test_load_project_tolerates_missing_and_invalid(tmp_path):
     assert workspaces.load_project(project) == ["una-ruta"]
     (project / PROJECT_CONFIG_FILE).write_text("[", encoding="utf-8")
     assert workspaces.load_project(project) == []
+
+
+def test_projects_keep_workspace_and_sort_case_insensitive(tmp_path):
+    """Projects carry their root and are sorted by name ignoring case."""
+    ws = tmp_path / "ws"
+    for name in ("beta", "Alpha", "gamma"):
+        (ws / name).mkdir(parents=True)
+    (ws / ".hidden").mkdir()
+    result = workspaces.projects([ws])
+    assert [project.name for project in result] == ["Alpha", "beta", "gamma"]
+    assert all(project.workspace == ws for project in result)
+    assert result[0].path == ws / "Alpha"
+    assert workspaces.discover([ws]) == [ws / "Alpha", ws / "beta", ws / "gamma"]
+
+
+def test_roots_report_state_and_dedupe(tmp_path):
+    """Roots keep the configured text, resolve it and flag missing folders."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    missing = tmp_path / "missing"
+    result = workspaces.roots([str(ws), "  ", str(missing), str(ws) + os.sep])
+    assert [root.entry for root in result] == [str(ws), str(missing)]
+    assert result[0].path == str(ws.resolve())
+    assert result[0].exists is True
+    assert result[1].exists is False
+
+
+def test_roots_expand_user(tmp_path, monkeypatch):
+    """``~`` entries are expanded but the original text is kept as entry."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "code").mkdir()
+    [root] = workspaces.roots(["~/code"])
+    assert root.entry == "~/code"
+    assert root.path == str((tmp_path / "code").resolve())
+    assert root.exists is True
+
+
+def test_effective_entries_append_project_level(tmp_path):
+    """Project-level entries come after the global ones."""
+    project = tmp_path / "proyecto"
+    project.mkdir()
+    (project / PROJECT_CONFIG_FILE).write_text('workspaces = ["/srv/extra"]\n', encoding="utf-8")
+    assert workspaces.effective_entries(["~/code"], project) == ["~/code", "/srv/extra"]
+    assert workspaces.effective_entries(["~/code"]) == ["~/code"]
+
+
+def test_normalize_entries_strips_and_dedupes():
+    """Blank entries go away; trailing separators and duplicates are folded."""
+    entries = ["  ~/code/ ", "~/code", "", "   ", "/srv/app//", "/srv/app"]
+    assert workspaces.normalize_entries(entries) == ["~/code", "/srv/app"]
+    assert workspaces.entry_key("~/code/") == workspaces.entry_key("~/code")
+
+
+def test_resolve_ignores_blank_entries(tmp_path, monkeypatch):
+    """A blank entry no longer resolves to the current directory."""
+    monkeypatch.chdir(tmp_path)
+    assert workspaces.resolve(["", "   "]) == []

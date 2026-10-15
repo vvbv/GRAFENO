@@ -41,6 +41,7 @@ from ..widgets import GrafenoHeader, LocationBar, MediaTextArea
 from .config import ConfigScreen
 from .consoles import ConsolesScreen
 from .detail import TaskDetailScreen
+from .projects import ProjectsScreen
 from .reports import ReportsScreen
 
 
@@ -49,9 +50,10 @@ class NewTaskScreen(ModalScreen[Task | None]):
 
     BINDINGS = [Binding("escape", "cancel", t("common.cancel"))]
 
-    def __init__(self) -> None:
+    def __init__(self, workdir: str | None = None) -> None:
         super().__init__()
         self._issues: dict[str, gh_module.GhIssue] = {}
+        self._workdir = workdir  # preset project folder (projects screen); None = cwd
 
     def compose(self) -> ComposeResult:
         with Vertical(id="new-task-dialog"):
@@ -69,12 +71,13 @@ class NewTaskScreen(ModalScreen[Task | None]):
                 # (the remote comes from the session, not the form).
                 yield Label(t("nt.workdir.remote"))
                 yield Input(
+                    value=self._workdir or "",
                     placeholder=t("nt.workdir.remote.placeholder"),
                     id="nt-workdir",
                 )
             else:
                 yield Label(t("nt.workdir"))
-                yield DirectoryPicker(os.getcwd(), input_id="nt-workdir")
+                yield DirectoryPicker(self._workdir or os.getcwd(), input_id="nt-workdir")
                 yield Label(t("nt.remote"))
                 yield Input(placeholder=t("nt.remote.placeholder"), id="nt-remote")
             yield Label(t("nt.schedule"))
@@ -322,6 +325,7 @@ class TaskListScreen(Screen[None]):
         Binding("d", "focus_date", t("tasks.bind.date")),
         Binding("k", "consoles", t("tasks.bind.consoles")),
         Binding("i", "reports", t("tasks.bind.reports")),
+        Binding("p", "projects", t("tasks.bind.projects")),
         Binding("q", "quit_hint", t("common.quit")),
     ]
 
@@ -345,6 +349,7 @@ class TaskListScreen(Screen[None]):
             yield Button(t("tasks.date.today"), id="date-today", compact=True)
             yield Input(placeholder=t("tasks.date.placeholder"), id="date-filter")
             yield Button(t("tasks.bind.consoles"), id="consoles-open", compact=True)
+            yield Button(t("tasks.bind.projects"), id="projects-open", compact=True)
             yield Button(t("tasks.bind.reports"), id="reports-open", compact=True)
         yield DataTable(id="tasks-table", cursor_type="row", zebra_stripes=True)
         yield Static("", id="empty-hint")
@@ -440,6 +445,8 @@ class TaskListScreen(Screen[None]):
             self._reload()
         elif event.button.id == "consoles-open":
             self.action_consoles()
+        elif event.button.id == "projects-open":
+            self.action_projects()
         elif event.button.id == "reports-open":
             self.action_reports()
         # Clicking a header button steals focus from the table, which drops
@@ -560,12 +567,22 @@ class TaskListScreen(Screen[None]):
         row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
         return str(row_key.value) if row_key.value is not None else None
 
-    def action_new_task(self) -> None:
+    def action_new_task(self, workdir: str | None = None) -> None:
         def opened(task: Task | None) -> None:
             if task is not None:
                 self._open(task.id)
 
-        self.app.push_screen(NewTaskScreen(), opened)
+        self.app.push_screen(NewTaskScreen(workdir), opened)
+
+    def action_projects(self) -> None:
+        """Open the projects of the working directories; choosing one opens
+        the new-task form with its folder preset."""
+
+        def chosen(workdir: str | None) -> None:
+            if workdir:
+                self.action_new_task(workdir)
+
+        self.app.push_screen(ProjectsScreen(), chosen)
 
     def action_config(self) -> None:
         self.app.push_screen(ConfigScreen())

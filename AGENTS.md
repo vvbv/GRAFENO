@@ -31,7 +31,7 @@ src/grafeno/
 ├── usage.py                # Ledger de uso con fecha (~/.grafeno/usage.toml, [[record]] append-only): registro de tokens/tiempo desde el orquestador, backfill único desde las tareas existentes (fechado por updated_at), períodos (día/semana/mes) y agregación para la pantalla de reportes
 ├── updater.py              # Auto-actualización best-effort de los CLIs de agentes (comando nativo de cada uno) al arrancar la TUI si auto_update está activado en el config
 ├── selfupdate.py           # Auto-actualización de GRAFENO desde las releases de GitHub: chequeo de versión (API releases/latest), comparación semver y comando pipx/pip; comando CLI `grafeno update`
-├── workspaces.py           # Workspaces raíz: lectura del nivel proyecto (.grafeno.toml), resolve() global+proyecto y discover() de proyectos sin tareas (subcarpetas de primer nivel)
+├── workspaces.py           # Workspaces raíz (directorios de trabajo): lectura del nivel proyecto (.grafeno.toml), effective_entries()/resolve() global+proyecto, roots() (estado de cada entrada: ruta resuelta y si existe), projects()/discover() (subcarpetas de primer nivel con su raíz, orden sin distinguir mayúsculas) y normalize_entries()/entry_key() (limpieza y dedupe de la lista guardada)
 ├── _toml.py                # Serializador TOML propio (escritura; lectura con tomllib)
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
 ├── gh.py                   # Integración con GitHub CLI: detección de disponibilidad (repo + gh + acceso) y listado de issues abiertos (best-effort, nunca lanza)
@@ -70,13 +70,14 @@ src/grafeno/
 └── tui/
     ├── runtime.py          # TaskRuntime: ejecución en segundo plano por tarea (workers Textual); notifica a la App cuando una ejecución termina en DONE (gancho de encadenamiento/repetición)
     ├── console_pty.py      #   Proceso shell sobre PTY (POSIX): start/read/write/interrupt/close, sin shell=True; lectura no bloqueante; eco del kernel desactivado (la pantalla ecoa localmente)
-    ├── dirpicker.py        # Autocompletado de rutas en el formulario
-    ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol; incluye filtro de texto sobre el selector de modelos
+    ├── dirpicker.py        # Autocompletado de rutas (formulario de nueva tarea y directorios de trabajo); placeholder y suggest_empty opcionales
+    ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol; incluye filtro de texto sobre el selector de modelos; parametrizable (lista de roles, opción CLI heredada y CLI de respaldo; lo usa también el intérprete de Telegram)
     ├── profilesform.py     # Editor reutilizable de perfiles de procesamiento (tabla + alta/edición vía ProfileEditScreen)
     ├── refform.py          # Editor reutilizable de referencias (tabla + añadir/borrar)
     ├── trigform.py         # Editor reutilizable de triggers globales (tabla + añadir/borrar)
+    ├── workspacesform.py   # Editor reutilizable de directorios de trabajo (tabla con nº de proyectos o "no encontrada" + DirectoryPicker con autocompletado; Enter o Añadir agrega, Eliminar seleccionada o Supr quita; normaliza y deduplica)
     ├── widgets.py          # Widgets comunes (cabecera GrafenoHeader con reloj fecha/hora (refresco alineado al cambio de minuto, sin segundos), LocationBar con la ruta actual y la de la tarea + distintivo SSH, barra de fases, helpers Markdown, MediaTextArea que guarda imágenes pegadas e inserta tokens media/media-NN.png)
-    └── screens/            # tasks (lista con filtros combinables: ámbito proyecto/todas con `v`, estado todas/sin completadas/solo completadas en ciclo con `h`, y fecha de creación con input YYYY-MM-DD + botón Hoy/Todas las fechas (toggle: aplica el día actual o quita el filtro activo), tecla `d`), detail (detalle+acciones: `u` reanuda una tarea FAILED reusando artefactos, `c` continúa una tarea fallida o interrumpida (estado transitorio huérfano) desde la fase donde paró vía `run_continue`, `R` reinicia desde cero borrandolos), config, roles, profileedit (modal nombre + RolesForm, clon de roles.py), consoles (tabs de shells del proyecto), reports (reporte de uso: tokens/modelos/tiempo/proyectos por día, semana, mes o rango; atajo `i` desde la lista)
+    └── screens/            # tasks (lista con filtros combinables: ámbito proyecto/todas con `v`, estado todas/sin completadas/solo completadas en ciclo con `h`, y fecha de creación con input YYYY-MM-DD + botón Hoy/Todas las fechas (toggle: aplica el día actual o quita el filtro activo), tecla `d`), detail (detalle+acciones: `u` reanuda una tarea FAILED reusando artefactos, `c` continúa una tarea fallida o interrumpida (estado transitorio huérfano) desde la fase donde paró vía `run_continue`, `R` reinicia desde cero borrandolos), config (ConfigScreen(section="workspaces") abre desplazada a los directorios de trabajo), roles, profileedit (modal nombre + RolesForm, clon de roles.py), consoles (tabs de shells del proyecto), reports (reporte de uso: tokens/modelos/tiempo/proyectos por día, semana, mes o rango; atajo `i` desde la lista), projects (pantalla Proyectos: subcarpetas de los directorios de trabajo con nº de tareas y filtro de texto; tecla `p` o botón Proyectos desde la lista; Enter/clic abre el modal ProjectActionsScreen -> "Nueva tarea en este proyecto", `n` atajo directo, `w` abre la configuración en los directorios de trabajo; se cierra con dismiss(carpeta) y la lista abre NewTaskScreen(workdir) con la ruta predefinida)
 tests/                      # pytest; conftest aísla GRAFENO_HOME e idioma por test
 docs/screenshot.png         # captura de la lista de tareas usada en el README
 install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), vía pipx; la ausencia de CLIs de agente es siempre un warning (nunca un error)
@@ -255,7 +256,10 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   y las mismas opciones (lista con
   filtros y cadenas, detalle con todas las acciones del pipeline, pestañas
   de artefactos/medios (visor a pantalla completa con navegación anterior/siguiente por flechas de la GUI y del teclado)/log/tokens, editor de agentes, formulario completo
-  de nueva tarea, reportes y ajustes globales; las consolas siguen siendo
+  de nueva tarea (con la carpeta predefinida vía `#/new/<carpeta codificada>`),
+  pestaña Proyectos (`#/projects`), reportes y ajustes globales
+  (`#/settings/workspaces` abre desplazado a los directorios de trabajo);
+  las consolas siguen siendo
   solo de la TUI) que usa exclusivamente la API REST/WS. Las reglas de qué
   acción aplica en cada estado viven en el servidor
   (`actions.available_actions`, mismas que el detalle de la TUI) y viajan
@@ -293,7 +297,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   la App mientras la TUI está abierta (long polling con stdlib urllib:
   cero dependencias nuevas). Acepta texto y notas de voz (transcritas vía
   STT OpenAI-compatible, Groq por defecto), interpreta la intención con el
-  CLI del rol planner (o `parser_cli`/`parser_model` propios) mediante un
+  CLI del rol planner (o `parser_cli`/`parser_model`/`parser_effort` propios, resueltos con `TelegramConfig.parser_role`: CLI vacío = CLI del planner y su modelo salvo modelo propio; CLI explícito sin modelo = modelo por defecto de ese CLI; el esfuerzo nunca se hereda) mediante un
   prompt one-shot que exige JSON estricto, propone la(s) tarea(s)
   conservando TODO el detalle sustantivo del mensaje (prohibido resumir de
   forma agresiva o condensar requisitos, especialmente con audios largos
@@ -359,7 +363,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   de voz (no pueden llevar mención: en el grupo del bot son deliberadas);
   la opción `group_all` del config desactiva ese filtro y todo mensaje de
   un grupo whitelisted llega al parser sin necesidad de mención.
-  El parser CLI tiene timeout (120s) y sus fallos se contestan en el chat
+  El parser CLI tiene timeout configurable (`parser_timeout`, base 300 s, 30-3600) ampliado según la longitud del mensaje (`intents.parser_timeout_for`, +1 s cada 40 caracteres, tope 3600 s); el timeout no se reintenta y se avisa con `tg.parser_timeout`; la acción `ask` usa el mismo timeout. El intérprete se configura en los ajustes de la TUI (fila `RolesForm` parametrizada `#tg-parser-form`) y del panel web (`rolesEditor` con `opts.roles`); `GrafenoApp.apply_telegram_parser` lo aplica en caliente al guardar (TUI y `POST /api/v1/settings`), mientras que el resto de `[telegram]` sigue aplicando al reiniciar. Sus fallos se contestan en el chat
   en vez de quedar en silencio. Si un envío con teclado inline falla, el
   servicio lo reintenta con un mensaje corto de respaldo (`tg.buttons_fallback`):
   una propuesta nunca queda sin botones de confirmación. El parser devuelve además el idioma del
@@ -395,16 +399,32 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   la tarea guarda el nombre (`Task.profile`) y una foto de los roles: el
   pipeline no cambia, el perfil solo elige la fuente del copiado en
   `Task.create`. Borrar un perfil no afecta a tareas ya creadas.
-- **Workspaces**: carpetas raíz configurables (global `Config.workspaces`
-  en `~/.grafeno/config.toml` + `workspaces` en `.grafeno.toml` de
-  proyecto; `workspaces.resolve` las combina). `workspaces.discover`
-  lista las subcarpetas de primer nivel como proyectos aunque no tengan
-  tareas: el listado de proyectos del bot de Telegram (`list_projects`)
-  las combina con los proyectos con tareas (count 0 y marca i18n
-  `tg.projects.item_empty`), y la creación de tareas las resuelve como
-  `workdir` vía `intents.resolve_workdir`/`resolve_project_dir` con
-  `extra_dirs`. Sin duplicados (dedup por ruta resuelta; los specs
-  remotos `user@host:...` nunca se fusionan con rutas locales).
+- **Workspaces (directorios de trabajo)**: carpetas raíz configurables
+  (global `Config.workspaces` en `~/.grafeno/config.toml` + `workspaces` en
+  `.grafeno.toml` de proyecto; `workspaces.effective_entries`/`resolve` las
+  combinan). No restringen nada: solo definen el catálogo de proyectos (cada
+  subcarpeta de primer nivel no oculta es un proyecto: `workspaces.projects`
+  /`discover`). Se editan como lista: en la TUI con `WorkspacesForm`
+  (sección de Configuración) y en el panel web con `listEditor` (columna
+  `type: "dir"` con el autocompletado compartido `dirSuggestions` sobre
+  `/api/v1/fs/dirs`); la lista se guarda normalizada
+  (`workspaces.normalize_entries`: sin vacíos, sin separador final, sin
+  duplicados), también vía `POST /api/v1/settings`. La pantalla Proyectos
+  de la TUI (`tui/screens/projects.py`, tecla `p`) y la pestaña Proyectos
+  del panel web (`#/projects`) listan esas carpetas con su nº de tareas y
+  desde un proyecto se crea una tarea con el directorio predefinido
+  (`NewTaskScreen(workdir)` / `#/new/<carpeta codificada>`).
+  `GET /api/v1/projects` devuelve por item `workdir`, `count`, `name` y
+  `workspace` (raíz donde se encontró; vacío para workdirs que solo vienen
+  de tareas) más `workspaces` (raíces con `entry`/`path`/`exists`) y
+  `session`; en modo sesión remota no se descubre nada (las raíces viven en
+  el host remoto). El listado de proyectos del bot de Telegram
+  (`list_projects`) combina las carpetas descubiertas con los proyectos con
+  tareas (count 0 y marca i18n `tg.projects.item_empty`), y la creación de
+  tareas las resuelve como `workdir` vía
+  `intents.resolve_workdir`/`resolve_project_dir` con `extra_dirs`. Sin
+  duplicados (dedup por ruta resuelta; los specs remotos `user@host:...`
+  nunca se fusionan con rutas locales).
 - **Tareas trigger**: dos niveles (global `~/.grafeno/triggers.toml`,
   proyecto `.grafeno.toml` `[[triggers]]`). Cada trigger define fases
   (`all` o lista de `HOOK_STAGES`) y momento (`before`/`after`); al
