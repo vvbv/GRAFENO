@@ -31,3 +31,22 @@ def _clear_remote_session():
     from grafeno import remotesession
 
     remotesession.deactivate()
+
+
+@pytest.fixture(autouse=True)
+def _offline_release_check(monkeypatch):
+    """Keep the GRAFENO release check off the network in every test.
+
+    Any mounted ``GrafenoApp`` runs the self-update check, which would hit the
+    GitHub API (60 requests/hour unauthenticated) on every test run. Tests that
+    exercise the check inject their own ``opener=``.
+    """
+    import urllib.error
+
+    from grafeno import selfupdate
+
+    def _offline(request, timeout):
+        raise urllib.error.URLError("offline")
+
+    monkeypatch.setattr(selfupdate, "default_opener", _offline)
+    monkeypatch.setattr(selfupdate, "_latest_from_redirect", lambda timeout: None)

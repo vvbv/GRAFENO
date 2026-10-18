@@ -190,13 +190,14 @@ class GrafenoApp(App):
         """Check GitHub for a newer GRAFENO release; update or show a hint."""
         from . import selfupdate
 
-        latest = await selfupdate.fetch_latest_version()
-        if latest is None or not selfupdate.is_newer(latest, __version__):
+        release = await selfupdate.check_latest_release()
+        latest = release.version
+        if not latest or not selfupdate.is_newer(latest, __version__):
             return
         if not cfg.self_update:
             self.available_update = latest
             return
-        outcome = await selfupdate.run_self_update(latest)
+        outcome = await selfupdate.run_self_update(latest, wheel_url=release.wheel_url)
         if outcome.ok:
             self.notify(t("supd.done", version=outcome.version), timeout=10)
         else:

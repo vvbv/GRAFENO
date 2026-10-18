@@ -30,7 +30,7 @@ src/grafeno/
 ├── scheduler.py            # Lógica pura: programación horaria, encadenamiento padre/hija y repetición de tareas
 ├── usage.py                # Ledger de uso con fecha (~/.grafeno/usage.toml, [[record]] append-only): registro de tokens/tiempo desde el orquestador, backfill único desde las tareas existentes (fechado por updated_at), períodos (día/semana/mes) y agregación para la pantalla de reportes
 ├── updater.py              # Auto-actualización best-effort de los CLIs de agentes (comando nativo de cada uno) al arrancar la TUI si auto_update está activado en el config
-├── selfupdate.py           # Auto-actualización de GRAFENO desde las releases de GitHub: chequeo de versión (API releases/latest), comparación semver y comando pipx/pip; comando CLI `grafeno update`
+├── selfupdate.py           # Auto-actualización de GRAFENO desde las releases de GitHub: chequeo de versión (API releases/latest) con motivo del fallo y fallback a la redirección web de releases/latest; instala el wheel de la release si existe (si no, el tag git), comparación semver y comando pipx/pip; comando CLI `grafeno update`
 ├── workspaces.py           # Workspaces raíz (directorios de trabajo): lectura del nivel proyecto (.grafeno.toml), effective_entries()/resolve() global+proyecto, roots() (estado de cada entrada: ruta resuelta y si existe), projects()/discover() (subcarpetas de primer nivel con su raíz, orden sin distinguir mayúsculas) y normalize_entries()/entry_key() (limpieza y dedupe de la lista guardada)
 ├── _toml.py                # Serializador TOML propio (escritura; lectura con tomllib)
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
@@ -183,6 +183,13 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   imprime la versión destino (`supd.updating`) y durante la descarga dibuja
   una barra de progreso ASCII con porcentaje en una sola línea (parseo de
   los porcentajes de pip `--progress-bar=on`; vía `--pip-args` con pipx).
+  `check_latest_release` devuelve `ReleaseInfo(version, wheel_url, error)`:
+  si falla la API (rate limit de 60/h sin autenticar) cae a la redirección
+  web de `releases/latest`; se instala el wheel de la release o el tag git si
+  no hay asset; el detalle de fallo del instalador se elige con
+  `summarize_output` (líneas `ERROR:`/`did not run successfully`/`Fatal error`
+  antes que las `note:`) y aparece el mensaje `supd.ahead` cuando la versión
+  local va por delante de la última release.
 - **Editor**: la apertura automática usa `editor.py` (mejor esfuerzo,
   nunca bloquea la TUI). Config global en `[editor]`, sobreescritura
   por proyecto en `<proyecto>/.grafeno.toml`; el flag `--noeditor`
@@ -552,7 +559,9 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
 - **Tests**: un archivo `test_<modulo>.py` por módulo; fixtures autouse en
   `conftest.py` ya aíslan `GRAFENO_HOME` y fijan idioma inglés; drivers falsos
   para el orquestador; smoke tests TUI con el modo headless de Textual
-  (`run_test`).
+  (`run_test`). `conftest.py` deja offline la comprobación de release
+  (`selfupdate.default_opener` y `_latest_from_redirect`): cada `GrafenoApp`
+  montada la lanza y agotaría el rate limit de la API de GitHub (60/h).
 - **Commits**: Conventional Commits en inglés por defecto (los prompts de
   los agentes lo imponen salvo indicación contraria en AGENTS.md o la tarea)
   (`feat:`, `fix(drivers):`, `test:`, `docs:`), mensaje corto en minúsculas

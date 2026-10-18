@@ -5,7 +5,11 @@ from __future__ import annotations
 import asyncio
 import urllib.error
 
+import pytest
+
 from grafeno import selfupdate
+
+
 
 
 def test_normalize_version():
@@ -210,31 +214,34 @@ def test_run_self_update_oserror(monkeypatch):
 
 
 def test_cli_update_already_latest(monkeypatch, capsys):
-    async def fake_fetch(timeout=selfupdate.CHECK_TIMEOUT, opener=None):
-        return "0.0.1"
+    monkeypatch.setattr("grafeno.__version__", "0.0.1")
 
-    monkeypatch.setattr(selfupdate, "fetch_latest_version", fake_fetch)
+    async def fake_fetch(timeout=selfupdate.CHECK_TIMEOUT, opener=None):
+        return selfupdate.ReleaseInfo(version="0.0.1")
+
+    monkeypatch.setattr(selfupdate, "check_latest_release", fake_fetch)
     assert selfupdate.cli_update() == 0
     assert "up to date" in capsys.readouterr().out
 
 
 def test_cli_update_check_failed(monkeypatch, capsys):
     async def fake_fetch(timeout=selfupdate.CHECK_TIMEOUT, opener=None):
-        return None
+        return selfupdate.ReleaseInfo(error="GitHub API HTTP 403")
 
-    monkeypatch.setattr(selfupdate, "fetch_latest_version", fake_fetch)
+    monkeypatch.setattr(selfupdate, "check_latest_release", fake_fetch)
     assert selfupdate.cli_update() == 1
-    assert "Could not check" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Could not check" in out and "HTTP 403" in out
 
 
 def test_cli_update_runs_and_reports(monkeypatch, capsys):
     async def fake_fetch(timeout=selfupdate.CHECK_TIMEOUT, opener=None):
-        return "99.0.0"
+        return selfupdate.ReleaseInfo(version="99.0.0")
 
-    async def fake_run(version, timeout=selfupdate.UPDATE_TIMEOUT, on_progress=None):
+    async def fake_run(version, timeout=selfupdate.UPDATE_TIMEOUT, on_progress=None, wheel_url=""):
         return selfupdate.SelfUpdateOutcome(version=version, ok=True)
 
-    monkeypatch.setattr(selfupdate, "fetch_latest_version", fake_fetch)
+    monkeypatch.setattr(selfupdate, "check_latest_release", fake_fetch)
     monkeypatch.setattr(selfupdate, "run_self_update", fake_run)
     assert selfupdate.cli_update() == 0
     assert "99.0.0" in capsys.readouterr().out
@@ -242,12 +249,12 @@ def test_cli_update_runs_and_reports(monkeypatch, capsys):
 
 def test_cli_update_failure_exit_code(monkeypatch, capsys):
     async def fake_fetch(timeout=selfupdate.CHECK_TIMEOUT, opener=None):
-        return "99.0.0"
+        return selfupdate.ReleaseInfo(version="99.0.0")
 
-    async def fake_run(version, timeout=selfupdate.UPDATE_TIMEOUT, on_progress=None):
+    async def fake_run(version, timeout=selfupdate.UPDATE_TIMEOUT, on_progress=None, wheel_url=""):
         return selfupdate.SelfUpdateOutcome(version=version, ok=False, detail="boom")
 
-    monkeypatch.setattr(selfupdate, "fetch_latest_version", fake_fetch)
+    monkeypatch.setattr(selfupdate, "check_latest_release", fake_fetch)
     monkeypatch.setattr(selfupdate, "run_self_update", fake_run)
     assert selfupdate.cli_update() == 1
     assert "boom" in capsys.readouterr().out
@@ -293,12 +300,12 @@ def test_cli_update_announces_target_version(monkeypatch, capsys):
     from grafeno import __version__
 
     async def fake_fetch(timeout=selfupdate.CHECK_TIMEOUT, opener=None):
-        return "99.0.0"
+        return selfupdate.ReleaseInfo(version="99.0.0")
 
-    async def fake_run(version, timeout=selfupdate.UPDATE_TIMEOUT, on_progress=None):
+    async def fake_run(version, timeout=selfupdate.UPDATE_TIMEOUT, on_progress=None, wheel_url=""):
         return selfupdate.SelfUpdateOutcome(version=version, ok=True)
 
-    monkeypatch.setattr(selfupdate, "fetch_latest_version", fake_fetch)
+    monkeypatch.setattr(selfupdate, "check_latest_release", fake_fetch)
     monkeypatch.setattr(selfupdate, "run_self_update", fake_run)
     assert selfupdate.cli_update() == 0
     out = capsys.readouterr().out
@@ -324,3 +331,211 @@ def test_run_self_update_forwards_progress(monkeypatch):
 
     asyncio.run(selfupdate.run_self_update("1.42.0", on_progress=probe))
     assert seen and seen[0] is probe
+
+
+def _raising(exc):
+    def opener(request, timeout):
+        raise exc
+
+    return opener
+
+
+def test_fetch_release_reports_rate_limit(monkeypatch):
+    monkeypatch.setattr(selfupdate, "CHECK_BACKOFF", 0.0)
+    exc = urllib.error.HTTPError(
+        selfupdate.RELEASES_API, 403, "rate limit", {"X-RateLimit-Remaining": "0"}, None
+    )
+    info = asyncio.run(selfupdate.check_latest_release(opener=_raising(exc)))
+    assert info.version == "" and "rate limit" in info.error
+
+
+def test_fetch_release_reports_http_status(monkeypatch):
+    monkeypatch.setattr(selfupdate, "CHECK_BACKOFF", 0.0)
+    exc = urllib.error.HTTPError(selfupdate.RELEASES_API, 404, "nf", {}, None)
+    info = asyncio.run(selfupdate.check_latest_release(opener=_raising(exc)))
+    assert "HTTP 404" in info.error
+
+
+def test_fetch_release_reports_network_error(monkeypatch):
+    monkeypatch.setattr(selfupdate, "CHECK_BACKOFF", 0.0)
+    info = asyncio.run(
+        selfupdate.check_latest_release(opener=_raising(urllib.error.URLError("boom")))
+    )
+    assert "boom" in info.error
+
+
+_WHEEL = "https://example.invalid/grafeno-9.9.9-py3-none-any.whl"
+
+
+def test_check_latest_release_wheel_url():
+    payload = (
+        b'{"tag_name": "v9.9.9", "assets": ['
+        b'{"name": "grafeno-9.9.9-py3-none-any.whl", "browser_download_url": "'
+        + _WHEEL.encode()
+        + b'"}, {"name": "grafeno-9.9.9.tar.gz", "browser_download_url": "https://example.invalid/x.tar.gz"}]}'
+    )
+    info = asyncio.run(selfupdate.check_latest_release(opener=lambda r, t: payload))
+    assert info.version == "9.9.9" and info.wheel_url == _WHEEL
+
+
+def test_check_latest_release_no_matching_wheel():
+    payload = (
+        b'{"tag_name": "v9.9.9", "assets": [{"name": "grafeno-1.0.0-py3-none-any.whl",'
+        b' "browser_download_url": "https://example.invalid/old.whl"}]}'
+    )
+    info = asyncio.run(selfupdate.check_latest_release(opener=lambda r, t: payload))
+    assert info.version == "9.9.9" and info.wheel_url == ""
+
+
+def test_check_latest_release_falls_back_to_redirect(monkeypatch):
+    monkeypatch.setattr(selfupdate, "CHECK_BACKOFF", 0.0)
+    monkeypatch.setattr(selfupdate, "_latest_from_redirect", lambda timeout: "9.9.9")
+    exc = urllib.error.HTTPError(selfupdate.RELEASES_API, 403, "x", {}, None)
+    info = asyncio.run(selfupdate.check_latest_release(opener=_raising(exc)))
+    assert info.version == "9.9.9" and info.wheel_url == ""
+
+
+def test_tag_from_release_url():
+    base = "https://github.com/vvbv/GRAFENO/releases"
+    assert selfupdate.tag_from_release_url(base + "/tag/v1.80.0") == "1.80.0"
+    assert selfupdate.tag_from_release_url(base + "/tag/v1.80.0/") == "1.80.0"
+    assert selfupdate.tag_from_release_url(base) is None
+    assert selfupdate.tag_from_release_url("") is None
+
+
+@pytest.mark.parametrize("pipx", [True, False])
+def test_build_update_command_uses_wheel_url(monkeypatch, pipx):
+    monkeypatch.setattr(selfupdate, "installed_via_pipx", lambda: pipx)
+    monkeypatch.setattr(selfupdate.shutil, "which", lambda name: "/usr/bin/pipx")
+    cmd = selfupdate.build_update_command("9.9.9", _WHEEL)
+    assert cmd[-1] == _WHEEL
+    assert not any("git+" in part for part in cmd)
+
+
+def test_run_self_update_forwards_wheel_url(monkeypatch):
+    seen = []
+
+    async def fake(command, timeout, on_chunk=None):
+        seen.append(command)
+        return 0, "ok"
+
+    monkeypatch.setattr(selfupdate, "_run_command", fake)
+    monkeypatch.setattr(selfupdate, "installed_version", lambda: "9.9.9")
+    asyncio.run(selfupdate.run_self_update("9.9.9", wheel_url=_WHEEL))
+    assert seen and seen[0][-1] == _WHEEL
+
+
+def test_summarize_output_prefers_errors():
+    pip_out = (
+        "\u00d7 git checkout -q v9.9.9 did not run successfully.\n"
+        "\u2502 exit code: 1\n\u2570\u2500> See above for output.\n"
+        "note: This error originates from a subprocess, and is likely not a problem with pip.\n"
+    )
+    assert selfupdate.summarize_output(pip_out) == "git checkout -q v9.9.9 did not run successfully."
+    assert (
+        selfupdate.summarize_output("ERROR: Cannot find command 'git'\nnote: x")
+        == "ERROR: Cannot find command 'git'"
+    )
+    assert selfupdate.summarize_output("") == ""
+    assert (
+        selfupdate.summarize_output("Successfully installed grafeno-1.0")
+        == "Successfully installed grafeno-1.0"
+    )
+
+
+def test_cli_update_ahead_of_release(monkeypatch, capsys):
+    monkeypatch.setattr("grafeno.__version__", "99.0.0")
+
+    async def fake_check(timeout=selfupdate.CHECK_TIMEOUT, opener=None):
+        return selfupdate.ReleaseInfo(version="1.0.0")
+
+    monkeypatch.setattr(selfupdate, "check_latest_release", fake_check)
+    assert selfupdate.cli_update() == 0
+    assert "newer than the latest release" in capsys.readouterr().out
+
+
+def test_cli_update_passes_wheel_url(monkeypatch):
+    seen = []
+
+    async def fake_check(timeout=selfupdate.CHECK_TIMEOUT, opener=None):
+        return selfupdate.ReleaseInfo(version="99.0.0", wheel_url="https://x/w.whl")
+
+    async def fake_run(version, timeout=selfupdate.UPDATE_TIMEOUT, on_progress=None, wheel_url=""):
+        seen.append(wheel_url)
+        return selfupdate.SelfUpdateOutcome(version=version, ok=True)
+
+    monkeypatch.setattr(selfupdate, "check_latest_release", fake_check)
+    monkeypatch.setattr(selfupdate, "run_self_update", fake_run)
+    assert selfupdate.cli_update() == 0
+    assert seen == ["https://x/w.whl"]
+
+
+_REAL_PIP_OUTPUT = """\
+  Running command git checkout -q v9.9.9
+  error: pathspec 'v9.9.9' did not match any file(s) known to git
+  error: subprocess-exited-with-error
+  \u00d7 git checkout -q v9.9.9 did not run successfully.
+  \u2502 exit code: 1
+  \u2570\u2500> See above for output.
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+error: subprocess-exited-with-error
+\u00d7 git checkout -q v9.9.9 did not run successfully.
+\u2502 exit code: 1
+\u2570\u2500> See above for output.
+note: This error originates from a subprocess, and is likely not a problem with pip.
+"""
+
+
+def test_summarize_output_skips_pip_diagnostic_codes():
+    detail = selfupdate.summarize_output(_REAL_PIP_OUTPUT)
+    assert "subprocess-exited-with-error" not in detail
+    assert "pathspec" in detail or "did not run successfully" in detail
+    only_codes = "error: subprocess-exited-with-error\nnote: x"
+    assert "subprocess-exited" not in selfupdate.summarize_output(only_codes)
+
+
+def test_wheel_asset_url_tolerates_bad_assets():
+    assert selfupdate._wheel_asset_url({"assets": 5}, "1.0.0") == ""
+    assert selfupdate._wheel_asset_url({"assets": None}, "1.0.0") == ""
+
+
+class _FakeResponse:
+    def __init__(self, url):
+        self._url = url
+
+    def geturl(self):
+        return self._url
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_open_final_url_returns_redirect_target(monkeypatch):
+    target = "https://github.com/vvbv/GRAFENO/releases/tag/v1.80.0"
+    monkeypatch.setattr(
+        selfupdate.urllib.request,
+        "urlopen",
+        lambda request, timeout, context: _FakeResponse(target),
+    )
+    request = selfupdate.urllib.request.Request(selfupdate.RELEASES_PAGE)
+    url = selfupdate._open_final_url(request, 1.0)
+    assert selfupdate.tag_from_release_url(url) == "1.80.0"
+
+
+def test_open_final_url_retries_unverified_on_cert_error(monkeypatch):
+    contexts = []
+
+    def fake_urlopen(request, timeout, context):
+        contexts.append(context)
+        if len(contexts) == 1:
+            raise urllib.error.URLError("CERTIFICATE_VERIFY_FAILED")
+        return _FakeResponse("https://github.com/x/releases/tag/v2.0.0")
+
+    monkeypatch.setattr(selfupdate.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(selfupdate, "is_cert_error", lambda exc: True)
+    request = selfupdate.urllib.request.Request(selfupdate.RELEASES_PAGE)
+    assert selfupdate._open_final_url(request, 1.0).endswith("v2.0.0")
+    assert len(contexts) == 2

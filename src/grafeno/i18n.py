@@ -638,6 +638,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "supd.failed": "Could not update GRAFENO: {error}",
         "supd.latest": "GRAFENO is up to date (v{version}).",
         "supd.check_failed": "Could not check for updates (GitHub unreachable).",
+        "supd.check_failed_detail": "Could not check for updates: {error}",
+        "supd.ahead": "GRAFENO v{current} is newer than the latest release (v{latest}); nothing to update.",
         "supd.updating": "Updating GRAFENO from v{current} to v{latest}.",
         "supd.verify_failed": "The update ran but GRAFENO is still at v{version}.",
         # remote (SSH/sshfs)
@@ -1419,6 +1421,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "supd.failed": "No se pudo actualizar GRAFENO: {error}",
         "supd.latest": "GRAFENO está al día (v{version}).",
         "supd.check_failed": "No se pudo comprobar si hay actualizaciones (GitHub inaccesible).",
+        "supd.check_failed_detail": "No se pudo comprobar si hay actualizaciones: {error}",
+        "supd.ahead": "GRAFENO v{current} es más reciente que la última release (v{latest}); no hay nada que actualizar.",
         "supd.updating": "Actualizando GRAFENO de v{current} a v{latest}.",
         "supd.verify_failed": "La actualización terminó pero GRAFENO sigue en v{version}.",
         # remoto (SSH/sshfs)
