@@ -88,7 +88,7 @@ def test_list_tasks_empty() -> None:
         try:
             status, payload = await _request(service, "GET", "/api/v1/tasks")
             assert status == 200
-            assert payload == {"tasks": [], "done_hidden_ids": []}
+            assert payload == {"tasks": [], "done_hidden_ids": [], "total": 0, "offset": 0, "limit": None, "has_more": False}
             assert models.list_all() == []
         finally:
             _stop(service, task)
@@ -347,6 +347,43 @@ def test_artifacts_first_kind(tmp_path) -> None:
             assert len(payload["files"]) == 1
             assert payload["files"][0]["name"] == "01-first.md"
             assert "primer paso" in payload["files"][0]["content"]
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+def test_list_tasks_paginated_query_over_http(tmp_path) -> None:
+    from urllib.parse import quote
+
+    from grafeno import models
+
+    async def scenario():
+        for i in range(250):
+            folder = tmp_path / ("GRAFENO" if i % 5 == 0 else "Other")
+            task = _make_task(folder, name=f"T{i}")
+            task.id = f"20260101-{i:06d}-t{i}"
+            task.state = TaskState.DONE
+            task.last_completed_at = f"2026-02-01T00:{i // 60:02d}:{i % 60:02d}"
+            models.save(task)
+        service, srv_task = await _start_service()
+        try:
+            status, payload = await _request(
+                service, "GET", "/api/v1/tasks?state=done&project=GRAFENO&sort=completed&order=desc&limit=3"
+            )
+            assert status == 200
+            assert payload["total"] == 50
+            assert len(payload["tasks"]) == 3
+            assert payload["has_more"] is True
+            assert [t["id"] for t in payload["tasks"]] == [f"20260101-{i:06d}-t{i}" for i in (245, 240, 235)]
+
+            workdir = quote(str(tmp_path / "GRAFENO"), safe="")
+            status, payload = await _request(service, "GET", f"/api/v1/tasks?workdir={workdir}&limit=10&offset=45")
+            assert status == 200
+            assert len(payload["tasks"]) == 5
+            assert payload["has_more"] is False
+
+            status, _ = await _request(service, "GET", "/api/v1/tasks?limit=abc")
+            assert status == 400
         finally:
             _stop(service, srv_task)
 

@@ -225,7 +225,9 @@ def test_tasks_list_returns_empty() -> None:
             try:
                 reply = await _rpc(reader, writer, {"id": 1, "method": "tasks.list", "params": {}})
                 assert "result" in reply, reply
-                assert reply["result"] == {"tasks": [], "done_hidden_ids": []}
+                assert reply["result"] == {
+                    "tasks": [], "done_hidden_ids": [], "total": 0, "offset": 0, "limit": None, "has_more": False,
+                }
             finally:
                 writer.close()
                 await writer.wait_closed()
@@ -505,6 +507,32 @@ def test_unknown_method_returns_error() -> None:
                 )
                 assert reply["id"] == 7
                 assert "unknown method" in reply["error"]["message"]
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+def test_tasks_list_filters_and_pagination(tmp_path) -> None:
+    async def scenario():
+        for i in range(30):
+            task = Task.create(f"T{i}", "d", str(tmp_path), Config())
+            task.id = f"20260101-{i:06d}-t{i}"
+            task.state = TaskState.DONE
+            models_module.save(task)
+        service, srv_task = await _start_service()
+        try:
+            reader, writer = await _ws_handshake(service.port)
+            try:
+                params = {"state": ["done"], "sort": "created", "limit": 10, "offset": 20}
+                reply = await _rpc(reader, writer, {"id": 1, "method": "tasks.list", "params": params})
+                assert len(reply["result"]["tasks"]) == 10
+                assert reply["result"]["total"] == 30
+                assert reply["result"]["has_more"] is False
+                reply = await _rpc(reader, writer, {"id": 2, "method": "tasks.list", "params": {"limit": "x"}})
+                assert "error" in reply
             finally:
                 writer.close()
                 await writer.wait_closed()

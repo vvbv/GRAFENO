@@ -73,6 +73,20 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def test_automode_stamps_last_completed_at(tmp_path):
+    task = _make_task(tmp_path)
+    drivers = {
+        "fake-planner": FakeDriver("fake-planner", [_ok("init"), _ok("contenido del plan")]),
+        "fake-impl": FakeDriver("fake-impl", [_ok("implementado")]),
+        "fake-rev": FakeDriver("fake-rev", [_ok("Todo bien.\nVERDICT: APPROVED")]),
+        "fake-final": FakeDriver("fake-final", [_ok("cierre")]),
+    }
+    assert task.last_completed_at == ""
+    _run(Orchestrator(task, drivers=drivers).run_automode())
+    assert task.state is TaskState.DONE
+    assert task.last_completed_at != ""
+
+
 def test_automode_happy_path(tmp_path):
     task = _make_task(tmp_path)
     drivers = {

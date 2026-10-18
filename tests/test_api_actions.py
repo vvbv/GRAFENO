@@ -420,3 +420,9 @@ def test_list_projects_skips_discovery_in_session_mode(tmp_path) -> None:
     )
     data = actions.list_projects(FakeService(None))
     assert data == {"projects": [], "workspaces": [], "session": True}
+
+def test_mark_done_stamps_completion(tmp_path) -> None:
+    task = _task(tmp_path)
+    assert models.load(task.id).last_completed_at == ""
+    actions.mark_done(FakeService(FakeApp()), task.id)
+    assert models.load(task.id).last_completed_at != ""
