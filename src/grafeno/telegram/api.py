@@ -21,7 +21,7 @@ from typing import Any, Callable
 
 API_BASE = "https://api.telegram.org"
 MAX_MESSAGE_LEN = 4096       # Telegram message text limit
-MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024  # bots may download files up to 20 MB
+MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024  # cloud Bot API getFile limit; independent of media.MAX_ATTACHMENT_BYTES
 POLL_TIMEOUT = 30.0          # long polling timeout (seconds)
 CHUNK_DELAY = 0.5            # seconds between chunks of a split message (flood control)
 SEND_MAX_ATTEMPTS = 3        # per chunk: 1 initial send + up to 2 retries on HTTP 429
@@ -124,6 +124,10 @@ class TgMessage:
     photo_file_id: str = ""   # biggest size only
     video_file_id: str = ""
     video_name: str = ""
+    video_size: int = 0
+    document_file_id: str = ""  # Word, Excel, PDF... sent as a file
+    document_name: str = ""
+    document_size: int = 0
     chat_type: str = "private"        # private | group | supergroup | channel
     reply_to_from_id: int = 0         # sender id of the replied-to message
 
@@ -169,6 +173,7 @@ def parse_message(raw: dict[str, Any]) -> TgMessage | None:
         photo_file_id = str(biggest.get("file_id", ""))
     voice = raw.get("voice") or {}
     video = raw.get("video") or {}
+    document = raw.get("document") or {}
     sender = raw.get("from") or {}
     reply_to = raw.get("reply_to_message") or {}
     reply_sender = reply_to.get("from") or {}
@@ -182,6 +187,10 @@ def parse_message(raw: dict[str, Any]) -> TgMessage | None:
         photo_file_id=photo_file_id,
         video_file_id=str(video.get("file_id", "") or ""),
         video_name=str(video.get("file_name", "") or "video.mp4"),
+        video_size=_int(video.get("file_size")),
+        document_file_id=str(document.get("file_id", "") or ""),
+        document_name=str(document.get("file_name", "") or ""),
+        document_size=_int(document.get("file_size")),
         chat_type=str(chat.get("type", "private") or "private"),
         reply_to_from_id=_int(reply_sender.get("id")),
     )

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from grafeno.app import GrafenoApp
 from grafeno.tui.screens.tasks import NewTaskScreen, TaskListScreen
-from textual.widgets import DataTable, Input, TextArea
+from textual.widgets import Button, DataTable, Input, TextArea
 
 
 def test_app_boots_into_task_list():
@@ -350,6 +350,40 @@ def test_new_task_branch_checkbox_defaults_and_persists():
             from grafeno.tui.screens.detail import TaskDetailScreen
             assert isinstance(app.screen, TaskDetailScreen)
             assert app.screen.current_task.create_branch is True
+
+    asyncio.run(scenario())
+
+
+def test_new_task_attachments_are_copied(tmp_path):
+    """A queued file is copied to media/ on create; the Attach button does not create the task."""
+    async def scenario():
+        from grafeno import media
+
+        source = tmp_path / "presupuesto.xlsx"
+        source.write_bytes(b"XLSX")
+        app = GrafenoApp()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            assert isinstance(app.screen, NewTaskScreen)
+            app.screen.query_one("#att-path", Input).value = str(source)
+            app.screen.query_one("#att-add", Button).press()  # same event path as a click
+            await pilot.pause()
+            assert isinstance(app.screen, NewTaskScreen)  # the button must not create the task
+
+            app.screen.query_one("#nt-name", Input).value = "Con adjunto"
+            app.screen.query_one("#nt-create").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#nt-create")
+            await pilot.pause()
+
+            from grafeno.tui.screens.detail import TaskDetailScreen
+            assert isinstance(app.screen, TaskDetailScreen)
+            entries = media.list_attachments(app.screen.current_task.id)
+            assert [e.name for e in entries] == ["presupuesto.xlsx"]
+            assert entries[0].origin == "tui"
 
     asyncio.run(scenario())
 

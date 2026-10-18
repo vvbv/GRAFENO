@@ -226,6 +226,16 @@ def test_media_bytes_and_bad_names(tmp_path) -> None:
             actions.get_media(FakeService(None), task.id, bad)
 
 
+def test_media_file_and_max_bytes(tmp_path) -> None:
+    task = _task(tmp_path)
+    (paths.media_dir(task.id) / "media-01.png").write_bytes(b"\x89PNG")
+    path, mime = actions.media_file(FakeService(None), task.id, "media-01.png")
+    assert path.exists() and mime == "image/png"
+    with pytest.raises(ApiError) as exc:
+        actions.get_media(FakeService(None), task.id, "media-01.png", max_bytes=1)
+    assert exc.value.status == 413
+
+
 # ---------------------------------------------------------------------- #
 # Pipeline actions
 # ---------------------------------------------------------------------- #

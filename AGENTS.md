@@ -18,11 +18,11 @@ src/grafeno/
 ├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas); intercepta el comando CLI `grafeno update` antes del argparse; `--version`/`-v` imprime la versión; `--web` (+ `--web-host`/`--web-port`/`--no-auth`, que lo implican) activa el panel web solo para esa ejecución (`--no-auth`: sin autenticación); arranca el servidor API (worker `api-server`) si `cfg.api.enabled` o con `--web`; worker `models-check` al arrancar: avisa si los modelos de la config/perfiles ya no existen en su CLI (los de la tarea se muestran en una banda roja del detalle)
 ├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo (incluido `first` para el primer paso), automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), idioma de la GUI (`language`) y de los prompts internos (`prompt_language`, vacío = el de la GUI), prompt de primer paso (first step, opcional) y de pasos finales, sección [telegram] (TelegramConfig), sección [api] (ApiConfig: enabled/host/port/tokens + env GRAFENO_API_TOKEN)
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict; incluye `failed_phase` (fase del pipeline que fallo, para reanudar)
-├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME; incluye `api_log_path()`
+├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME; incluye `api_log_path()` y `uploads_dir()` (spool de subidas binarias de la API)
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs); además el idioma de los prompts internos (set_prompt_language/prompt_language, vacío = el de la GUI) y prompt_template() para elegir la variante de una plantilla por idioma
 ├── live_log.py             # Persistencia del log en vivo (Text -> logs/live.jsonl, carga al crear el runtime; best-effort)
 ├── mdnorm.py               # Normalización de Markdown: colapsa saltos de línea y compacta listas sueltas en los .md de cada etapa
-├── media.py                # Imágenes del portapapeles: lectura (wl-paste/xclip/pngpaste/osascript), guardado en media/ de la tarea, listado y apertura con el visor del SO; preview inline opcional vía textual-image
+├── media.py                # Imágenes del portapapeles: lectura (wl-paste/xclip/pngpaste/osascript), guardado en media/ de la tarea, listado y apertura con el visor del SO; preview inline opcional vía textual-image; adjuntos de referencia de cualquier tipo (Word, Excel, PDF, imágenes, vídeo, otros): grupos de sufijos (`ATTACHMENT_KINDS`, `SAFE_SUFFIXES`, el resto `.bin`), tope `MAX_ATTACHMENT_BYTES` (500 MiB), `save_attachment_file` (copia/mueve desde disco sin cargarlo en memoria, chequeo de espacio libre `has_free_space`), `base64_length` y `LARGE_ATTACHMENT_BYTES` (50 MiB: los prompts avisan de leerlo por partes), manifiesto `attachments.toml` en la carpeta de la tarea (dataclass `Attachment`: nombre original, tipo, tamaño, origen, ciclo) con `list_attachments`/`delete_attachment`
 ├── modelcheck.py           # Verificación de modelos retirados: compara los pares cli+modelo configurados (config general + parser de Telegram, perfiles y tareas) con la lista que reporta cada CLI; lógica pura (collect_*/used_clis/find_missing/format_issues)
 ├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
 ├── timefmt.py              # Formateo de duraciones (42s, 3m 05s, 1h 02m 03s)
@@ -49,7 +49,7 @@ src/grafeno/
 │   └── service.py          #   Bucle de polling (worker de la App), whitelist de chats, propuestas con botones inline, creación origin="telegram", notificación de fin
 ├── server/                 # Servidor remoto REST + WS sobre stdlib (asyncio)
 │   ├── service.py          #   Ciclo de vida: bind, eventos push por sondeo (signature) y registro de conexiones WS; logs a ~/.grafeno/api.log (cap 1 MiB) sin el token
-│   ├── httpcore.py         #   HTTP/1.1 parseo/serialización (límites 32 KiB head/8 MiB body, keep-alive)
+│   ├── httpcore.py         #   HTTP/1.1 parseo/serialización (límites 32 KiB head/8 MiB body; `body_policy`: rutas de subida autorizadas antes de leer el cuerpo, JSON+base64 hasta el base64 de un archivo de 500 MiB + 1 MiB y cuerpo binario de `POST .../attachments` volcado a `~/.grafeno/uploads/` por bloques hasta 500 MiB; timeout por inactividad de 60 s; 413 si excede, 507 sin espacio, `Expect: 100-continue`; `Response.file` sirve archivos en streaming, keep-alive)
 │   ├── auth.py             #   Bearer/query token; denegar todo cuando no hay tokens
 │   ├── rest.py             #   Router con placeholder {task_id} precompilado (regex fullmatch); dispatch a actions.py
 │   ├── actions.py          #   Operaciones compartidas REST/WS (read y write); ApiError(status, message) -> Response
@@ -70,9 +70,10 @@ src/grafeno/
 └── tui/
     ├── runtime.py          # TaskRuntime: ejecución en segundo plano por tarea (workers Textual); notifica a la App cuando una ejecución termina en DONE (gancho de encadenamiento/repetición)
     ├── console_pty.py      #   Proceso shell sobre PTY (POSIX): start/read/write/interrupt/close, sin shell=True; lectura no bloqueante; eco del kernel desactivado (la pantalla ecoa localmente)
-    ├── dirpicker.py        # Autocompletado de rutas (formulario de nueva tarea y directorios de trabajo); placeholder y suggest_empty opcionales
+    ├── dirpicker.py        # Autocompletado de rutas (formulario de nueva tarea y directorios de trabajo); placeholder y suggest_empty opcionales; include_files sugiere también archivos
     ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol; incluye filtro de texto sobre el selector de modelos; parametrizable (lista de roles, opción CLI heredada y CLI de respaldo; lo usa también el intérprete de Telegram)
     ├── profilesform.py     # Editor reutilizable de perfiles de procesamiento (tabla + alta/edición vía ProfileEditScreen)
+    ├── attachform.py       # Editor reutilizable de adjuntos (rutas locales con autocompletado de archivos; copia a media/ al crear la tarea o al pedir más)
     ├── refform.py          # Editor reutilizable de referencias (tabla + añadir/borrar)
     ├── trigform.py         # Editor reutilizable de triggers globales (tabla + añadir/borrar)
     ├── workspacesform.py   # Editor reutilizable de directorios de trabajo (tabla con nº de proyectos o "no encontrada" + DirectoryPicker con autocompletado; Enter o Añadir agrega, Eliminar seleccionada o Supr quita; normaliza y deduplica)
@@ -84,7 +85,7 @@ install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), v
 ```
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
-`task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `logs/live.jsonl`, `logs/*.jsonl`;
+`task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `attachments.toml`, `logs/live.jsonl`, `logs/*.jsonl`;
 además `config.toml`, `references.toml`, `triggers.toml`, `profiles.toml` (con backup rotativo `profiles.toml.bak` best-effort en cada guardado), `consoles/`,
 `mounts/`, `telegram-state.toml`, `api.log`); no
 en el repo.
@@ -197,7 +198,14 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   worker de la App mientras la TUI está abierta: bind sobre `host:port`
   (por defecto `127.0.0.1:8735`) con HTTP/1.1 parseado a mano sobre asyncio
   streams (stdlib, cero dependencias nuevas; misma política que el bot de
-  Telegram). Limites: 32 KiB de cabecera y 8 MiB de cuerpo; sin chunked;
+  Telegram). Limites (`httpcore.body_policy`): 32 KiB de cabecera y 8 MiB de cuerpo; las
+  rutas de subida se autorizan antes de leer el cuerpo, el JSON+base64 llega
+  hasta el base64 de un archivo de 500 MiB + 1 MiB y el cuerpo binario de
+  `POST .../attachments` se vuelca por bloques a `~/.grafeno/uploads/` hasta
+  500 MiB (timeout por inactividad de 60 s; 413 si excede, 507 sin espacio,
+  `Expect: 100-continue`); `GET .../media` se sirve en streaming y
+  `tasks.media` por WS se limita a 16 MiB (`ws.WS_MEDIA_MAX_BYTES`);
+  la ruta REST de media añade `nosniff` y nunca sirve HTML/SVG; sin chunked;
   keep-alive HTTP/1.1. Autenticación opcional por token: `Authorization: Bearer
   <token>` o `?token=` solo cuando hay tokens configurados; el conjunto vacío
   (defecto) NO exige API key (acceso abierto). La API key es credencial dedicada de
@@ -214,7 +222,9 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `{name, error}`; `/{id}/start|resume|restart|reset|continue|approve-plan|
   run|edit|roles|pause|extend|discard|mark-done`, `/{id}/logs`, `/{id}/artifacts?kind=
   first|plan|review|final&cycle=`, `/{id}/artifact?kind=&path=`,
-  `/{id}/media?name=`, projects, options, models, fs/dirs, issues,
+  `/{id}/media?name=`, `/{id}/attachments` (GET lista con metadatos, POST JSON
+  base64 o cuerpo binario con `?name=` y `?cycle=` opcional, sin arrancar ciclo; DELETE `?file=`,
+  409 si corre; WS `tasks.attachments`/`tasks.attach`/`tasks.detach`), projects, options, models, fs/dirs, issues,
   reports, settings (GET/POST) y `/audio/speech` (síntesis
   TTS bajo demanda con el proveedor configurado: WAV por defecto u OGG/OPUS
   cuando `format=ogg` y hay `ffmpeg` instalado en el host). WebSocket en `/api/v1/ws` con
@@ -260,7 +270,11 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   pestaña Proyectos (`#/projects`), reportes y ajustes globales
   (`#/settings/workspaces` abre desplazado a los directorios de trabajo);
   las consolas siguen siendo
-  solo de la TUI) que usa exclusivamente la API REST/WS. Las reglas de qué
+  solo de la TUI; los adjuntos de hasta 25 MiB (cupo de 48 MiB) van en
+  línea en el JSON —los audios conservan la transcripción— y los mayores se
+  suben en binario con progreso (`uploadRaw`, XHR) tras crear la tarea o antes
+  de `/extend` con `cycle` = siguiente; la pestaña Media no descarga archivos
+  de más de 64 MiB ni no previsualizables hasta pedirlo) que usa exclusivamente la API REST/WS. Las reglas de qué
   acción aplica en cada estado viven en el servidor
   (`actions.available_actions`, mismas que el detalle de la TUI) y viajan
   en el detalle de la tarea. Por defecto
@@ -328,7 +342,9 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   proyecto correspondiente (`workdir` exacto del listado, vía
   `intents.resolve_workdir`; vacío = directorio por defecto como fallback) y
   las referencias a tareas se resuelven de forma inequívoca. Fotos/vídeos
-  adjuntos se guardan en `media/` de la primera tarea creada. También
+  adjuntos se guardan en `media/` de la primera tarea creada; los
+  vídeos/documentos de más de 20 MB (límite de `getFile` de la Bot API) se
+  rechazan antes de descargarlos con `tg.attachment.too_large`. También
   responde consultas:
   listado de proyectos (directorios distintos con tareas del scope global,
   con su nº de tareas; acción `list_projects` del parser),
@@ -479,18 +495,29 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   preview inline solo con `textual-image` instalado y terminal compatible,
   si no se abren con el visor del SO) y sus rutas absolutas se inyectan en
   los prompts de plan, reevaluación e implementación (nunca en revisión,
-  corrección ni pasos finales, igual que las referencias). `list_media`
-  acepta png/jpg/jpeg (las fotos de Telegram llegan como JPEG) y
+  corrección ni pasos finales, igual que las referencias; revisión y
+  corrección reciben solo un puntero). `list_media` acepta
+  png/jpg/jpeg/gif/webp (las fotos de Telegram llegan como JPEG) y
   `save_attachment` guarda adjuntos arbitrarios (imagen o video) con el
-  patrón `media-NN<ext>`; el conjunto de sufijos reconocidos se publica
-  como `IMAGE_SUFFIXES` (png/jpg/jpeg) y `AUDIO_SUFFIXES`
-  (ogg/oga/opus/mp3/wav/m4a/flac), el resto cae a `.bin`. El helper
+  patrón `media-NN<ext>` (tope por archivo `MAX_ATTACHMENT_BYTES` = 500 MiB;
+  `save_attachment_file` copia/mueve desde disco sin cargarlos en memoria); el conjunto de sufijos reconocidos se publica
+  como `IMAGE_SUFFIXES` (png/jpg/jpeg/gif/webp) y `AUDIO_SUFFIXES`
+  (ogg/oga/opus/mp3/wav/m4a/flac); lo que no está en `SAFE_SUFFIXES` cae a `.bin`. El helper
   `is_audio_name(filename)` decide si un adjunto entra en la rama de
   transcripción de audio. `media.attach_files(task, attachments, header)`
   es el helper compartido que guarda los adjuntos y los referencia en la
   descripción (token `media/...` para imágenes, ruta absoluta para el resto):
   lo usan el bot de Telegram y el servidor API, que acepta `attachments`
   (base64, máx. 10) en la creación de tareas que se guardan igual.
+  Los adjuntos de cualquier tipo (Word, Excel, PDF, vídeo...) se guardan en
+  `media/` como `media-NN<ext>` con su nombre original en `attachments.toml`;
+  se adjuntan desde el formulario de nueva tarea y "pedir más" de la TUI
+  (`AttachmentsForm`), el panel web (creación, pedir más y subida en la
+  pestaña Media), la API y Telegram (fotos, vídeos y documentos). Los prompts
+  de plan, reevaluación e implementación reciben la sección "Archivos adjuntos
+  de referencia" (nombre, tipo, tamaño, ruta absoluta y pista de lectura por
+  tipo); revisión y corrección solo un puntero de una línea al directorio y
+  los pasos finales nada.
 - **changes.md y summary.md**: al terminar la fase final, el orquestador escribe
   `final/<ciclo>/changes.md` con todos los cambios aportados por la tarea
   (comiteados y sin comitear): commits, `git status`, diff completo contra

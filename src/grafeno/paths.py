@@ -121,6 +121,18 @@ def media_dir(task_id: str) -> Path:
     return path
 
 
+def attachments_manifest_path(task_id: str) -> Path:
+    """Metadata of the task attachments (original names, kinds, origins)."""
+    return task_dir(task_id) / "attachments.toml"
+
+
+def uploads_dir() -> Path:
+    """Spool for API uploads being received (moved into media/ when done)."""
+    path = home() / "uploads"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def mounts_dir() -> Path:
     """Local mount points for remote (sshfs) projects."""
     path = home() / "mounts"

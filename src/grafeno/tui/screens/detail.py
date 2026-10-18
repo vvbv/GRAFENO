@@ -35,6 +35,7 @@ from ...models import Task, TaskState
 from ...pipeline.orchestrator import INTERRUPTED_PHASE, Orchestrator, phase_label
 from ...timefmt import format_duration
 from ...tokenfmt import format_tokens
+from ..attachform import AttachmentsForm
 from ..widgets import GrafenoHeader, LocationBar, MediaTextArea, PhaseBar, markdown_set
 from .consoles import ConsolesScreen
 from .roles import TaskRolesScreen
@@ -47,8 +48,9 @@ _STALL_AFTER_S = 300  # no output: red warning (possible stall)
 class FileItem(ListItem):
     """List item referencing a file on disk."""
 
-    def __init__(self, path: Path, base: Path | None = None):
-        label = str(path.relative_to(base)) if base and path.is_relative_to(base) else path.name
+    def __init__(self, path: Path, base: Path | None = None, label: str | None = None):
+        if label is None:
+            label = str(path.relative_to(base)) if base and path.is_relative_to(base) else path.name
         super().__init__(Label(label))
         self.file_path = path
 
@@ -63,13 +65,15 @@ class FileList(ListView):
 
 
 class MediaList(ListView):
-    """Image list of the task media dir."""
+    """Attachment list of the task media dir."""
 
-    def load_dir(self, directory: Path) -> None:
+    def load_task(self, task_id: str) -> None:
+        """Every attachment of the task (original name next to the stored one)."""
         self.clear()
-        if directory.is_dir():
-            for entry in sorted(directory.glob("*.png")):
-                self.append(FileItem(entry))
+        for entry in media.list_attachments(task_id):
+            path = media.attachment_path(task_id, entry.file)
+            label = entry.file if entry.name in ("", entry.file) else f"{entry.file}  ({entry.name})"
+            self.append(FileItem(path, label=label))
 
 
 class PlanConfirmScreen(ModalScreen[bool]):
@@ -214,6 +218,8 @@ class RequestMoreScreen(ModalScreen[str | None]):
                 reviewer=self._gtask.reviewer.cli,
             )
             yield Static(body, classes="pc-detail")
+            yield Label(t("media.attachments"))
+            yield AttachmentsForm(id="rm-attachments")
             with Horizontal(id="nt-buttons"):
                 yield Button(t("rm.accept"), variant="primary", id="rm-accept")
                 yield Button(t("common.cancel"), id="rm-cancel")
@@ -232,6 +238,13 @@ class RequestMoreScreen(ModalScreen[str | None]):
         if not request:
             self.notify(t("rm.error.empty"), severity="error")
             return
+        saved, failed = self.query_one("#rm-attachments", AttachmentsForm).save_into(
+            self._gtask.id, origin="tui", cycle=self._gtask.cycle + 1  # the cycle about to start
+        )
+        for name in failed:
+            self.notify(t("media.att.save_failed", name=name), severity="warning")
+        if saved:
+            self.notify(t("media.att.saved", count=saved))
         self.dismiss(request)
 
 
@@ -655,7 +668,7 @@ class TaskDetailScreen(Screen[None]):
         self.query_one("#plan-files", FileList).load_dir(paths.plan_dir(self.current_task.id))
         self.query_one("#review-files", FileList).load_dir(paths.review_dir(self.current_task.id))
         self.query_one("#final-files", FileList).load_dir(paths.final_dir(self.current_task.id))
-        self.query_one("#media-files", MediaList).load_dir(paths.task_dir(self.current_task.id) / "media")
+        self.query_one("#media-files", MediaList).load_task(self.current_task.id)
         self.query_one("#media-path", Static).update("")
         self.query_one("#media-preview", Static).update("")
 
@@ -684,7 +697,7 @@ class TaskDetailScreen(Screen[None]):
     def _show_media(self, path: Path) -> None:
         """Show the absolute path, inline preview when possible, else open."""
         self.query_one("#media-path", Static).update(t("media.path", path=str(path)))
-        if media.inline_preview_supported():
+        if path.suffix.lower() in media.IMAGE_SUFFIXES and media.inline_preview_supported():
             if self._render_preview(path):
                 return
         if media.open_media(path):

@@ -294,6 +294,71 @@ def test_ws_tasks_create_with_attachments(tmp_path) -> None:
     _run(scenario())
 
 
+def test_ws_attach_list_and_detach(tmp_path) -> None:
+    async def scenario():
+        from grafeno.config import Config
+        from grafeno.models import Task
+
+        task = Task.create("WS att", "d", str(tmp_path), Config())
+        models_module.save(task)
+        service, srv_task = await _start_service()
+        try:
+            reader, writer = await _ws_handshake(service.port)
+            try:
+                reply = await _rpc(reader, writer, {
+                    "id": "1", "method": "tasks.attach",
+                    "params": {"task_id": task.id, "attachments": [
+                        {"name": "a.docx", "data": base64.b64encode(b"DOCX").decode()}
+                    ]},
+                })
+                assert reply["result"]["attachments"][0]["name"] == "a.docx", reply
+                reply = await _rpc(reader, writer, {
+                    "id": "2", "method": "tasks.attachments", "params": {"task_id": task.id},
+                })
+                assert len(reply["result"]["attachments"]) == 1
+                reply = await _rpc(reader, writer, {
+                    "id": "3", "method": "tasks.detach",
+                    "params": {"task_id": task.id, "file": "media-01.docx"},
+                })
+                assert reply["result"] == {"ok": True}
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+
+def test_ws_media_rejects_large_files(tmp_path, monkeypatch) -> None:
+    async def scenario():
+        from grafeno import media
+        from grafeno.config import Config
+        from grafeno.models import Task
+        from grafeno.server import ws
+
+        monkeypatch.setattr(ws, "WS_MEDIA_MAX_BYTES", 4)
+        task = Task.create("WS media", "d", str(tmp_path), Config())
+        models_module.save(task)
+        saved = media.save_attachment(task.id, "a.zip", b"12345")
+        service, srv_task = await _start_service()
+        try:
+            reader, writer = await _ws_handshake(service.port)
+            try:
+                reply = await _rpc(reader, writer, {
+                    "id": "1", "method": "tasks.media",
+                    "params": {"task_id": task.id, "name": saved.name},
+                })
+                assert "error" in reply, reply
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+
 def test_invalid_json_returns_error() -> None:
     async def scenario():
         service, srv_task = await _start_service()

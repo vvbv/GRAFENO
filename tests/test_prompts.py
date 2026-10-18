@@ -509,3 +509,57 @@ def test_prompt_templates_exist_in_every_language_with_same_placeholders():
     for name, templates in found.items():
         variants = {lang: _placeholders(text) for lang, text in templates.items()}
         assert len({frozenset(fields) for fields in variants.values()}) == 1, name
+
+
+def test_prompts_list_attached_reference_files(tmp_path):
+    from grafeno import media
+
+    task = _task(tmp_path)
+    media.save_attachment(task.id, "presupuesto.xlsx", b"x", origin="api")
+    media.save_attachment(task.id, "spec.docx", b"y")
+    abs_path = str(media.attachment_path(task.id, "media-01.xlsx"))
+    for prompt in (
+        prompts.plan_prompt(task),
+        prompts.reevaluate_plan_prompt(task),
+        prompts.implement_prompt(task),
+    ):
+        assert "Archivos adjuntos de referencia" in prompt
+        assert "presupuesto.xlsx" in prompt
+        assert "hoja de cálculo" in prompt
+        assert "openpyxl" in prompt
+        assert abs_path in prompt
+    media_dir = str(paths.task_dir(task.id) / "media")
+    for prompt in (prompts.review_prompt(task, 1), prompts.fix_prompt(task, 1)):
+        assert abs_path not in prompt
+        assert media_dir in prompt
+    final = prompts.final_prompt(task)
+    assert abs_path not in final
+    assert "Archivos adjuntos de referencia" not in final
+
+
+def test_prompts_attachments_section_in_english(tmp_path):
+    from grafeno import media
+
+    i18n.set_prompt_language("en")
+    task = _task(tmp_path)
+    media.save_attachment(task.id, "spec.docx", b"y")
+    assert "Attached reference files" in prompts.plan_prompt(task)
+
+
+def test_prompts_without_attachments_have_no_pointer(tmp_path):
+    task = _task(tmp_path)
+    for prompt in (prompts.review_prompt(task, 1), prompts.fix_prompt(task, 1)):
+        assert "Attached reference files" not in prompt
+        assert "Archivos adjuntos de referencia" not in prompt
+
+
+def test_prompts_flag_large_attachments(tmp_path, monkeypatch):
+    from grafeno import media
+
+    task = _task(tmp_path)
+    media.save_attachment(task.id, "spec.docx", b"y")
+    assert "Archivo grande" not in prompts.plan_prompt(task)
+    monkeypatch.setattr(media, "LARGE_ATTACHMENT_BYTES", 1)
+    assert "Archivo grande" in prompts.plan_prompt(task)
+    i18n.set_prompt_language("en")
+    assert "Large file" in prompts.plan_prompt(task)

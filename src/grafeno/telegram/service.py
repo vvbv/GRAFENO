@@ -31,7 +31,7 @@ from ..i18n import prompt_language, prompt_template, t, t_lang
 from ..models import Task, TaskState, state_label
 from ..timefmt import format_duration
 from . import intents, stt, tts
-from .api import TelegramBotClient, TelegramError, TgMessage, Update
+from .api import MAX_DOWNLOAD_BYTES, TelegramBotClient, TelegramError, TgMessage, Update
 from .intents import Intent, TaskSpec
 
 if TYPE_CHECKING:
@@ -401,7 +401,8 @@ class TelegramService:
         preview = (message.text or message.caption or
                    ("voice" if message.voice_file_id else
                     "photo" if message.photo_file_id else
-                    "video" if message.video_file_id else ""))
+                    "video" if message.video_file_id else
+                    "document" if message.document_file_id else ""))
         self._log(
             f"message chat={message.chat_id} type={message.chat_type} "
             f"from={message.from_id}: {preview[:80]!r}"
@@ -421,16 +422,23 @@ class TelegramService:
         if message.voice_file_id:
             await self._handle_voice(message)
             return
+        buffered = False
         if message.photo_file_id:
-            await self._buffer_attachment(message.chat_id, message.photo_file_id, "photo.jpg")
+            buffered |= await self._buffer_attachment(message.chat_id, message.photo_file_id, "photo.jpg")
         if message.video_file_id:
-            await self._buffer_attachment(
-                message.chat_id, message.video_file_id, message.video_name or "video.mp4"
+            buffered |= await self._buffer_attachment(
+                message.chat_id, message.video_file_id, message.video_name or "video.mp4",
+                size=message.video_size,
+            )
+        if message.document_file_id:
+            buffered |= await self._buffer_attachment(
+                message.chat_id, message.document_file_id, "document.bin", name=message.document_name,
+                size=message.document_size,
             )
         text = text or self._clean_text(message.caption)
         if text:
             await self._parse_and_reply(message.chat_id, text)
-        elif message.photo_file_id or message.video_file_id:
+        elif buffered:  # a refused or failed download already got its own notice
             await self._send(message.chat_id, self._tt(message.chat_id, "tg.attachment.pending"))
 
     async def _handle_voice(self, message: TgMessage) -> None:
@@ -467,23 +475,42 @@ class TelegramService:
         # The transcription notice goes out in the detected message language.
         await self._parse_and_reply(chat_id, text, heard=text)
 
-    async def _buffer_attachment(self, chat_id: int, file_id: str, fallback_name: str) -> None:
-        """Download a photo/video and buffer it for the next created task."""
+    async def _buffer_attachment(
+        self, chat_id: int, file_id: str, fallback_name: str, name: str = "", size: int = 0
+    ) -> bool:
+        """Download a photo/video/document and buffer it for the next created task.
+
+        ``name`` (the original file name of a document) wins over the name
+        derived from the download path. Files above the Bot API download limit
+        (``size``, when Telegram reports it) are refused with a notice before
+        any download is attempted. Returns True when the file was buffered.
+        """
+        if size > MAX_DOWNLOAD_BYTES:
+            self._log(f"attachment too large for the Bot API: {name or fallback_name} ({size} bytes)")
+            await self._send(chat_id, self._tt(
+                chat_id, "tg.attachment.too_large",
+                name=name or fallback_name,
+                size=media.format_size(size),
+                limit=media.format_size(MAX_DOWNLOAD_BYTES),
+                max=media.format_size(media.MAX_ATTACHMENT_BYTES),
+            ))
+            return False
         async with self._typing(chat_id):
             try:
                 file_path = await asyncio.to_thread(self.client.get_file_path, file_id)
                 data = await asyncio.to_thread(self.client.download_file, file_path)
             except TelegramError as exc:
                 await self._send(chat_id, t("tg.download_failed", error=exc))
-                return
+                return False
         suffix = Path(file_path).suffix.lower()
-        name = f"attachment{suffix}" if suffix else fallback_name
+        name = name or (f"attachment{suffix}" if suffix else fallback_name)
         entries = self._attachments.setdefault(chat_id, [])
         now = time.monotonic()
         entries[:] = [entry for entry in entries if now - entry[2] < ATTACHMENT_TTL]
         if len(entries) >= MAX_ATTACHMENTS:
             entries.pop(0)
         entries.append((name, data, now))
+        return True
 
     def _take_attachments(self, chat_id: int) -> list[tuple[str, bytes]]:
         """Drain the pending attachments of a chat (expired ones dropped)."""
@@ -1196,7 +1223,9 @@ class TelegramService:
     def _attach_to_task(task: Task, attachments: list[tuple[str, bytes]]) -> None:
         """Save buffered attachments into the task's media dir via the shared
         helper (kept as a wrapper for the Spanish header)."""
-        media.attach_files(task, attachments, header="Adjuntos recibidos por Telegram:")
+        media.attach_files(
+            task, attachments, header="Adjuntos recibidos por Telegram:", origin="telegram"
+        )
 
     def _format_created(
         self, chat_id: int, created: list[Task], errors: list[str], unchained: list[str]

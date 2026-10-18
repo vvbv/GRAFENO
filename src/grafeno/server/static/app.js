@@ -330,8 +330,8 @@ function askToken() {
 // ---------------------------------------------------------------- media viewer
 // Extension sets shared by the media tab, the description thumbnails and the
 // viewer (mirrors IMAGE_SUFFIXES/AUDIO_SUFFIXES of media.py).
-const IMG_EXT = ["png", "jpg", "jpeg"];
-const VID_EXT = ["mp4", "webm"];
+const IMG_EXT = ["png", "jpg", "jpeg", "gif", "webp"];
+const VID_EXT = ["mp4", "webm", "m4v", "mov"];
 const AUD_EXT = ["ogg", "oga", "opus", "mp3", "wav", "m4a", "flac"];
 function mediaExt(name) { return name.split(".").pop().toLowerCase(); }
 function mediaKind(name) {
@@ -342,8 +342,10 @@ function mediaKind(name) {
   return "file";
 }
 // Media the viewer can render, keeping the order of the task media list.
+// Files above PREVIEW_MAX_BYTES are never fetched automatically.
 function viewableMedia(detail) {
-  return (detail.media || []).filter((name) => mediaKind(name) !== "file");
+  const sizes = new Map((detail.attachments || []).map((a) => [a.file, a.size]));
+  return (detail.media || []).filter((name) => mediaKind(name) !== "file" && !((sizes.get(name) || 0) > PREVIEW_MAX_BYTES));
 }
 
 // Full-screen overlay for the task media (image/video/audio) with previous and
@@ -651,10 +653,24 @@ function phasesPicker(item, col) {
 
 // ---------------------------------------------------------------- attachments
 // Collects files from a file input, paste (images) and drag & drop.
+// Mirrors media.MAX_ATTACHMENT_BYTES. Files up to INLINE_MAX_FILE (stt.MAX_AUDIO_BYTES,
+// so audio keeps its transcription) travel base64-encoded inside the JSON request
+// while the inline total fits INLINE_MAX_TOTAL; bigger ones are streamed as raw bodies.
+const MAX_ATTACH_FILE = 500 * 1024 * 1024;
+const INLINE_MAX_FILE = 25 * 1024 * 1024;
+const INLINE_MAX_TOTAL = 48 * 1024 * 1024;
+const PREVIEW_MAX_BYTES = 64 * 1024 * 1024;  // media tab: larger files are fetched only on demand
+// Human readable byte count (same format as media.format_size).
+function formatBytes(size) {
+  if (size < 1024) return size + " B";
+  if (size < 1024 * 1024) return (size / 1024).toFixed(1) + " KB";
+  return (size / (1024 * 1024)).toFixed(1) + " MB";
+}
 function attachmentsCollector(targets) {
   const files = [];
   const chips = h("div", { class: "chips" });
   const input = h("input", { type: "file", multiple: true });
+  const progress = h("div", { class: "upload-progress small-text muted" });
   const render = () => {
     chips.replaceChildren(...files.map((file, index) => {
       const thumb = file.type.startsWith("image/") ? h("img", { src: URL.createObjectURL(file), alt: "" }) : null;
@@ -665,6 +681,10 @@ function attachmentsCollector(targets) {
   const add = (list) => {
     for (const file of list) {
       if (files.length >= 10) { toast(tr("web.ui.max_attachments"), "warn"); break; }
+      if (file.size > MAX_ATTACH_FILE) {
+        toast(file.name + ": " + tr("web.ui.attachments_too_large"), "warn");
+        continue;
+      }
       files.push(file);
     }
     render();
@@ -688,12 +708,38 @@ function attachmentsCollector(targets) {
     });
   }
   return {
-    node: h("div", null, input, h("div", { class: "drop-hint", text: tr("web.ui.paste_hint") }), chips),
-    async payload() {
+    node: h("div", null, input, h("div", { class: "drop-hint", text: tr("web.ui.paste_hint") }), chips, progress),
+    // Splits the files between the JSON request (base64) and raw streamed uploads.
+    split() {
+      const inline = [];
+      const raw = [];
+      let total = 0;
+      for (const file of files) {
+        if (file.size <= INLINE_MAX_FILE && total + file.size <= INLINE_MAX_TOTAL) { inline.push(file); total += file.size; }
+        else raw.push(file);
+      }
+      return { inline, raw };
+    },
+    async payload(list) {
       const out = [];
-      for (const file of files) out.push({ name: file.name, data: await fileBase64(file) });
+      for (const file of list || files) out.push({ name: file.name, data: await fileBase64(file) });
       return out;
     },
+    // Streams each file as a raw body (in sequence) with a progress line.
+    async upload(taskId, list, cycle) {
+      for (const file of list || files) {
+        try {
+          await uploadRaw(taskId, file, cycle, (loaded, total) => {
+            progress.textContent = tr("web.ui.uploading", { name: file.name, percent: Math.floor(loaded * 100 / total) });
+          });
+        } catch (err) {
+          progress.textContent = "";
+          throw new ApiFailure(err && err.status ? err.status : 0, tr("web.ui.upload_failed", { name: file.name, error: err && err.message ? err.message : String(err) }));
+        }
+      }
+      progress.textContent = "";
+    },
+    clear() { files.splice(0, files.length); render(); },
     count: () => files.length,
   };
 }
@@ -703,6 +749,29 @@ function fileBase64(file) {
     reader.onload = () => resolve(String(reader.result).split(",", 2)[1] || "");
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
+  });
+}
+
+// Streams one file as the raw body of POST .../attachments (no base64, no full
+// read into memory). XMLHttpRequest instead of fetch: it reports upload progress.
+function uploadRaw(taskId, file, cycle, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let url = taskPath(taskId, "/attachments?name=" + enc(file.name));
+    if (cycle) url += "&cycle=" + enc(String(cycle));
+    xhr.open("POST", url);
+    if (auth.token) xhr.setRequestHeader("Authorization", "Bearer " + auth.token);
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.upload.onprogress = (event) => { if (event.lengthComputable && onProgress) onProgress(event.loaded, event.total); };
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText || "{}"); } catch (e) { data = {}; }
+      if (xhr.status === 401) { askToken(); reject(new ApiFailure(401, "unauthorized")); return; }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(new ApiFailure(xhr.status, data.error || xhr.statusText));
+    };
+    xhr.onerror = () => { setStatus("offline"); reject(new ApiFailure(0, "network error")); };
+    xhr.send(file);
   });
 }
 
@@ -1180,10 +1249,21 @@ const tasksView = {
           h("button", { type: "button", text: tr("common.cancel"), onclick: () => close(undefined) }),
           h("button", { type: "submit", class: "primary", text: tr("rm.accept"), onclick: async () => {
             if (!text.value.trim()) { toast(tr("rm.error.empty"), "error"); return; }
-            close({ request: text.value.trim(), attachments: await files.payload() });
+            close({ request: text.value.trim(), files });
           } })));
     });
-    if (result) await this.post("/extend", result, tr("web.ui.started"));
+    if (!result) return;
+    const parts = result.files.split();
+    try {
+      // Big files go first, tagged with the cycle about to start.
+      if (parts.raw.length) {
+        toast(tr("web.ui.uploading", { name: parts.raw[0].name, percent: 0 }));
+        await result.files.upload(task.id, parts.raw, task.cycle + 1);
+      }
+    } catch (err) { fail(err); return; }
+    const body = { request: result.request };
+    if (parts.inline.length) body.attachments = await result.files.payload(parts.inline);
+    await this.post("/extend", body, tr("web.ui.started"));
   },
   async editTask() {
     const d = this.detail;
@@ -1294,7 +1374,8 @@ const tasksView = {
     const wrap = h("div");
     wrap.appendChild(h("div", { class: "desc", text: task.description || tr("det.desc.empty") }));
     // Thumbnails of the images referenced with media/... tokens.
-    const referenced = (d.media || []).filter((name) => /\.(png|jpe?g)$/i.test(name) && (task.description || "").includes("media/" + name));
+    // viewableMedia() skips files above PREVIEW_MAX_BYTES so big images are never fetched for thumbnails.
+    const referenced = viewableMedia(d).filter((name) => /\.(png|jpe?g|gif|webp)$/i.test(name) && (task.description || "").includes("media/" + name));
     if (referenced.length) {
       const viewable = viewableMedia(d);
       const thumbs = h("div", { class: "thumbs" });
@@ -1354,14 +1435,49 @@ const tasksView = {
   async mediaTab() {
     const d = this.detail;
     const names = d.media || [];
-    if (!names.length) return h("div", { class: "empty", text: tr("media.empty") });
+    const meta = new Map((d.attachments || []).map((a) => [a.file, a]));
+    const files = attachmentsCollector([]);
+    const upload = h("button", { type: "button", class: "primary", text: tr("media.upload"), onclick: async () => {
+      if (!files.count()) return;
+      upload.disabled = true;
+      try {
+        await files.upload(d.task.id);
+        toast(tr("media.uploaded"));
+        files.clear();  // avoids duplicate re-uploads
+        // Media is a file tab: refresh() does not repaint it on its own, so force it.
+        await this.renderTab(true);
+      } catch (err) {
+        fail(err);
+      } finally {
+        upload.disabled = false;
+      }
+    } });
+    const uploader = h("div", { class: "media-upload" }, h("span", { class: "lbl", text: tr("media.upload_title") }), files.node, upload);
+    if (!names.length) return h("div", null, uploader, h("div", { class: "empty", text: tr("media.empty") }));
     const viewable = viewableMedia(d);
     const grid = h("div", { class: "media-grid" });
     for (const name of names) {
       const item = h("div", { class: "media-item" });
       grid.appendChild(item);
       const kind = mediaKind(name);
-      mediaUrl(d.task.id, name).then((url) => {
+      const size = (meta.get(name) && meta.get(name).size) || 0;
+      if (kind === "file" || size > PREVIEW_MAX_BYTES) {
+        // Not previewable or too big: fetched only when the user asks for it.
+        const label = tr("web.ui.download") + (size ? " (" + formatBytes(size) + ")" : "");
+        const button = h("button", { type: "button", text: label, onclick: async () => {
+          button.disabled = true;
+          try {
+            const url = await mediaUrl(d.task.id, name);
+            const link = h("a", { href: url, download: (meta.get(name) && meta.get(name).name) || name });
+            link.click();
+          } catch (err) {
+            fail(err);
+          } finally {
+            button.disabled = false;
+          }
+        } });
+        item.prepend(button);
+      } else mediaUrl(d.task.id, name).then((url) => {
         let preview = null;
         if (kind === "image") preview = h("img", { src: url, alt: name });
         else if (kind === "video") preview = h("video", { src: url, preload: "metadata", muted: true });
@@ -1369,9 +1485,10 @@ const tasksView = {
         if (preview) preview.addEventListener("click", () => viewer.open(d.task.id, viewable, viewable.indexOf(name)));
         item.prepend(preview || h("a", { href: url, download: name, text: tr("web.ui.download") }));
       }).catch(fail);
-      item.appendChild(h("div", { class: "cap", text: "media/" + name }));
+      const original = meta.get(name) && meta.get(name).name;
+      item.appendChild(h("div", { class: "cap", text: "media/" + name + (original && original !== name ? " (" + original + ")" : "") }));
     }
-    return grid;
+    return h("div", null, uploader, grid);
   },
   async filesTab(kind, full) {
     const d = this.detail;
@@ -1681,11 +1798,21 @@ const newTaskView = {
         };
         if (!session && remoteInput.value.trim()) payload.remote = remoteInput.value.trim();
         if (profile.value) payload.profile = profile.value;
-        if (files.count()) payload.attachments = await files.payload();
+        const parts = files.split();
+        if (parts.inline.length) payload.attachments = await files.payload(parts.inline);
         if (repeat.value && !automode.box.checked) toast(tr("nt.repeat.forces_automode"), "warn");
         const data = await api("POST", "/api/v1/tasks", payload);
         for (const item of data.transcriptions || []) {
           if (item.error) toast(tr("web.ui.transcription_failed") + " " + item.name + ": " + item.error, "warn");
+        }
+        if (parts.raw.length) {
+          try {
+            await files.upload(data.task.id, parts.raw);
+          } catch (err) {  // the task exists: report and open it without starting
+            fail(err);
+            location.hash = "#/tasks/" + enc(data.task.id);
+            return;
+          }
         }
         if (startNow.box.checked && !payload.parent_id) await api("POST", taskPath(data.task.id, "/start"));
         toast(tr("web.ui.created"));

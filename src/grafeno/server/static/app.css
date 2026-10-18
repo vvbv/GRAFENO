@@ -319,3 +319,6 @@ dialog .detail { font-size: 13px; color: var(--muted); white-space: pre-line; }
   header.top .version, #status-text { display: none; }
   .page { padding: 14px 16px 40px; }
 }
+.media-upload { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+
+.upload-progress { margin-top: 4px; }

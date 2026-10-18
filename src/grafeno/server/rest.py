@@ -114,8 +114,47 @@ async def _task_artifact_file(service: "ServerService", request: Request, params
 
 @route("GET", "/api/v1/tasks/{task_id}/media")
 async def _task_media(service: "ServerService", request: Request, params: dict[str, str]) -> Response:
-    data, mime = actions.get_media(service, params["task_id"], request.query.get("name") or "")
-    return Response(200, headers={"Content-Type": mime, "Cache-Control": "no-store"}, body=data)
+    path, mime = actions.media_file(service, params["task_id"], request.query.get("name") or "")
+    return Response(  # streamed from disk: constant memory even for 500 MB files
+        200,
+        headers={"Content-Type": mime, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+        file=path,
+    )
+
+
+@route("GET", "/api/v1/tasks/{task_id}/attachments")
+async def _task_attachments(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.list_task_attachments(service, params["task_id"])
+
+
+@route("POST", "/api/v1/tasks/{task_id}/attachments")
+async def _task_attachments_upload(service: "ServerService", request: Request, params: dict[str, str]):
+    """JSON body {"attachments": [{name, data}]} or a raw file body with ?name=."""
+    content_type = request.headers.get("content-type", "").lower()
+    if content_type.startswith("application/json"):
+        attachments = actions._decode_attachments(parse_json_body(request))
+    else:
+        name = (request.query.get("name") or "").strip()
+        if not name:
+            raise actions.ApiError(400, "name is required")
+        raw_cycle = (request.query.get("cycle") or "").strip()
+        cycle: int | None = None
+        if raw_cycle:
+            try:
+                cycle = int(raw_cycle)
+            except ValueError as exc:
+                raise actions.ApiError(400, "cycle must be an integer") from exc
+        if request.body_path is not None:  # spooled by httpcore: moved, never loaded
+            return actions.upload_attachment_file(service, params["task_id"], name, request.body_path, cycle)
+        if not request.body:
+            raise actions.ApiError(400, "empty body")
+        attachments = [(name, bytes(request.body))]  # defensive fallback: small in-memory body
+    return actions.upload_attachments(service, params["task_id"], attachments)
+
+
+@route("DELETE", "/api/v1/tasks/{task_id}/attachments")
+async def _task_attachments_delete(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.delete_task_attachment(service, params["task_id"], request.query.get("file") or "")
 
 
 @route("GET", "/api/v1/options")

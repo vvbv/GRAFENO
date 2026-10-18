@@ -29,7 +29,7 @@ from .. import __version__, models, paths
 from ..config import ApiConfig
 from ..i18n import t
 from ..models import TaskState, tasks_signature
-from .httpcore import HttpServer
+from .httpcore import HttpServer, Response
 from .ws import WsConnection, dispatch_upgrade
 
 if TYPE_CHECKING:
@@ -70,7 +70,10 @@ class ServerService:
     # ------------------------------------------------------------------ #
     async def run(self) -> None:
         """Bind the server and serve until cancelled."""
-        self.http = HttpServer(self._handle_request)
+        self._purge_stale_uploads()
+        self.http = HttpServer(
+            self._handle_request, authorize=self._authorize_upload, spool_dir=paths.uploads_dir
+        )
         try:
             self.server, self.port = await self.http.serve(self.config.host, self.config.port)
         except OSError as exc:
@@ -111,6 +114,28 @@ class ServerService:
         self._connection_topics.clear()
         self._log("server stopped")
         self._notify(t("api.stopped"))
+
+    def _purge_stale_uploads(self, max_age: float = 86400.0) -> None:
+        """Delete spooled uploads orphaned by a crash (best effort)."""
+        try:
+            for part in paths.uploads_dir().glob("upload-*.part"):
+                try:
+                    if time.time() - part.stat().st_mtime > max_age:
+                        part.unlink(missing_ok=True)
+                except OSError:
+                    continue
+        except OSError:
+            return
+
+    def _authorize_upload(self, request) -> "Response | None":
+        """Reject unauthenticated uploads before their (large) body is read."""
+        from .auth import AuthError, check
+        try:
+            check(self.config, request.headers, request.query)
+        except AuthError as exc:
+            self._log(f"upload denied: {exc}")
+            return Response.json(401, {"error": "unauthorized"})
+        return None
 
     # ------------------------------------------------------------------ #
     # Request dispatch

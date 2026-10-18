@@ -259,3 +259,174 @@ def test_no_tokens_ws_independent_note() -> None:
             _stop(service, task)
 
     _run(scenario())
+
+
+def test_body_policy_by_route() -> None:
+    from grafeno import media
+    from grafeno.server import httpcore
+
+    json_headers = {"content-type": "application/json"}
+    for path in ("/api/v1/tasks", "/api/v1/tasks/x/extend", "/api/v1/tasks/x/attachments"):
+        policy = httpcore.body_policy("POST", path, json_headers)
+        assert policy.limit == httpcore.MAX_UPLOAD_BODY
+        assert policy.upload and not policy.spool
+    raw = httpcore.body_policy(
+        "POST", "/api/v1/tasks/x/attachments", {"content-type": "application/octet-stream"}
+    )
+    assert raw.limit == httpcore.MAX_RAW_UPLOAD_BODY and raw.spool and raw.upload
+    for method, path in (("POST", "/api/v1/settings"), ("GET", "/api/v1/tasks")):
+        policy = httpcore.body_policy(method, path, json_headers)
+        assert policy.limit == httpcore.MAX_BODY and not policy.upload
+    assert httpcore.MAX_UPLOAD_BODY >= media.base64_length(media.MAX_ATTACHMENT_BYTES)
+    assert httpcore.MAX_RAW_UPLOAD_BODY == media.MAX_ATTACHMENT_BYTES
+
+
+async def _head_only(service: ServerService, path: str, headers: dict[str, str]) -> int:
+    """Send only a request head and return the status of the early answer."""
+    reader, writer = await asyncio.open_connection("127.0.0.1", service.port)
+    try:
+        lines = [f"POST {path} HTTP/1.1", "Host: 127.0.0.1"]
+        lines.extend(f"{key}: {value}" for key, value in headers.items())
+        writer.write(("\r\n".join(lines) + "\r\n\r\n").encode("ascii"))
+        await writer.drain()
+        head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=5.0)
+        return int(head.decode("iso-8859-1").split(" ", 2)[1])
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
+def test_upload_unauthorized_rejected_before_body() -> None:
+    async def scenario():
+        service, task = await _start_service()
+        try:
+            status = await _head_only(service, "/api/v1/tasks/x/attachments?name=a.zip", {
+                "Content-Type": "application/octet-stream",
+                "Content-Length": "600000000",
+                "Authorization": "Bearer wrong",
+            })
+            assert status == 401
+        finally:
+            _stop(service, task)
+
+    _run(scenario())
+
+
+def test_upload_body_too_large_is_413() -> None:
+    from grafeno.server import httpcore
+
+    async def scenario():
+        service, task = await _start_service()
+        try:
+            status = await _head_only(service, "/api/v1/tasks/x/attachments?name=a.zip", {
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(httpcore.MAX_RAW_UPLOAD_BODY + 1),
+                "Authorization": "Bearer t1",
+            })
+            assert status == 413
+        finally:
+            _stop(service, task)
+
+    _run(scenario())
+
+
+def test_regular_body_too_large_is_413() -> None:
+    from grafeno.server import httpcore
+
+    async def scenario():
+        service, task = await _start_service()
+        try:
+            status = await _head_only(service, "/api/v1/settings", {
+                "Content-Type": "application/json",
+                "Content-Length": str(httpcore.MAX_BODY + 1),
+                "Authorization": "Bearer t1",
+            })
+            assert status == 413
+        finally:
+            _stop(service, task)
+
+    _run(scenario())
+
+
+def test_expect_100_continue() -> None:
+    from grafeno.config import Config
+    from grafeno.models import Task
+    from grafeno import models as models_module
+
+    async def scenario():
+        task = Task.create("Base", "desc", "/tmp", Config())
+        models_module.save(task)
+        service, srv = await _start_service()
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", service.port)
+            try:
+                body = b"hello"
+                head = (
+                    f"POST /api/v1/tasks/{task.id}/attachments?name=a.zip HTTP/1.1\r\n"
+                    "Host: 127.0.0.1\r\nAuthorization: Bearer t1\r\n"
+                    "Content-Type: application/octet-stream\r\n"
+                    f"Content-Length: {len(body)}\r\nExpect: 100-continue\r\n\r\n"
+                )
+                writer.write(head.encode("ascii"))
+                await writer.drain()
+                interim = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=5.0)
+                assert interim == b"HTTP/1.1 100 Continue\r\n\r\n"
+                status, _, _ = await _exchange(reader, writer, body)
+                assert status == 201
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        finally:
+            _stop(service, srv)
+
+    _run(scenario())
+
+
+def test_upload_idle_timeout_is_not_507(monkeypatch) -> None:
+    from grafeno import paths
+    from grafeno.server import httpcore
+
+    monkeypatch.setattr(httpcore, "UPLOAD_IDLE_TIMEOUT", 0.2)
+
+    async def scenario():
+        service, task = await _start_service()
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", service.port)
+            try:
+                writer.write((
+                    "POST /api/v1/tasks/x/attachments?name=a.zip HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+                    "Authorization: Bearer t1\r\nContent-Type: application/octet-stream\r\n"
+                    "Content-Length: 10\r\n\r\nabc"
+                ).encode("ascii"))
+                await writer.drain()
+                data = await asyncio.wait_for(reader.read(), timeout=5.0)  # connection closes
+                assert b"507" not in data
+            finally:
+                writer.close()
+                await writer.wait_closed()
+            assert not list(paths.uploads_dir().glob("*.part"))
+        finally:
+            _stop(service, task)
+
+    _run(scenario())
+
+
+def test_json_upload_buffer_grows_with_data() -> None:
+    from grafeno.server import httpcore
+
+    async def scenario():
+        reader = asyncio.StreamReader()
+        reader.feed_data(b"abcdef")
+        reader.feed_eof()
+        policy = httpcore.BodyPolicy(64 * 1024 * 1024, 1.0, upload=True)
+        try:
+            await httpcore._read_body(reader, {"content-length": str(64 * 1024 * 1024)}, policy)
+        except httpcore.BadRequest:
+            pass  # short body: nothing preallocated for the announced 64 MiB
+        reader = asyncio.StreamReader()
+        reader.feed_data(b"hello world")
+        reader.feed_eof()
+        body, path = await httpcore._read_body(reader, {"content-length": "11"}, policy)
+        assert bytes(body) == b"hello world" and path is None
+
+    _run(scenario())

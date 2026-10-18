@@ -15,17 +15,29 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Awaitable, Callable, Optional
 from urllib.parse import parse_qs, urlsplit
 
+from .. import media
+
 MAX_HEAD = 32 * 1024      # hard cap on a single request head
-MAX_BODY = 8 * 1024 * 1024  # hard cap on a single request body (base64 audio attachments)
+MAX_BODY = 8 * 1024 * 1024  # hard cap on a single request body (regular requests)
+MAX_UPLOAD_BODY = media.base64_length(media.MAX_ATTACHMENT_BYTES) + 1024 * 1024  # JSON+base64: one max file
+MAX_RAW_UPLOAD_BODY = media.MAX_ATTACHMENT_BYTES  # raw file body of POST .../attachments
+UPLOAD_IDLE_TIMEOUT = 60.0  # seconds without receiving upload bytes
+READ_CHUNK = 1024 * 1024    # bytes per read/write when streaming bodies and files
+_UPLOAD_PATH = re.compile(r"/api/v1/tasks(?:/[^/]+/(?:extend|attachments))?")
+_RAW_UPLOAD_PATH = re.compile(r"/api/v1/tasks/[^/]+/attachments")
 HEAD_READ_TIMEOUT = 15.0  # seconds to receive the request head
 REQUEST_TIMEOUT = 30.0    # seconds for any single read on the request
 
 # Reasons indexed by HTTP status code (a tiny subset is enough for the API).
 REASONS: dict[int, str] = {
+    100: "Continue",
     101: "Switching Protocols",
     200: "OK",
     201: "Created",
@@ -38,6 +50,7 @@ REASONS: dict[int, str] = {
     429: "Too Many Requests",
     500: "Internal Server Error",
     502: "Bad Gateway",
+    507: "Insufficient Storage",
 }
 
 ALLOWED_METHODS = ("GET", "POST", "DELETE", "OPTIONS")
@@ -56,6 +69,7 @@ class Request:
     version: str
     headers: dict[str, str]
     body: bytes
+    body_path: Optional[Path] = None  # spooled upload body (raw attachment)
 
 
 @dataclass
@@ -65,6 +79,8 @@ class Response:
     status: int
     headers: dict[str, str] = field(default_factory=dict)
     body: bytes = b""
+    file: Optional[Path] = None  # streamed from disk after the head (body must be empty)
+    _file_length: int = field(default=0, init=False, repr=False)
 
     @classmethod
     def json(cls, status: int, data: object) -> "Response":
@@ -80,7 +96,11 @@ class Response:
         reason = REASONS.get(self.status, "Unknown")
         caller_headers = {key.lower(): value for key, value in self.headers.items()}
         merged: dict[str, str] = dict(self.headers)
-        merged["Content-Length"] = str(len(self.body))
+        if self.file is not None:
+            self._file_length = self.file.stat().st_size
+            merged["Content-Length"] = str(self._file_length)
+        else:
+            merged["Content-Length"] = str(len(self.body))
         if "connection" not in caller_headers:
             merged["Connection"] = "keep-alive" if keep_alive else "close"
         lines = [f"HTTP/1.1 {self.status} {reason}"]
@@ -92,6 +112,18 @@ class BadRequest(Exception):
     """The request was malformed (mapped to HTTP 400)."""
 
 
+class _SpoolWriteError(Exception):
+    """Writing the spooled upload to disk failed (mapped to HTTP 507)."""
+
+
+class EarlyResponse(Exception):
+    """Answer sent before (or instead of) reading the body; the connection closes."""
+
+    def __init__(self, response: "Response") -> None:
+        super().__init__(response.status)
+        self.response = response
+
+
 class HttpServer:
     """Async HTTP/1.1 server wrapping :func:`asyncio.start_server`."""
 
@@ -101,8 +133,12 @@ class HttpServer:
             ["Request"],
             Awaitable[tuple[Optional[Response], Optional[WsHandler]]],
         ],
+        authorize: Callable[["Request"], Optional[Response]] | None = None,
+        spool_dir: Callable[[], Path] | None = None,
     ) -> None:
         self._on_request = on_request
+        self._authorize = authorize
+        self._spool_dir = spool_dir
         self._sockets: list[asyncio.Server] = []
 
     async def serve(self, host: str, port: int) -> tuple[asyncio.AbstractServer, int]:
@@ -132,11 +168,14 @@ class HttpServer:
     async def _handle_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         while True:
             try:
-                request = await _read_request(reader)
+                request = await _read_request(reader, writer, self._authorize, self._spool_dir)
             except asyncio.IncompleteReadError:
                 return  # client closed without sending a request
             except asyncio.TimeoutError:
                 return  # nothing arrived in time
+            except EarlyResponse as exc:
+                await _safe_write(writer, exc.response.to_bytes(keep_alive=False))
+                return
             except BadRequest as exc:
                 await _safe_write(writer, Response(400, body=json.dumps({"error": str(exc)}).encode("utf-8")).to_bytes(keep_alive=False))
                 return
@@ -147,6 +186,9 @@ class HttpServer:
             except Exception as exc:  # noqa: BLE001 - last line of defense
                 response = Response(500, body=json.dumps({"error": "internal error", "detail": str(exc)}).encode("utf-8"))
                 ws_handler = None
+            finally:
+                if request.body_path is not None:  # moved into media/ by the action when it succeeded
+                    request.body_path.unlink(missing_ok=True)
             if response is None:
                 # Router decided to handle the rest of the socket itself.
                 return
@@ -156,6 +198,9 @@ class HttpServer:
                 and ws_handler is None
             )
             await _safe_write(writer, response.to_bytes(keep_alive=keep_alive))
+            if response.file is not None:
+                if not await _stream_file(writer, response.file, response._file_length):
+                    return
             if ws_handler is not None:
                 try:
                     await ws_handler(reader, writer, request)
@@ -174,10 +219,32 @@ async def _safe_write(writer: asyncio.StreamWriter, data: bytes) -> None:
         return
 
 
+async def _stream_file(writer: asyncio.StreamWriter, path: Path, length: int) -> bool:
+    """Send exactly ``length`` bytes of ``path`` in READ_CHUNK blocks (False if it shrank or failed)."""
+    try:
+        with open(path, "rb") as handle:
+            remaining = length
+            while remaining:
+                chunk = handle.read(min(READ_CHUNK, remaining))
+                if not chunk:
+                    return False
+                writer.write(chunk)
+                await writer.drain()
+                remaining -= len(chunk)
+    except (OSError, ConnectionResetError, BrokenPipeError):
+        return False
+    return True
+
+
 # ---------------------------------------------------------------------- #
 # Request parsing
 # ---------------------------------------------------------------------- #
-async def _read_request(reader: asyncio.StreamReader) -> Request | None:
+async def _read_request(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter | None = None,
+    authorize: Callable[["Request"], Optional["Response"]] | None = None,
+    spool_dir: Callable[[], Path] | None = None,
+) -> Request | None:
     try:
         raw_head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), HEAD_READ_TIMEOUT)
     except asyncio.LimitOverrunError as exc:
@@ -190,9 +257,18 @@ async def _read_request(reader: asyncio.StreamReader) -> Request | None:
         return None
     method, target, version = _parse_request_line(raw_head)
     headers = _parse_headers(raw_head)
-    body = await _read_body(reader, headers)
     path, query = _split_target(target)
-    return Request(method=method, path=path, query=query, version=version, headers=headers, body=body)
+    policy = body_policy(method, path, headers)
+    if policy.upload and authorize is not None:
+        # Upload routes are authorized before their (large) body is read.
+        denied = authorize(Request(method, path, query, version, headers, b""))
+        if denied is not None:
+            raise EarlyResponse(denied)
+    body, body_path = await _read_body(reader, headers, policy, writer, spool_dir)
+    return Request(
+        method=method, path=path, query=query, version=version,
+        headers=headers, body=body, body_path=body_path,
+    )
 
 
 def _parse_request_line(raw_head: bytes) -> tuple[str, str, str]:
@@ -225,27 +301,104 @@ def _parse_headers(raw_head: bytes) -> dict[str, str]:
     return headers
 
 
-async def _read_body(reader: asyncio.StreamReader, headers: dict[str, str]) -> bytes:
+@dataclass(frozen=True)
+class BodyPolicy:
+    """How to receive a request body."""
+
+    limit: int            # max bytes (larger -> 413)
+    timeout: float        # seconds per read
+    upload: bool = False  # file-carrying route: authorized before the body is read
+    spool: bool = False   # stream into a temp file (Request.body_path) instead of memory
+
+
+def body_policy(method: str, path: str, headers: dict[str, str]) -> BodyPolicy:
+    """Body policy of a request (only the upload routes get the large caps).
+
+    Raw (non-JSON) bodies of ``POST .../attachments`` are spooled to disk; the
+    JSON+base64 upload routes are read in memory. Both are authorized before
+    the body is read, which is why the large caps stay limited to them.
+    """
+    if method == "POST":
+        content_type = headers.get("content-type", "").lower()
+        if _RAW_UPLOAD_PATH.fullmatch(path) and not content_type.startswith("application/json"):
+            return BodyPolicy(MAX_RAW_UPLOAD_BODY, UPLOAD_IDLE_TIMEOUT, upload=True, spool=True)
+        if _UPLOAD_PATH.fullmatch(path):
+            return BodyPolicy(MAX_UPLOAD_BODY, UPLOAD_IDLE_TIMEOUT, upload=True)
+    return BodyPolicy(MAX_BODY, REQUEST_TIMEOUT)
+
+
+async def _read_chunks(
+    reader: asyncio.StreamReader, length: int, timeout: float, sink: Callable[[bytes], object]
+) -> None:
+    """Feed ``length`` bytes to ``sink`` in READ_CHUNK blocks (``timeout`` is per block)."""
+    remaining = length
+    while remaining:
+        chunk = await asyncio.wait_for(reader.read(min(READ_CHUNK, remaining)), timeout)
+        if not chunk:
+            raise BadRequest("short body")
+        sink(chunk)
+        remaining -= len(chunk)
+
+
+async def _read_body(
+    reader: asyncio.StreamReader,
+    headers: dict[str, str],
+    policy: BodyPolicy,
+    writer: asyncio.StreamWriter | None = None,
+    spool_dir: Callable[[], Path] | None = None,
+) -> tuple[bytes, Path | None]:
     raw_length = headers.get("content-length")
     if raw_length is None:
         transfer = headers.get("transfer-encoding", "").lower()
         if transfer and transfer != "identity":
             raise BadRequest("chunked unsupported")
-        return b""
+        return b"", None
     try:
         length = int(raw_length)
     except ValueError as exc:
         raise BadRequest("invalid content-length") from exc
     if length < 0:
         raise BadRequest("negative content-length")
-    if length > MAX_BODY:
-        raise BadRequest(f"body too large (>{MAX_BODY} bytes)")
+    if length > policy.limit:
+        raise EarlyResponse(Response.json(413, {"error": f"body too large (>{policy.limit} bytes)"}))
     if length == 0:
-        return b""
+        return b"", None
+    directory: Path | None = None
+    if policy.spool:
+        directory = spool_dir() if spool_dir else Path(tempfile.gettempdir())
+        if not media.has_free_space(directory, length):
+            raise EarlyResponse(Response.json(507, {"error": "insufficient storage"}))
+    if policy.upload and writer is not None and headers.get("expect", "").lower() == "100-continue":
+        writer.write(b"HTTP/1.1 100 Continue\r\n\r\n")
+        await writer.drain()
+    if not policy.upload:
+        try:
+            return await asyncio.wait_for(reader.readexactly(length), policy.timeout), None
+        except asyncio.IncompleteReadError as exc:
+            raise BadRequest("short body") from exc
+    if directory is None:  # JSON+base64 upload: the buffer grows with the data actually received
+        buf = bytearray()  # never preallocated from the announced length (a bare header must cost nothing)
+        await _read_chunks(reader, length, policy.timeout, buf.extend)
+        return buf, None
+    handle = tempfile.NamedTemporaryFile(dir=directory, prefix="upload-", suffix=".part", delete=False)
+    spooled = Path(handle.name)
+
+    def write(chunk: bytes) -> None:
+        try:
+            handle.write(chunk)
+        except OSError as exc:  # only disk write failures mean "no space"; timeouts and resets are OSErrors too
+            raise _SpoolWriteError() from exc
+
     try:
-        return await asyncio.wait_for(reader.readexactly(length), REQUEST_TIMEOUT)
-    except asyncio.IncompleteReadError as exc:
-        raise BadRequest("short body") from exc
+        with handle:
+            await _read_chunks(reader, length, policy.timeout, write)
+    except _SpoolWriteError as exc:
+        spooled.unlink(missing_ok=True)
+        raise EarlyResponse(Response.json(507, {"error": "insufficient storage"})) from exc
+    except BaseException:
+        spooled.unlink(missing_ok=True)
+        raise
+    return b"", spooled
 
 
 def _split_target(target: str) -> tuple[str, dict[str, str]]:

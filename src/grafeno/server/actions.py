@@ -46,7 +46,16 @@ _MEDIA_TYPES = {
     ".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg", ".mp3": "audio/mpeg",
     ".wav": "audio/wav", ".m4a": "audio/mp4", ".flac": "audio/flac",
     ".mp4": "video/mp4", ".webm": "video/webm",
-}
+    ".gif": "image/gif", ".webp": "image/webp", ".mov": "video/quicktime",
+    ".mkv": "video/x-matroska", ".avi": "video/x-msvideo", ".m4v": "video/mp4",
+    ".pdf": "application/pdf", ".csv": "text/csv", ".tsv": "text/tab-separated-values",
+    ".txt": "text/plain; charset=utf-8", ".md": "text/markdown; charset=utf-8",
+    ".json": "application/json",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".doc": "application/msword", ".xls": "application/vnd.ms-excel",
+    ".zip": "application/zip",
+}  # never text/html, image/svg+xml or javascript: media is served from the panel origin
 
 
 def _runtime_of(service: "ServerService", task_id: str):
@@ -114,6 +123,17 @@ def task_detail(task: Task) -> dict:
 # ---------------------------------------------------------------------- #
 # Read operations
 # ---------------------------------------------------------------------- #
+def _attachment_payload(task_id: str, entry: media.Attachment) -> dict:
+    """API shape of an attachment: manifest fields plus its absolute path."""
+    return {**entry.to_dict(), "path": str(media.attachment_path(task_id, entry.file))}
+
+
+def list_task_attachments(service: "ServerService", task_id: str) -> dict:
+    """Attachments of a task with their metadata."""
+    _load_or_404(task_id)
+    return {"attachments": [_attachment_payload(task_id, a) for a in media.list_attachments(task_id)]}
+
+
 def list_tasks(service: "ServerService", state: str | None = None) -> dict:
     """List tasks, optionally filtered by state.
 
@@ -169,10 +189,7 @@ def _artifact_index(task_id: str) -> dict[str, list[str]]:
 
 
 def _media_names(task_id: str) -> list[str]:
-    directory = paths.task_dir(task_id) / "media"
-    if not directory.is_dir():
-        return []
-    return sorted(entry.name for entry in directory.iterdir() if entry.is_file())
+    return [entry.file for entry in media.list_attachments(task_id)]  # same view as the attachments list
 
 
 def _phases(task: Task) -> list[str]:
@@ -320,6 +337,7 @@ def _detail_extras(service: "ServerService", task: Task) -> dict:
         "actions": available_actions(service, task),
         "artifacts": _artifact_index(task.id),
         "media": _media_names(task.id),
+        "attachments": [_attachment_payload(task.id, a) for a in media.list_attachments(task.id)],
         "models_missing": _missing_models(service, task),
         "rechain_candidates": candidates,
         "remote_target": remotesession.describe_target(task) if (task.is_remote or remotesession.active()) else "",
@@ -452,19 +470,36 @@ def get_artifact_file(service: "ServerService", task_id: str, kind: str, path: s
     return {"kind": kind, "path": path, "content": normalize_markdown(content)}
 
 
-def get_media(service: "ServerService", task_id: str, name: str) -> tuple[bytes, str]:
-    """Raw bytes and MIME type of one file of the task's media dir."""
+def media_file(service: "ServerService", task_id: str, name: str) -> tuple[Path, str]:
+    """Path and MIME type of one file of the task's media dir (not read)."""
     _load_or_404(task_id)
-    if not name or "/" in name or "\\" in name or name.startswith("."):
+    if not media.is_stored_name(name):
         raise ApiError(400, "invalid name")
     target = paths.task_dir(task_id) / "media" / name
     if not target.is_file():
         raise ApiError(404, "media not found")
+    return target, _MEDIA_TYPES.get(target.suffix.lower(), "application/octet-stream")
+
+
+def get_media(
+    service: "ServerService", task_id: str, name: str, max_bytes: int | None = None
+) -> tuple[bytes, str]:
+    """Raw bytes and MIME type of one media file.
+
+    ``max_bytes`` caps channels that answer in one message (WebSocket): larger
+    files raise 413 and must be fetched through the streaming REST route.
+    """
+    target, mime = media_file(service, task_id, name)
     try:
+        if max_bytes is not None and target.stat().st_size > max_bytes:
+            raise ApiError(
+                413,
+                f"file too large for this channel; use GET /api/v1/tasks/{task_id}/media",
+            )
         data = target.read_bytes()
     except OSError as exc:
         raise ApiError(404, "media not found") from exc
-    return data, _MEDIA_TYPES.get(target.suffix.lower(), "application/octet-stream")
+    return data, mime
 
 
 # ---------------------------------------------------------------------- #
@@ -517,8 +552,10 @@ def _decode_attachments(payload: dict) -> list[tuple[str, bytes]]:
 
     Each entry must be an object with ``data`` (base64 string) and an
     optional ``name`` (defaults to "attachment"). Raises ``ApiError(400)``
-    on any malformed entry; the body cap (MAX_BODY, 8 MiB) already bounds
-    the total size.
+    on any malformed entry or file above ``media.MAX_ATTACHMENT_BYTES``
+    (413); the upload body cap (``httpcore.MAX_UPLOAD_BODY``, one max file in
+    base64) bounds the total size. Base64 needs several times the file size
+    in memory: files above 25 MiB should use the raw binary upload route.
     """
     raw = payload.get("attachments")
     if raw is None:
@@ -532,10 +569,18 @@ def _decode_attachments(payload: dict) -> list[tuple[str, bytes]]:
         if not isinstance(item, dict) or not isinstance(item.get("data"), str):
             raise ApiError(400, f"attachment {index} must be an object with 'data'")
         name = str(item.get("name") or "attachment")
+        if len(item["data"]) > media.base64_length(media.MAX_ATTACHMENT_BYTES) + 4:
+            raise ApiError(  # too long to be valid: refuse without decoding
+                413, f"attachment {index} too large (max {media.MAX_ATTACHMENT_BYTES} bytes)"
+            )
         try:
             data = base64.b64decode(item["data"], validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ApiError(400, f"attachment {index}: invalid base64 data") from exc
+        if len(data) > media.MAX_ATTACHMENT_BYTES:
+            raise ApiError(
+                413, f"attachment {index} too large (max {media.MAX_ATTACHMENT_BYTES} bytes)"
+            )
         decoded.append((name, data))
     return decoded
 
@@ -723,7 +768,9 @@ async def create_task(service: "ServerService", payload: dict) -> dict:
         task.origin = "api"
     models.save(task)
     if attachments:
-        media.attach_files(task, attachments, header="Attachments received via the API:")
+        media.attach_files(
+            task, attachments, header="Attachments received via the API:", origin="api"
+        )
     transcriptions: list[dict] = []
     audio_attachments = [(name, data) for name, data in attachments if media.is_audio_name(name)]
     if audio_attachments:
@@ -952,6 +999,7 @@ def extend_task(
     task_id: str,
     request: str,
     attachments: list[tuple[str, bytes]] | None = None,
+    origin: str = "api",
 ) -> dict:
     """Start a new cycle on an existing task with a fresh request (TUI "ask
     for more"): it plans and, unless the task asks for plan confirmation,
@@ -963,18 +1011,100 @@ def extend_task(
         raise ApiError(400, "request is required")
     _ensure_idle(service, task)
     references = []
+    cycle = task.cycle + 1  # files belong to the cycle about to start
     for name, data in attachments or []:
-        saved = media.save_attachment(task.id, name, data)
+        saved = media.save_attachment(task.id, name, data, origin=origin, cycle=cycle)
         if saved is not None:
-            references.append(
-                f"- media/{saved.name}" if saved.suffix.lower() in media.IMAGE_SUFFIXES else f"- {saved}"
-            )
+            references.append(media.reference_line(saved, name))
     if references:
         request += "\n\n" + "\n".join(references)
     task.start_new_cycle(request)
     models.save(task)
     runner, label, plan_then_ask = _pipeline_runner(task)
     _runtime_start(service, task, runner, label, plan_then_ask)
+    return {"ok": True}
+
+
+def upload_attachments(
+    service: "ServerService",
+    task_id: str,
+    attachments: list[tuple[str, bytes]],
+    origin: str = "api",
+) -> tuple[int, dict]:
+    """Save reference files on an existing task (no new cycle is started).
+
+    Files land in the task media dir and are listed to the agents from the
+    next prompt on; the description is left untouched. Allowed while the
+    pipeline runs: the next prompt simply sees the new files.
+    """
+    task = _load_or_404(task_id)
+    if not attachments:
+        raise ApiError(400, "attachments is required")
+    saved_names: set[str] = set()
+    for name, data in attachments:
+        saved = media.save_attachment(task.id, name, data, origin=origin, cycle=task.cycle)
+        if saved is None:
+            for stored in saved_names:  # all or nothing: drop what was already saved
+                media.delete_attachment(task.id, stored)
+            raise ApiError(500, f"could not save {name}")  # size was validated before
+        saved_names.add(saved.name)
+    return 201, {
+        "attachments": [
+            _attachment_payload(task.id, a)
+            for a in media.list_attachments(task.id)
+            if a.file in saved_names
+        ]
+    }
+
+
+def upload_attachment_file(
+    service: "ServerService",
+    task_id: str,
+    name: str,
+    source: Path,
+    cycle: int | None = None,
+    origin: str = "api",
+) -> tuple[int, dict]:
+    """Move a spooled upload into the task media dir (raw body route).
+
+    ``cycle`` defaults to the task cycle; ``task.cycle + 1`` tags files for the
+    cycle about to start (web "ask for more"). Same response as upload_attachments.
+    """
+    task = _load_or_404(task_id)
+    if cycle is None:
+        cycle = task.cycle
+    if not 1 <= cycle <= task.cycle + 1:
+        raise ApiError(400, "invalid cycle")
+    try:
+        size = source.stat().st_size
+    except OSError as exc:
+        raise ApiError(400, "empty body") from exc
+    if size > media.MAX_ATTACHMENT_BYTES:
+        raise ApiError(413, f"attachment too large (max {media.MAX_ATTACHMENT_BYTES} bytes)")
+    saved = media.save_attachment_file(
+        task.id, name, source, origin=origin, cycle=cycle, move=True
+    )
+    if saved is None:
+        if not media.has_free_space(paths.media_dir(task.id), 0):
+            raise ApiError(507, "insufficient storage")
+        raise ApiError(500, f"could not save {name}")
+    return 201, {
+        "attachments": [
+            _attachment_payload(task.id, a)
+            for a in media.list_attachments(task.id)
+            if a.file == saved.name
+        ]
+    }
+
+
+def delete_task_attachment(service: "ServerService", task_id: str, file: str) -> dict:
+    """Remove one attachment (refused while the pipeline runs)."""
+    task = _load_or_404(task_id)
+    _ensure_idle(service, task)
+    if not media.is_stored_name(file):
+        raise ApiError(400, "invalid file")
+    if not media.delete_attachment(task.id, file):
+        raise ApiError(404, "attachment not found")
     return {"ok": True}
 
 

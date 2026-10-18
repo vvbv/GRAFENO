@@ -12,11 +12,12 @@ from textual.widgets import Input, OptionList
 from textual.widgets.option_list import Option
 
 
-def directory_matches(value: str, *, limit: int = 15) -> list[str]:
+def directory_matches(value: str, *, limit: int = 15, include_files: bool = False) -> list[str]:
     """Return paths of existing directories that complete ``value``.
 
     Rules:
-    - Directories only (never files).
+    - Directories only, unless ``include_files`` (files are returned without
+      a trailing separator).
     - ``~`` expands to the user's home.
     - If ``value`` ends in a separator, list the children of that directory.
     - Otherwise complete the last segment by prefix (case-insensitive).
@@ -43,12 +44,12 @@ def directory_matches(value: str, *, limit: int = 15) -> list[str]:
     matches = [
         e
         for e in entries
-        if e.is_dir()
+        if (e.is_dir() or (include_files and e.is_file()))
         and e.name.casefold().startswith(prefix_fold)
         and (prefix.startswith(".") or not e.name.startswith("."))
     ]
     matches.sort(key=lambda e: e.name.casefold())
-    return [str(e) + os.sep for e in matches[:limit]]
+    return [str(e) + os.sep if e.is_dir() else str(e) for e in matches[:limit]]
 
 
 class DirectoryPicker(Widget):
@@ -91,12 +92,14 @@ class DirectoryPicker(Widget):
         input_id: str,
         placeholder: str = "",
         suggest_empty: bool = True,
+        include_files: bool = False,
     ) -> None:
         super().__init__()
         self._input_id = input_id
         self._initial = value
         self._placeholder = placeholder
         self._suggest_empty = suggest_empty  # False = no dropdown while the input is empty
+        self._include_files = include_files  # also suggest files, not only directories
         self._matches: list[str] = []
 
     @property
@@ -135,7 +138,7 @@ class DirectoryPicker(Widget):
         options = self.query_one("#dir-options", OptionList)
         options.clear_options()
         value = self.query_one(Input).value
-        self._matches = directory_matches(value) if value or self._suggest_empty else []
+        self._matches = directory_matches(value, include_files=self._include_files) if value or self._suggest_empty else []
         for path in self._matches:
             options.add_option(Option(path))
         options.set_class(bool(options.option_count), "visible")

@@ -95,3 +95,15 @@ def test_picker_placeholder_and_no_suggestions_when_empty():
             assert app.query_one("#dir-options", OptionList).option_count == 0
 
     asyncio.run(scenario())
+
+
+def test_directory_matches_include_files(tmp_path):
+    import os
+
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "a.xlsx").write_bytes(b"x")
+    base = str(tmp_path) + os.sep
+    assert str(tmp_path / "a.xlsx") not in directory_matches(base)
+    found = directory_matches(base, include_files=True)
+    assert str(tmp_path / "a.xlsx") in found
+    assert str(tmp_path / "sub") + os.sep in found

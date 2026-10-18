@@ -35,6 +35,8 @@ WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 WS_PATH = "/api/v1/ws"
 
 MAX_WS_PAYLOAD = 1 * 1024 * 1024  # 1 MiB per message; larger closes the socket
+# WS attachments (tasks.create / tasks.attach) are bound by the cap above; big files use the raw REST upload.
+WS_MEDIA_MAX_BYTES = 16 * 1024 * 1024  # tasks.media answers in one frame; larger files go through REST
 
 
 def accept_key(key: str) -> str:
@@ -380,8 +382,25 @@ async def _tasks_media(service: "ServerService", params: dict, conn: "WsConnecti
     import base64
 
     name = str(params.get("name") or "")
-    data, mime = actions.get_media(service, _required_task_id(params), name)
+    data, mime = actions.get_media(service, _required_task_id(params), name, max_bytes=WS_MEDIA_MAX_BYTES)
     return {"name": name, "mime": mime, "data": base64.b64encode(data).decode("ascii")}
+
+
+async def _tasks_attachments(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.list_task_attachments(service, _required_task_id(params))
+
+
+async def _tasks_attach(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    task_id = _required_task_id(params)
+    attachments = actions._decode_attachments(params)
+    _, payload = actions.upload_attachments(service, task_id, attachments)
+    return payload
+
+
+async def _tasks_detach(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.delete_task_attachment(
+        service, _required_task_id(params), str(params.get("file") or "")
+    )
 
 
 async def _options_get(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
@@ -475,6 +494,9 @@ METHODS: dict[str, Callable] = {
     "tasks.roles": _tasks_roles,
     "tasks.artifact": _tasks_artifact,
     "tasks.media": _tasks_media,
+    "tasks.attachments": _tasks_attachments,
+    "tasks.attach": _tasks_attach,
+    "tasks.detach": _tasks_detach,
     "options.get": _options_get,
     "models.list": _models_list,
     "fs.dirs": _fs_dirs,

@@ -1543,6 +1543,46 @@ def test_photo_and_video_attached_to_created_task(tmp_path, monkeypatch):
     assert any(p.suffix == ".jpg" for p in service_module.media.list_media(task.id))
 
 
+def test_document_attached_with_original_name(tmp_path, monkeypatch):
+    driver = FakeDriver([_json_result({
+        "action": "create_tasks", "tasks": [{"name": "Con documento"}],
+    })])
+    cfg = TelegramConfig(
+        enabled=True, bot_token="T", allowed_chat_ids="555",
+        confirm_create=False, default_workdir=str(tmp_path),
+    )
+    service, client = _make_service(tmp_path, monkeypatch, driver, cfg=cfg)
+    client.files["df"] = ("documents/file_3.xlsx", b"XLSX")
+
+    _run(service._handle_message(_msg(document_file_id="df", document_name="presupuesto.xlsx")))
+    _run(service._parse_and_reply(555, "crea la tarea"))
+    pid = _proposal_id(client)
+    _run(service._handle_update(_callback_update(f"tg:n:{pid}")))
+
+    task = models.list_all()[0]
+    assert (paths.task_dir(task.id) / "media" / "media-01.xlsx").exists()
+    entry = service_module.media.list_attachments(task.id)[0]
+    assert entry.name == "presupuesto.xlsx"
+    assert entry.origin == "telegram"
+
+
+def test_document_too_large_is_rejected_before_download(tmp_path, monkeypatch):
+    driver = FakeDriver([])
+    service, client = _make_service(tmp_path, monkeypatch, driver)
+    client.files["df"] = ("documents/file_3.zip", b"ZIP")
+    calls: list[str] = []
+    monkeypatch.setattr(client, "get_file_path", lambda file_id: calls.append(file_id) or "x")
+
+    _run(service._handle_message(_msg(
+        document_file_id="df", document_name="big.zip", document_size=21 * 1024 * 1024
+    )))
+
+    assert calls == []
+    assert any("big.zip" in text for _, text, _ in client.sent)
+    assert not any("eceived" in text for _, text, _ in client.sent)  # no "attachment pending" notice
+    assert service._attachments.get(555) in (None, [])
+
+
 def test_attachment_cancel_discards_buffer(tmp_path, monkeypatch):
     driver = FakeDriver([_json_result({
         "action": "create_tasks", "tasks": [{"name": "X"}],

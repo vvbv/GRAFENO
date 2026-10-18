@@ -107,6 +107,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "413":
+          description: File larger than 500 MiB or request body above its cap.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           description: Missing or invalid token (only enforced when tokens are configured).
           content:
@@ -472,6 +478,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "413":
+          description: File larger than 500 MiB or request body above its cap.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "503":
           description: App unavailable.
           content:
@@ -500,11 +512,105 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/v1/tasks/{task_id}/attachments:
+    get:
+      tags: [tasks]
+      summary: Reference attachments of a task with their metadata.
+      operationId: listTaskAttachments
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [tasks]
+      summary: Add reference files (Word, Excel, PDF, images, video, ...) to an existing task.
+      operationId: uploadTaskAttachments
+      description: >-
+        Does not start a cycle and does not touch the description; the files
+        are listed to the agents from the next prompt on. Max 500 MiB per file.
+        Large files should use the raw binary body (`?name=`): it is streamed
+        to disk and never loaded in memory. The JSON/base64 body is capped at
+        the base64 size of one 500 MiB file plus 1 MiB. The request is
+        authorized before its body is read and `Expect: 100-continue` is honored.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - {name: name, in: query, required: false, description: "Original file name; required with the binary body.", schema: {type: string}}
+        - {name: cycle, in: query, required: false, description: "Cycle the files belong to (1..task cycle + 1); defaults to the current cycle. Binary body only.", schema: {type: integer, minimum: 1}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                attachments:
+                  type: array
+                  description: Max 10 entries.
+                  items:
+                    type: object
+                    properties:
+                      name: {type: string}
+                      data: {type: string, format: byte}
+                    required: [data]
+              required: [attachments]
+          application/octet-stream:
+            schema: {type: string, format: binary}
+      responses:
+        "201":
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          description: File larger than 500 MiB or request body above its cap.
+        "507":
+          description: Not enough disk space to store the upload.
+    delete:
+      tags: [tasks]
+      summary: Remove one attachment.
+      operationId: deleteTaskAttachment
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - {name: file, in: query, required: true, description: "Stored file name (media-NN.ext).", schema: {type: string}}
+      responses:
+        "200":
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The task is running (or discarded).
   /api/v1/tasks/{task_id}/media:
     get:
       tags: [tasks]
-      summary: Raw file of the task media dir (images, audio, video); MIME type by extension.
+      summary: Raw file of the task media dir (any attached file); MIME type by extension, never HTML or SVG.
       operationId: getTaskMedia
+      description: Streamed from disk (no Range support).
       parameters:
         - $ref: "#/components/parameters/TaskId"
         - {name: name, in: query, required: true, description: "File name as listed in the task detail `media`.", schema: {type: string}}
@@ -1144,6 +1250,10 @@ components:
         media:
           type: array
           items: {type: string}
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Attachment"
         models_missing:
           type: array
           description: Roles pointing at a model the CLI no longer lists.
@@ -1224,13 +1334,13 @@ components:
             by file name) are additionally transcribed with the configured STT
             provider and their text is appended to the task description (see
             `transcriptions` in the response). Max 10 entries; each `data` is
-            standard base64. Total request body is capped at 8 MiB.
+            standard base64. Max 500 MiB per file; the JSON body is capped at the base64 size of one 500 MiB file plus 1 MiB. For files above 25 MiB prefer creating the task and uploading them with the raw body of `POST /api/v1/tasks/{task_id}/attachments`.
           items:
             type: object
             properties:
               name:
                 type: string
-                description: Original file name; only its extension is honored (png/jpg/jpeg/mp4/webm/ogg/oga/opus/mp3/wav/m4a/flac, else .bin).
+                description: Original file name. Extension kept for images (png/jpg/jpeg/gif/webp), video (mp4/webm/mov/mkv/avi/m4v), audio, spreadsheets (xlsx/xlsm/xls/ods/csv/tsv), documents (docx/doc/odt/rtf/pdf/pptx/ppt/odp/txt/md), data (json/xml/yaml/yml/toml/sql/log) and archives (zip/tar/gz/tgz/7z); anything else is stored as .bin. The original name is kept in the attachments metadata.
               data:
                 type: string
                 format: byte
@@ -1333,13 +1443,36 @@ components:
           description: Free-text request for the new cycle.
         attachments:
           type: array
-          description: Optional files saved to the task media and referenced in the request (same shape as task creation).
+          description: >-
+            Optional files saved to the task media and referenced in the request
+            (same shape as task creation). Max 500 MiB per file; the JSON body is
+            capped at the base64 size of one 500 MiB file plus 1 MiB. For big
+            files upload them first with the raw body of
+            `POST /api/v1/tasks/{task_id}/attachments?cycle=<task cycle + 1>`.
           items:
             type: object
             properties:
               name: {type: string}
               data: {type: string, format: byte}
       required: [request]
+    Attachment:
+      type: object
+      properties:
+        file: {type: string}
+        name: {type: string}
+        kind: {type: string, enum: [image, video, audio, spreadsheet, document, data, archive, other]}
+        size: {type: integer}
+        origin: {type: string}
+        cycle: {type: integer}
+        added_at: {type: string}
+        path: {type: string}
+    AttachmentsResponse:
+      type: object
+      properties:
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Attachment"
     LogsResponse:
       type: object
       properties:

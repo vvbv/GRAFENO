@@ -219,13 +219,124 @@ _MEDIA_SECTION = {
 }
 
 
-def _media_section(task: Task, lang: str) -> str:
-    """Attached images (absolute paths so vision-capable CLIs can read them)."""
-    files = media.list_media(task.id)
-    if not files:
+_ATTACHMENTS_SECTION = {
+    "es": """
+# Archivos adjuntos de referencia
+La tarea incluye estos archivos como material de referencia o insumos de la
+petición (directorio: {directory}). Consúltalos cuando la tarea dependa de
+ellos; léelos de forma selectiva (leer entero un archivo grande dispara el
+consumo de tokens) y NO los modifiques, muevas ni copies al proyecto salvo que
+la tarea lo pida expresamente.
+{items}
+""",
+    "en": """
+# Attached reference files
+The task includes these files as reference material or inputs for the
+request (directory: {directory}). Consult them whenever the task depends on
+them; read them selectively (reading a large file in full greatly increases
+token consumption) and do NOT modify, move or copy them into the project
+unless the task explicitly asks for it.
+{items}
+""",
+}
+_ATTACHMENT_KIND_LABELS = {
+    "es": {"video": "vídeo", "audio": "audio", "spreadsheet": "hoja de cálculo",
+           "document": "documento", "data": "datos", "archive": "archivo comprimido",
+           "other": "otro", "image": "imagen"},
+    "en": {"video": "video", "audio": "audio", "spreadsheet": "spreadsheet",
+           "document": "document", "data": "data", "archive": "archive",
+           "other": "other", "image": "image"},
+}
+_ATTACHMENT_HINTS = {
+    "es": {
+        "spreadsheet": "Excel/ODS: léelo con Python (openpyxl o pandas) si está disponible; si no, el .xlsx es un zip: revisa xl/sharedStrings.xml y xl/worksheets/*.xml. CSV/TSV son texto plano.",
+        "document": "Word/ODT/PowerPoint: python-docx/python-pptx si están disponibles; si no, son zip (word/document.xml, ppt/slides/*.xml). PDF: pdftotext o pypdf. TXT/MD: texto plano.",
+        "video": "Usa ffprobe para metadatos y ffmpeg para extraer fotogramas a un directorio temporal (p. ej. ffmpeg -i <archivo> -vf fps=1 /tmp/frames/%03d.png) y revísalos como imágenes.",
+        "audio": "Usa ffprobe para metadatos; transcríbelo solo si hay una herramienta disponible.",
+        "data": "Texto estructurado: léelo directamente (de forma selectiva si es grande).",
+        "archive": "Lista su contenido (unzip -l / tar -tf) antes de extraer; extrae solo en un directorio temporal, nunca en el proyecto.",
+        "other": "Tipo desconocido: identifícalo con `file` antes de leerlo.",
+    },
+    "en": {
+        "spreadsheet": "Excel/ODS: read it with Python (openpyxl or pandas) when available; otherwise the .xlsx is a zip: check xl/sharedStrings.xml and xl/worksheets/*.xml. CSV/TSV are plain text.",
+        "document": "Word/ODT/PowerPoint: python-docx/python-pptx when available; otherwise they are zips (word/document.xml, ppt/slides/*.xml). PDF: pdftotext or pypdf. TXT/MD: plain text.",
+        "video": "Use ffprobe for metadata and ffmpeg to extract frames into a temporary directory (e.g. ffmpeg -i <file> -vf fps=1 /tmp/frames/%03d.png) and review them as images.",
+        "audio": "Use ffprobe for metadata; transcribe it only if a tool is available.",
+        "data": "Structured text: read it directly (selectively when large).",
+        "archive": "List its contents (unzip -l / tar -tf) before extracting; extract only into a temporary directory, never into the project.",
+        "other": "Unknown type: identify it with `file` before reading it.",
+    },
+}
+_ATTACHMENT_CYCLE = {"es": ", ciclo {cycle}", "en": ", cycle {cycle}"}
+
+_ATTACHMENT_LARGE = {
+    "es": "Archivo grande ({size}): no lo leas entero; inspecciónalo por partes (head/tail, lectura por bloques, ffprobe, unzip -l) y extrae solo lo necesario a un directorio temporal.",
+    "en": "Large file ({size}): do not read it whole; inspect it in parts (head/tail, chunked reads, ffprobe, unzip -l) and extract only what you need into a temporary directory.",
+}
+
+
+def _attachment_item(task: Task, entry: media.Attachment, lang: str) -> str:
+    """One bullet of the attachments section: name, kind, size, path and hint."""
+    labels = prompt_template(_ATTACHMENT_KIND_LABELS, lang)
+    hints = prompt_template(_ATTACHMENT_HINTS, lang)
+    cycle = (
+        prompt_template(_ATTACHMENT_CYCLE, lang).format(cycle=entry.cycle)
+        if entry.cycle > 1
+        else ""
+    )
+    path = media.attachment_path(task.id, entry.file)
+    first = (
+        f"- **{entry.name or entry.file}** ({labels.get(entry.kind, entry.kind)}, "
+        f"{media.format_size(entry.size)}{cycle}): {path}"
+    )
+    hint = hints.get(entry.kind, "")
+    lines = [first]
+    if hint:
+        lines.append(f"  {hint}")
+    if entry.size >= media.LARGE_ATTACHMENT_BYTES:
+        large = prompt_template(_ATTACHMENT_LARGE, lang).format(size=media.format_size(entry.size))
+        lines.append(f"  {large}")
+    return "\n".join(lines)
+
+
+def _attachments_section(task: Task, lang: str) -> str:
+    """Non-image attachments with their absolute paths and reading hints
+    (images are already listed by the media section)."""
+    entries = [e for e in media.list_attachments(task.id) if e.kind != "image"]
+    if not entries:
         return ""
-    lines = "\n".join(f"- {path}" for path in files)
-    return prompt_template(_MEDIA_SECTION, lang).format(lines=lines)
+    items = "\n".join(_attachment_item(task, e, lang) for e in entries)
+    return prompt_template(_ATTACHMENTS_SECTION, lang).format(
+        directory=paths.task_dir(task.id) / "media", items=items
+    )
+
+
+def _media_section(task: Task, lang: str) -> str:
+    """Attached images (absolute paths so vision-capable CLIs can read them)
+    followed by the other attached reference files."""
+    files = media.list_media(task.id)
+    images = (
+        prompt_template(_MEDIA_SECTION, lang).format(lines="\n".join(f"- {path}" for path in files))
+        if files
+        else ""
+    )
+    return images + _attachments_section(task, lang)
+
+
+_ATTACHMENTS_POINTER = {
+    "es": "- Archivos adjuntos de referencia de la tarea ({count}): {directory} (consúltalos solo si necesitas verificar algo que dependa de ellos)\n",
+    "en": "- Attached reference files of the task ({count}): {directory} (consult them only if you need to verify something that depends on them)\n",
+}
+
+
+def _attachments_pointer(task: Task, lang: str) -> str:
+    """One-line pointer to the attachments (review/fix prompts; empty if none)."""
+    entries = media.list_attachments(task.id)
+    if not entries:
+        return ""
+    return prompt_template(_ATTACHMENTS_POINTER, lang).format(
+        count=len(entries), directory=paths.task_dir(task.id) / "media"
+    )
 
 
 _REMOTE_SECTION = {
@@ -719,7 +830,7 @@ _REVIEW_PROMPT = {
 - Tarea: {name}
 - Proyecto (directorio de trabajo): {workdir}
 - Plan que debía implementarse: {plan_dir} (léelo completo, en orden)
-{remote}
+{attachments}{remote}
 
 # Tu entrega
 1. Inspecciona los cambios realizados en el proyecto (git status / git diff) y
@@ -750,7 +861,7 @@ _REVIEW_PROMPT = {
 - Task: {name}
 - Project (working directory): {workdir}
 - Plan that had to be implemented: {plan_dir} (read it in full, in order)
-{remote}
+{attachments}{remote}
 
 # Your deliverable
 1. Inspect the changes made in the project (git status / git diff) and
@@ -789,6 +900,7 @@ def review_prompt(task: Task, review_number: int) -> str:
         _REVIEW_PROMPT,
         lang,
         **_fields(task, lang),
+        attachments=_attachments_pointer(task, lang),
         remote=_remote_section(task, lang),
         plan_dir=paths.plan_dir(task.id, task.cycle),
         review_path=paths.review_dir(task.id, task.cycle) / f"{review_number:02d}-review.md",
@@ -811,7 +923,7 @@ ha pedido correcciones sobre tu trabajo anterior.
 - Proyecto (directorio de trabajo): {workdir}
 - Plan original: {plan_dir}
 - Revisión con las correcciones pedidas: {review_path}
-{remote}
+{attachments}{remote}
 
 # Tu entrega
 1. Lee la revisión completa.
@@ -834,7 +946,7 @@ has requested corrections on your previous work.
 - Project (working directory): {workdir}
 - Original plan: {plan_dir}
 - Review with the requested corrections: {review_path}
-{remote}
+{attachments}{remote}
 
 # Your deliverable
 1. Read the full review.
@@ -863,6 +975,7 @@ def fix_prompt(task: Task, review_number: int) -> str:
         _FIX_PROMPT,
         lang,
         **_fields(task, lang),
+        attachments=_attachments_pointer(task, lang),
         remote=_remote_section(task, lang),
         plan_dir=paths.plan_dir(task.id, task.cycle),
         review_path=paths.review_dir(task.id, task.cycle) / f"{review_number:02d}-review.md",

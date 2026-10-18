@@ -597,3 +597,26 @@ def test_is_cert_error_detection():
     ))
     assert not api.is_cert_error(urllib.error.URLError("connection refused"))
     assert not api.is_cert_error(TelegramError("boom"))
+
+
+def test_parse_message_document():
+    raw = {
+        "message_id": 1,
+        "chat": {"id": 5, "type": "private"},
+        "document": {"file_id": "d1", "file_name": "a.docx"},
+    }
+    msg = api.parse_message(raw)
+    assert msg.document_file_id == "d1"
+    assert msg.document_name == "a.docx"
+
+
+def test_parse_message_video_and_document_sizes():
+    raw = {
+        "message_id": 1,
+        "chat": {"id": 5, "type": "private"},
+        "video": {"file_id": "v1", "file_size": 123},
+        "document": {"file_id": "d1", "file_name": "a.docx", "file_size": 456},
+    }
+    msg = api.parse_message(raw)
+    assert msg.video_size == 123
+    assert msg.document_size == 456

@@ -25,7 +25,7 @@ info:
     | projects.list       | -                                                | GET /api/v1/projects               |
     | tasks.logs          | `task_id`, `limit?` (1..1000, default 200)      | GET /api/v1/tasks/{id}/logs        |
     | tasks.artifacts     | `task_id`, `kind`, `cycle?` (default 1)         | GET /api/v1/tasks/{id}/artifacts   |
-    | tasks.create        | `name`, `workdir`, `description?`, `automode?`, `parent_id?`, `scheduled_at?`, `origin?`, `profile?`, `attachments?` (optional list of {name, data-base64}, max 10) | POST /api/v1/tasks |
+    | tasks.create        | `name`, `workdir`, `description?`, `automode?`, `parent_id?`, `scheduled_at?`, `origin?`, `profile?`, `attachments?` (optional list of {name, data-base64}, max 10; limited by the 1 MiB message cap) | POST /api/v1/tasks |
     | tasks.start         | `task_id`                                        | POST /api/v1/tasks/{id}/start      |
     | tasks.resume        | `task_id` (FAILED only)                          | POST /api/v1/tasks/{id}/resume     |
     | tasks.restart       | `task_id`                                        | POST /api/v1/tasks/{id}/restart    |
@@ -40,7 +40,10 @@ info:
     | tasks.edit          | `task_id`, `name?`, `description?`, `parent_id?` | POST /api/v1/tasks/{id}/edit       |
     | tasks.roles         | `task_id`, `roles?`, `profile?`                  | POST /api/v1/tasks/{id}/roles      |
     | tasks.artifact      | `task_id`, `kind`, `path`                        | GET /api/v1/tasks/{id}/artifact    |
-    | tasks.media         | `task_id`, `name` (result: `{name, mime, data}` base64) | GET /api/v1/tasks/{id}/media |
+    | tasks.media         | `task_id`, `name` (result: `{name, mime, data}` base64; files above 16 MiB return a 413 error: use GET /api/v1/tasks/{id}/media) | GET /api/v1/tasks/{id}/media |
+    | tasks.attachments   | `task_id`                                        | GET /api/v1/tasks/{id}/attachments |
+    | tasks.attach        | `task_id`, `attachments` (base64; 1 MiB per WS message, for larger files use the REST raw upload) | POST /api/v1/tasks/{id}/attachments |
+    | tasks.detach        | `task_id`, `file`                                | DELETE /api/v1/tasks/{id}/attachments |
     | options.get         | -                                                | GET /api/v1/options                |
     | models.list         | `refresh?`                                       | GET /api/v1/models                 |
     | fs.dirs             | `path?`                                          | GET /api/v1/fs/dirs                |
@@ -136,6 +139,9 @@ components:
         - tasks.roles
         - tasks.artifact
         - tasks.media
+        - tasks.attachments
+        - tasks.attach
+        - tasks.detach
         - options.get
         - models.list
         - fs.dirs

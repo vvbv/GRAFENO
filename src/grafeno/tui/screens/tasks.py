@@ -33,6 +33,7 @@ from ...pipeline.hooks import HOOK_STAGES, format_stages
 from ...timefmt import format_duration
 from ...tokenfmt import format_tokens
 from ..dirpicker import DirectoryPicker
+from ..attachform import AttachmentsForm
 from ..refform import ReferencesForm
 from ..widgets import GrafenoHeader, LocationBar, MediaTextArea
 # Screen modules are imported eagerly (not lazily inside actions) so a pipx
@@ -130,6 +131,8 @@ class NewTaskScreen(ModalScreen[Task | None]):
             yield Label(t("nt.refs.task"))
             yield Static(t("refs.warning"))
             yield ReferencesForm(id="nt-refs")
+            yield Label(t("media.attachments"))
+            yield AttachmentsForm(id="nt-attachments")
             with Horizontal(id="nt-buttons"):
                 yield Button(t("common.create"), variant="primary", id="nt-create")
                 yield Button(t("common.cancel"), id="nt-cancel")
@@ -306,6 +309,13 @@ class NewTaskScreen(ModalScreen[Task | None]):
         desc_area = self.query_one("#nt-description", MediaTextArea)
         if desc_area.pending:
             media.save_pending(task.id, desc_area.pending)
+        saved, failed = self.query_one("#nt-attachments", AttachmentsForm).save_into(
+            task.id, origin="tui", cycle=task.cycle
+        )
+        for name in failed:
+            self.notify(t("media.att.save_failed", name=name), severity="warning")
+        if saved:
+            self.notify(t("media.att.saved", count=saved))
         self.dismiss(task)
 
 
