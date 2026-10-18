@@ -69,8 +69,17 @@ async def _status(service: "ServerService", request: Request, params: dict[str, 
 # ---------------------------------------------------------------------- #
 @route("GET", "/api/v1/tasks")
 async def _tasks_list(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
-    state = request.query.get("state") or None
-    return actions.list_tasks(service, state=state)
+    query = request.query
+    return actions.list_tasks(
+        service,
+        state=query.get("state") or None,
+        workdir=query.get("workdir") or None,
+        project=query.get("project") or None,
+        sort=query.get("sort") or None,
+        order=query.get("order") or None,
+        limit=_query_int(request, "limit", None),
+        offset=_query_int(request, "offset", 0),
+    )
 
 
 @route("GET", "/api/v1/tasks/{task_id}")
@@ -344,7 +353,7 @@ async def _session_reopen(service: "ServerService", request: Request, params: di
 # ---------------------------------------------------------------------- #
 # Helpers
 # ---------------------------------------------------------------------- #
-def _query_int(request: Request, name: str, default: int) -> int:
+def _query_int(request: Request, name: str, default: int | None) -> int | None:
     raw = request.query.get(name)
     if raw in (None, ""):
         return default

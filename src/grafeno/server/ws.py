@@ -302,7 +302,27 @@ async def _status_method(service: "ServerService", params: dict, conn: "WsConnec
 
 
 async def _tasks_list(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    return actions.list_tasks(service, state=params.get("state") or None)
+    def text(field: str) -> str | None:
+        value = params.get(field)
+        if field == "state" and isinstance(value, list):
+            value = ",".join(map(str, value))
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str):
+            raise actions.ApiError(400, f"{field} must be a string")
+        return value
+
+    limit = params.get("limit")
+    return actions.list_tasks(
+        service,
+        state=text("state"),
+        workdir=text("workdir"),
+        project=text("project"),
+        sort=text("sort"),
+        order=text("order"),
+        limit=None if limit in (None, "") else _parse_int(limit, 0, field="limit"),
+        offset=_parse_int(params.get("offset"), 0, field="offset"),
+    )
 
 
 async def _tasks_get(service: "ServerService", params: dict, conn: "WsConnection") -> dict:

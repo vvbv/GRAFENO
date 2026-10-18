@@ -79,6 +79,17 @@ def _live(service: "ServerService", task: Task) -> Task:
     return task
 
 
+def task_completed_at(task: Task) -> str:
+    """When the task last reached DONE (local ISO), best effort.
+
+    ``last_completed_at`` is exact; tasks finished before it was stamped on
+    every completion fall back to ``updated_at`` while they are DONE.
+    """
+    if task.last_completed_at:
+        return task.last_completed_at
+    return task.updated_at if task.state is TaskState.DONE else ""
+
+
 def task_summary(task: Task, running: bool = False) -> dict:
     """Slim task payload for list endpoints and WS events."""
     total_in, total_out = task.token_totals()
@@ -107,6 +118,7 @@ def task_summary(task: Task, running: bool = False) -> dict:
         "duration_seconds": task.total_duration_seconds(),
         "created_at": task.created_at,
         "updated_at": task.updated_at,
+        "completed_at": task_completed_at(task),
     }
 
 
@@ -134,29 +146,114 @@ def list_task_attachments(service: "ServerService", task_id: str) -> dict:
     return {"attachments": [_attachment_payload(task_id, a) for a in media.list_attachments(task_id)]}
 
 
-def list_tasks(service: "ServerService", state: str | None = None) -> dict:
-    """List tasks, optionally filtered by state.
+TASK_SORTS = ("tree", "created", "updated", "completed")
+TASK_ORDERS = ("desc", "asc")
+TASKS_LIMIT_MAX = 1000
 
-    Tasks come in chain order (each child right after its parent, with its
-    ``depth``), like the TUI list. ``done_hidden_ids`` are the finished
-    tasks the "hide completed" filter may hide without breaking a chain.
+
+def _parse_states(raw: str | None) -> set[TaskState] | None:
+    """``None`` = no filter; comma separated values, unknown -> 400."""
+    if not raw:
+        return None
+    wanted: set[TaskState] = set()
+    for part in raw.split(","):
+        value = part.strip()
+        if not value:
+            continue
+        try:
+            wanted.add(TaskState(value))
+        except ValueError as exc:
+            raise ApiError(400, f"unknown state: {value}") from exc
+    return wanted or None
+
+
+def _norm_dir(path: str) -> str:
+    """Comparable form of a workdir (expanded, normalized, no trailing slash)."""
+    return os.path.normpath(os.path.expanduser(path.strip()))
+
+
+def _task_sort_key(task: Task, sort: str) -> str:
+    if sort == "created":
+        return task.created_at
+    if sort == "updated":
+        return task.updated_at
+    return task_completed_at(task)
+
+
+def _sorted_flat(tasks: list[Task], sort: str, order: str) -> list[Task]:
+    """Flat list sorted by ``sort``; tasks without that timestamp go last."""
+    keyed = [(_task_sort_key(task, sort), task) for task in tasks]
+    dated = [(key, task) for key, task in keyed if key]
+    undated = [task for key, task in keyed if not key]
+    dated.sort(key=lambda pair: (pair[0], pair[1].id), reverse=order == "desc")
+    return [task for _, task in dated] + undated
+
+
+def list_tasks(
+    service: "ServerService",
+    state: str | None = None,
+    *,
+    workdir: str | None = None,
+    project: str | None = None,
+    sort: str | None = None,
+    order: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> dict:
+    """List tasks with optional filters, ordering and pagination.
+
+    ``state`` is one state or a comma separated list; ``workdir`` is an exact
+    folder and ``project`` a case-insensitive folder name. ``sort=tree`` (the
+    default) keeps the chain order with ``depth``; ``created``/``updated``/
+    ``completed`` give a flat list (depth 0) ordered by ``order``, tasks
+    without that timestamp last. ``limit``/``offset`` page the filtered result
+    and ``total``/``has_more`` describe it. ``done_hidden_ids`` are the
+    finished tasks the "hide completed" filter may hide without breaking a
+    chain; they are computed over every task, never over the page.
     """
+    sort = sort or "tree"
+    if sort not in TASK_SORTS:
+        raise ApiError(400, f"unknown sort: {sort}")
+    order = order or "desc"
+    if order not in TASK_ORDERS:
+        raise ApiError(400, f"unknown order: {order}")
+    if limit is not None and not 1 <= limit <= TASKS_LIMIT_MAX:
+        raise ApiError(400, f"limit must be between 1 and {TASKS_LIMIT_MAX}")
+    if offset < 0:
+        raise ApiError(400, "offset must be >= 0")
+    wanted = _parse_states(state)
+
     all_tasks = [_live(service, task) for task in models.list_all()]
     tasks = all_tasks
-    if state:
-        try:
-            wanted = TaskState(state)
-        except ValueError as exc:
-            raise ApiError(400, f"unknown state: {state}") from exc
-        tasks = [task for task in tasks if task.state is wanted]
+    if wanted is not None:
+        tasks = [task for task in tasks if task.state in wanted]
+    if workdir and workdir.strip():
+        target = _norm_dir(workdir)
+        tasks = [task for task in tasks if task.workdir and _norm_dir(task.workdir) == target]
+    if project and project.strip():
+        name = project.strip().casefold()
+        tasks = [
+            task for task in tasks
+            if task.workdir and Path(task.workdir.rstrip("/\\")).name.casefold() == name
+        ]
+    if sort == "tree":
+        ordered = list(scheduler.tree_order(tasks))
+    else:
+        ordered = [(task, 0) for task in _sorted_flat(tasks, sort, order)]
+    total = len(ordered)
+    page = ordered[offset:] if limit is None else ordered[offset:offset + limit]
     items = []
-    for task, depth in scheduler.tree_order(tasks):
+    for task, depth in page:
         item = task_summary(task, running=_is_running(service, task.id))
         item["depth"] = depth
         items.append(item)
     return {
         "tasks": items,
         "done_hidden_ids": sorted(scheduler.done_hidden_ids(all_tasks)),
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(items) < total,
     }
 
 
@@ -1144,6 +1241,7 @@ def mark_done(service: "ServerService", task_id: str) -> dict:
     task = _load_or_404(task_id)
     _ensure_idle(service, task)
     task.state = TaskState.DONE
+    models.mark_completed(task)
     models.save(task)
     runtime = _runtime_of(service, task.id)
     if runtime is not None:

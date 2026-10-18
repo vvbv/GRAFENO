@@ -1048,6 +1048,8 @@ class TaskDetailScreen(Screen[None]):
             if not accepted:
                 return
             self.current_task.state = state
+            if state is TaskState.DONE:
+                models.mark_completed(self.current_task)
             models.save(self.current_task)
             self.runtime.task = self.current_task
             self._state_changed(self.current_task)

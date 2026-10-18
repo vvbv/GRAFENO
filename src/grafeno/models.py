@@ -398,6 +398,11 @@ class Task:
 
 
 # ---------------------------------------------------------------------- #
+def mark_completed(task: Task) -> None:
+    """Stamp ``last_completed_at`` with the current local time (task reached DONE)."""
+    task.last_completed_at = datetime.now().isoformat(timespec="seconds")
+
+
 def save(task: Task) -> None:
     task.updated_at = datetime.now().isoformat(timespec="seconds")
     base = paths.task_dir(task.id)

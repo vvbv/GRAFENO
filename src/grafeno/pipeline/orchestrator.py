@@ -86,6 +86,8 @@ class Orchestrator:
 
     def _set_state(self, state: TaskState) -> None:
         self.task.state = state
+        if state is TaskState.DONE:
+            models.mark_completed(self.task)
         models.save(self.task)
         self._on_state(self.task)
 
