@@ -149,6 +149,7 @@ class CliSessionsScreen(Screen[None]):
         self._sessions: list[CliSession] = []
         self._selected: str | None = None
         self._shown_entries = 0  # transcript entries already written to the log
+        self._placeholder_shown = False  # the empty-transcript notice is in the log
 
     # ------------------------------------------------------------ layout #
     def compose(self) -> ComposeResult:
@@ -238,6 +239,7 @@ class CliSessionsScreen(Screen[None]):
         self._selected = session_id
         self.query_one("#cs-log", RichLog).clear()
         self._shown_entries = 0
+        self._placeholder_shown = False
         self._append_new_entries()
         self._render_head()
         self._render_controls()
@@ -263,11 +265,15 @@ class CliSessionsScreen(Screen[None]):
             return
         entries, total = clisessions.load_transcript(self._selected, after=self._shown_entries)
         log = self.query_one("#cs-log", RichLog)
+        if entries and self._placeholder_shown:
+            log.clear()  # first real entries replace the notice
+            self._placeholder_shown = False
         for entry in entries:
             log.write(self._entry_text(entry))
-        if total == 0 and self._shown_entries == 0:
-            log.write(Text(t("cs.empty.transcript"), style="dim"))
-            self._shown_entries = 0
+        if total == 0:
+            if not self._placeholder_shown:
+                log.write(Text(t("cs.empty.transcript"), style="dim"))
+                self._placeholder_shown = True
             return
         self._shown_entries = total
 
@@ -275,7 +281,9 @@ class CliSessionsScreen(Screen[None]):
         head = self.query_one("#cs-head", Static)
         session = self._current()
         if session is None:
-            head.update(t("cs.empty") if not self._sessions else t("cs.select"))
+            head.update(
+                t("cs.empty.all" if self._workdir is None else "cs.empty") if not self._sessions else t("cs.select")
+            )
             return
         tokens = f"{format_tokens(session.tokens_in)}/{format_tokens(session.tokens_out)}"
         head.update(" - ".join((
@@ -315,6 +323,7 @@ class CliSessionsScreen(Screen[None]):
                 if session.id == self._selected:
                     self._selected = None
                     self.query_one("#cs-log", RichLog).clear()
+                    self._placeholder_shown = False
                 self._reload()
                 self._render_head()
                 self._render_controls()
@@ -432,7 +441,8 @@ class CliSessionsScreen(Screen[None]):
 
         def confirmed(ok: bool | None) -> None:
             if ok:
-                self.run_worker(self._manager.delete(session_id), exit_on_error=False)
+                # App-level worker: deletion must finish even if the user leaves the screen.
+                self.app.run_worker(self._manager.delete(session_id), exit_on_error=False)
                 self.notify(t("cs.deleted"))
 
         self.app.push_screen(

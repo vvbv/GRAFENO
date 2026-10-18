@@ -164,6 +164,8 @@ def test_cli_sessions_tab_and_project_action():
     assert 'api("GET", "/api/v1/sessions' in script
     assert 'topics: ["tasks", "sessions"]' in script
     assert "innerHTML" not in script
+    # The composer is built once; session changes only toggle `disabled`.
+    assert "updateComposer()" in script and "renderComposer" not in script
 
 
 def test_working_directories_use_the_list_editor():

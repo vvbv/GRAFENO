@@ -96,7 +96,9 @@ def test_open_sessions_from_project_actions_and_create(tmp_path, monkeypatch):
             kinds = {e["kind"] for e in clisessions.load_transcript(sessions[0].id)[0]}
             assert {"user", "text"} <= kinds
             await pilot.pause(0.2)
-            assert len(app.screen.query_one("#cs-log", RichLog).lines) > 0
+            log_text = "\n".join(line.text for line in app.screen.query_one("#cs-log", RichLog).lines)
+            assert "> hola" in log_text
+            assert "No messages yet" not in log_text
 
             await pilot.click("#cs-toggle")
             await pilot.pause()
@@ -123,5 +125,28 @@ def test_sessions_key_from_task_list_opens_all_sessions(tmp_path, monkeypatch):
             await _wait_for(pilot, app, CliSessionsScreen)
             assert isinstance(app.screen, CliSessionsScreen)
             assert app.screen._workdir is None
+
+    asyncio.run(scenario())
+
+
+def test_empty_notice_is_not_duplicated_and_all_view_text(tmp_path, monkeypatch):
+    project = _setup(tmp_path, monkeypatch)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(140, 45)) as pilot:
+            await pilot.pause()
+            await pilot.press("s")
+            await _wait_for(pilot, app, CliSessionsScreen)
+            assert "Open a project" in str(app.screen.query_one("#cs-head").render())
+            session = app.cli_sessions.create(str(project), "claude")
+            await pilot.pause(0.2)
+            for _ in range(3):
+                app.cli_sessions.rename(session.id, "x")
+                app.cli_sessions.close(session.id)
+                app.cli_sessions.reopen(session.id)
+            await pilot.pause(0.2)
+            text = "\n".join(line.text for line in app.screen.query_one("#cs-log", RichLog).lines)
+            assert text.count("No messages yet") == 1
 
     asyncio.run(scenario())

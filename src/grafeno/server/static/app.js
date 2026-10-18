@@ -1665,7 +1665,10 @@ const projectsView = {
 const sessionsView = {
   workdir: "", sessionId: "", data: null, entries: [], total: 0, session: null,
   timers: [], polling: false, onLive: null, onKey: null, box: null, headNode: null, composer: null,
+  mountSeq: 0, deleting: false,
   mount(params) {
+    this.mountSeq += 1;  // invalidates async work started by a previous mount
+    this.deleting = false;
     this.workdir = (params && params[0]) || "";
     this.sessionId = (params && params[1]) || "";
     this.data = null; this.entries = []; this.total = 0; this.session = null;
@@ -1676,6 +1679,7 @@ const sessionsView = {
     if (this.sessionId) this.openChat(); else this.loadList();
   },
   unmount() {
+    this.mountSeq += 1;
     this.timers.forEach(clearInterval);
     this.timers = [];
     if (this.onLive) { live.sessionListeners.delete(this.onLive); this.onLive = null; }
@@ -1686,10 +1690,12 @@ const sessionsView = {
     else if (this.workdir) location.hash = "#/projects";
   },
   async loadList() {
+    const token = this.mountSeq;
     $("main").replaceChildren(h("div", { class: "page" }, h("div", { class: "empty", text: tr("web.ui.loading") })));
     try {
       this.data = await api("GET", "/api/v1/sessions" + (this.workdir ? "?workdir=" + enc(this.workdir) : ""));
     } catch (err) { fail(err); return; }
+    if (token !== this.mountSeq) return;
     this.renderList();
     if (!this.onLive) {
       this.onLive = debounce(() => {
@@ -1776,8 +1782,10 @@ const sessionsView = {
   },
   async openChat() {
     $("main").replaceChildren(h("div", { class: "page" }, h("div", { class: "empty", text: tr("web.ui.loading") })));
+    const token = this.mountSeq;
     let data;
-    try { data = await api("GET", sessionPath(this.sessionId, "/transcript")); } catch (err) { fail(err); this.back(); return; }
+    try { data = await api("GET", sessionPath(this.sessionId, "/transcript")); } catch (err) { if (token === this.mountSeq) { fail(err); this.back(); } return; }
+    if (token !== this.mountSeq) return;
     this.session = data.session;
     this.entries = data.entries || [];
     this.total = data.total || 0;
@@ -1787,14 +1795,18 @@ const sessionsView = {
     $("main").replaceChildren(h("div", { class: "cs-chat" }, this.headNode, this.box,
       h("div", { class: "cs-hint", id: "cs-hint" }), this.composer));
     this.renderHead();
-    this.renderComposer();
+    this.buildComposer();
     this.box.replaceChildren();
     if (!this.entries.length) this.box.appendChild(h("div", { class: "empty", text: tr("cs.empty.transcript") }));
     this.appendEntries(this.entries);
     this.box.scrollTop = this.box.scrollHeight;
     this.timers.push(setInterval(() => this.poll(), 1500));
     this.onLive = (event) => {
-      if (event.session_id === this.sessionId) { toast(tr("cs.deleted")); this.back(); return; }
+      if (event.session_id === this.sessionId) {
+        if (!this.deleting) toast(tr("cs.deleted"));  // remove() shows its own toast
+        this.back();
+        return;
+      }
       if (event.session && event.session.id === this.sessionId) this.poll();
     };
     live.sessionListeners.add(this.onLive);
@@ -1819,16 +1831,21 @@ const sessionsView = {
     const hint = $("cs-hint");
     if (hint) hint.textContent = closed ? tr("cs.closed_notice") : tr("cs.hint.auto", { workdir: item.workdir });
   },
-  renderComposer() {
-    const item = this.session;
-    const closed = item.state === "closed";
-    const prompt = h("textarea", { placeholder: tr("cs.prompt.placeholder_web"), disabled: closed });
+  buildComposer() {
+    // Created once per chat: later session changes only toggle `disabled`, so a draft survives.
+    const prompt = h("textarea", { placeholder: tr("cs.prompt.placeholder_web") });
     prompt.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); this.send(); }
     });
     this.prompt = prompt;
-    this.sendButton = h("button", { type: "button", class: "primary", text: tr("cs.send"), disabled: closed || item.running, onclick: () => this.send() });
+    this.sendButton = h("button", { type: "button", class: "primary", text: tr("cs.send"), onclick: () => this.send() });
     this.composer.replaceChildren(prompt, this.sendButton);
+    this.updateComposer();
+  },
+  updateComposer() {
+    const item = this.session;
+    this.prompt.disabled = item.state === "closed";
+    this.sendButton.disabled = item.state === "closed" || item.running;
   },
   appendEntries(list) {
     if (!list.length) return;
@@ -1853,7 +1870,7 @@ const sessionsView = {
       this.total = data.total;
       const changed = JSON.stringify(data.session) !== JSON.stringify(this.session);
       this.session = data.session;
-      if (changed) { this.renderHead(); this.renderComposer(); }
+      if (changed) { this.renderHead(); this.updateComposer(); }
     } catch (err) { if (err && err.status === 404) this.back(); }
     finally { this.polling = false; }
   },
@@ -1871,7 +1888,7 @@ const sessionsView = {
       const data = await api("POST", sessionPath(this.sessionId, "/" + name));
       this.session = data.session;
       this.renderHead();
-      this.renderComposer();
+      this.updateComposer();
     } catch (err) { fail(err); }
   },
   async rename() {
@@ -1892,11 +1909,12 @@ const sessionsView = {
   async remove() {
     const ok = await confirmDialog(tr("cs.delete"), tr("cs.delete.confirm", { name: this.session.name }), "", tr("cs.delete"), true);
     if (!ok) return;
+    this.deleting = true;
     try {
       await api("DELETE", sessionPath(this.sessionId));
       toast(tr("cs.deleted"));
       this.back();
-    } catch (err) { fail(err); }
+    } catch (err) { this.deleting = false; fail(err); }
   },
 };
 

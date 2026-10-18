@@ -170,8 +170,8 @@ def list_all(workdir: str = "") -> list[CliSession]:
             continue
         try:
             session = load(folder.name)
-        except (OSError, tomllib.TOMLDecodeError):
-            continue  # corrupt or half-written session: skipped
+        except (OSError, ValueError):
+            continue  # corrupt, binary or half-written session: skipped (TOMLDecodeError and UnicodeDecodeError are ValueErrors)
         if target and _same_dir(session.workdir) != target:
             continue
         sessions.append(session)

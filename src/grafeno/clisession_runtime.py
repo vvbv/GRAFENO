@@ -109,9 +109,14 @@ class CliSessionManager:
         self._entry(session, "user", prompt)
         self._live[session.id] = session
         self._finished[session.id] = asyncio.Event()
-        self._handles[session.id] = self._spawn(
-            self._run_turn(session, prompt), f"grafeno-cli-session-{session.id}"
-        )
+        coro = self._run_turn(session, prompt)
+        try:
+            self._handles[session.id] = self._spawn(coro, f"grafeno-cli-session-{session.id}")
+        except Exception:
+            coro.close()  # never awaited
+            self._live.pop(session.id, None)
+            self._finished.pop(session.id, None)
+            raise
         self._emit("changed", session)
         return session
 
@@ -189,7 +194,8 @@ class CliSessionManager:
         tokens = TokenUsage()
         try:
             self._entry(session, "info", t(
-                "cs.turn.start", n=turn, agent=cli_model_label(session.cli, session.model)
+                "cs.turn.start", n=turn,
+                agent=cli_model_label(session.cli, session.model) if session.model else session.cli,
             ))
             driver = self._driver_factory(session.cli)
             if not driver.is_available():

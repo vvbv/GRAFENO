@@ -54,7 +54,7 @@ def _load_or_404(service: "ServerService", session_id: str) -> CliSession:
     manager = _manager(service)
     try:
         return manager.get(session_id) if manager else clisessions.load(session_id)
-    except (FileNotFoundError, OSError) as exc:
+    except (FileNotFoundError, OSError, ValueError) as exc:  # ValueError: corrupt session.toml
         raise ApiError(404, "session not found") from exc
 
 
