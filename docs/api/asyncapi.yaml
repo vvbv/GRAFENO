@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: GRAFENO Remote WebSocket API
-  version: 1.3.0
+  version: 1.4.0
   description: |
     Bidirectional JSON-RPC channel exposed on `/api/v1/ws` (implemented by
     hand on RFC 6455, see `src/grafeno/server/ws.py`). The HTTP GET upgrade
@@ -20,7 +20,7 @@ info:
     methods mirror the REST endpoints one to one:
     | Method              | Params                                           | REST equivalent                    |
     | status              | -                                                | GET /api/v1/status                 |
-    | tasks.list          | `state?`                                         | GET /api/v1/tasks                  |
+    | tasks.list          | `state?`, `workdir?`, `project?`, `sort?`, ...    | GET /api/v1/tasks                  |
     | tasks.get           | `task_id`                                        | GET /api/v1/tasks/{id}             |
     | projects.list       | -                                                | GET /api/v1/projects               |
     | tasks.logs          | `task_id`, `limit?` (1..1000, default 200)      | GET /api/v1/tasks/{id}/logs        |
@@ -264,6 +264,15 @@ components:
             method: tasks.list
             params:
               state: done
+        - name: tasks.list (last completed of a project)
+          payload:
+            id: 3
+            method: tasks.list
+            params:
+              state: done
+              project: GRAFENO
+              sort: completed
+              limit: 3
     Result:
       name: Result
       title: JSON-RPC success response

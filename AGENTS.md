@@ -224,7 +224,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   separada que sigue funcionando como canal alternativo). Tokens también por
   env `GRAFENO_API_TOKEN` (prioridad al env). El router se compila al importar
   con `re.fullmatch` y soporta placeholders genéricos `{nombre}` (`{task_id}`, `{session_id}`). Acciones REST
-  bajo `/api/v1`: status, sessions (sesiones CLI directas, ver su viñeta), tasks (GET/POST con todas las opciones del
+  bajo `/api/v1`: status, sessions (sesiones CLI directas, ver su viñeta), tasks (`GET` acepta filtros `state` (lista separada por comas), `workdir`, `project`, orden `sort` (tree/created/updated/completed) + `order` y paginación `limit`/`offset` con `total`/`has_more` en la respuesta; cada item lleva `completed_at` (de `last_completed_at`, que se sella al llegar a DONE); guía en `docs/api/tasks-list.md`; GET/POST con todas las opciones del
   formulario de la TUI y `attachments?` opcional base64
   máx. 10: los adjuntos de audio por nombre de archivo (`AUDIO_SUFFIXES`:
   ogg/oga/opus/mp3/wav/m4a/flac) se transcriben además con el proveedor STT

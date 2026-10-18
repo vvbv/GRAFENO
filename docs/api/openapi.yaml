@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GRAFENO Remote API
-  version: 1.4.0
+  version: 1.5.0
   summary: REST API of the GRAFENO remote server (optional token authentication).
   description: |
     REST control API exposed by the GRAFENO TUI while it is running
@@ -63,10 +63,16 @@ paths:
   /api/v1/tasks:
     get:
       tags: [tasks]
-      summary: List tasks, optionally filtered by state.
+      summary: List tasks with optional filters, ordering and pagination.
       operationId: listTasks
       parameters:
-        - $ref: "#/components/parameters/StateQuery"
+        - $ref: "#/components/parameters/TasksStateQuery"
+        - $ref: "#/components/parameters/WorkdirQuery"
+        - $ref: "#/components/parameters/ProjectQuery"
+        - $ref: "#/components/parameters/TasksSortQuery"
+        - $ref: "#/components/parameters/TasksOrderQuery"
+        - $ref: "#/components/parameters/TasksLimitQuery"
+        - $ref: "#/components/parameters/TasksOffsetQuery"
       responses:
         "200":
           description: Tasks wrapped under the `tasks` key.
@@ -75,7 +81,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/TaskListResponse"
         "400":
-          description: Unknown `state` value.
+          description: Unknown state, sort or order; limit/offset out of range or not integers.
           content:
             application/json:
               schema:
@@ -1246,13 +1252,63 @@ components:
       description: Task identifier, e.g. `20260905-101126-slug`.
       schema:
         type: string
-    StateQuery:
+    TasksStateQuery:
       name: state
       in: query
       required: false
-      description: Optional state filter.
+      description: State filter; one state or a comma separated list (e.g. `done,discarded`).
       schema:
-        $ref: "#/components/schemas/TaskState"
+        type: string
+    WorkdirQuery:
+      name: workdir
+      in: query
+      required: false
+      description: Absolute project folder; exact match after normalization (no trailing slash).
+      schema:
+        type: string
+    ProjectQuery:
+      name: project
+      in: query
+      required: false
+      description: Project folder name; case-insensitive match against the last segment of the task workdir.
+      schema:
+        type: string
+    TasksSortQuery:
+      name: sort
+      in: query
+      required: false
+      description: "`tree` keeps the chain order; the others return a flat list sorted by that timestamp."
+      schema:
+        type: string
+        enum: [tree, created, updated, completed]
+        default: tree
+    TasksOrderQuery:
+      name: order
+      in: query
+      required: false
+      description: Sort direction; ignored with `sort=tree`.
+      schema:
+        type: string
+        enum: [desc, asc]
+        default: desc
+    TasksLimitQuery:
+      name: limit
+      in: query
+      required: false
+      description: Page size (1..1000); omitted = every matching task.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+    TasksOffsetQuery:
+      name: offset
+      in: query
+      required: false
+      description: Number of matching tasks to skip.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
     LimitQuery:
       name: limit
       in: query
@@ -1437,6 +1493,9 @@ components:
         duration_seconds: {type: integer}
         created_at: {type: string}
         updated_at: {type: string}
+        completed_at:
+          type: string
+          description: Local ISO time the task last reached DONE (`last_completed_at`); falls back to `updated_at` for DONE tasks completed before it was recorded; empty otherwise.
         depth:
           type: integer
           description: Chain depth in the list endpoint (children follow their parent).
@@ -1703,9 +1762,21 @@ components:
       properties:
         tasks:
           type: array
-          description: Chain order (each child right after its parent, see `depth`).
+          description: Chain order by default (see `depth`); flat list (depth 0) when `sort` is not `tree`. Only the requested page.
           items:
             $ref: "#/components/schemas/TaskSummary"
+        total:
+          type: integer
+          description: Number of tasks after filtering and before paging.
+        offset:
+          type: integer
+          description: Offset applied to the filtered, sorted result.
+        limit:
+          type: [integer, "null"]
+          description: Page size applied, or null when every task is returned.
+        has_more:
+          type: boolean
+          description: True when more matching tasks exist after this page.
         done_hidden_ids:
           type: array
           description: Finished tasks that can be hidden without breaking a chain.
