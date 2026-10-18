@@ -151,6 +151,21 @@ def test_projects_tab_and_preset_new_task_route():
     assert "build(options, tasks, preset)" in script
 
 
+def test_cli_sessions_tab_and_project_action():
+    """The panel has a CLI sessions tab, reachable from the project actions."""
+    from importlib import resources
+
+    static = resources.files("grafeno.server").joinpath("static")
+    html = static.joinpath("index.html").read_text(encoding="utf-8")
+    script = static.joinpath("app.js").read_text(encoding="utf-8")
+    assert 'href="#/sessions" data-route="sessions" id="nav-sessions"' in html
+    assert "sessions: sessionsView" in script
+    assert '"#/sessions/" + enc(item.workdir)' in script
+    assert 'api("GET", "/api/v1/sessions' in script
+    assert 'topics: ["tasks", "sessions"]' in script
+    assert "innerHTML" not in script
+
+
 def test_working_directories_use_the_list_editor():
     """Settings edit the working directories as a list with directory suggestions."""
     from importlib import resources

@@ -505,3 +505,66 @@ ConsoleView RichLog {
 #ws-empty {
     color: #8b949e;
 }
+
+/* ---- CLI sessions ---- */
+#cs-subtitle {
+    height: auto;
+    padding: 0 1;
+    color: #8b949e;
+}
+
+#cs-body {
+    height: 1fr;
+}
+
+#cs-left {
+    width: 40%;
+    min-width: 36;
+}
+
+#cs-table {
+    height: 1fr;
+}
+
+#cs-left-buttons {
+    height: auto;
+}
+
+#cs-right {
+    width: 1fr;
+    padding: 0 1;
+}
+
+#cs-head {
+    height: auto;
+    text-style: bold;
+    color: #7ee787;
+}
+
+#cs-log {
+    height: 1fr;
+    border: round #30363d;
+}
+
+#cs-hint {
+    height: auto;
+    color: #8b949e;
+}
+
+#cs-compose {
+    height: auto;
+}
+
+#cs-input {
+    width: 1fr;
+}
+
+#cs-new-dialog {
+    background: #161b22;
+    border: round #7ee787;
+    padding: 1 2;
+    width: 100;
+    height: auto;
+    max-height: 90%;
+    margin: 2 4;
+}

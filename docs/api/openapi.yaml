@@ -29,6 +29,8 @@ tags:
     description: Server metadata.
   - name: tasks
     description: Task lifecycle, logs and artifacts.
+  - name: sessions
+    description: Direct CLI sessions - conversations with an agent CLI in a project folder, outside the task pipeline.
   - name: projects
     description: Projects - task workdirs and folders of the working directories, with task counts.
   - name: audio
@@ -947,6 +949,246 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/sessions:
+    get:
+      tags: [sessions]
+      summary: List direct CLI sessions (optionally of one project).
+      operationId: listSessions
+      parameters:
+        - name: workdir
+          in: query
+          required: false
+          description: Only sessions of this project folder.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Sessions, offered CLIs and availability.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliSessionListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [sessions]
+      summary: Create a direct CLI session (and optionally send the first prompt).
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CliSessionCreateRequest"
+      responses:
+        "201":
+          description: Session created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliSessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/sessions/{session_id}:
+    get:
+      tags: [sessions]
+      summary: Session summary.
+      operationId: getSession
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Session wrapped under the `session` key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliSessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [sessions]
+      summary: Cancel a running turn and delete the session with its history.
+      operationId: deleteSession
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/sessions/{session_id}/transcript:
+    get:
+      tags: [sessions]
+      summary: Transcript entries after a sequence number.
+      operationId: getSessionTranscript
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - name: after
+          in: query
+          required: false
+          description: Return entries with `seq` greater than this value.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          required: false
+          description: Keep only the last N entries of the result (0 = all, max 2000).
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Entries, total count and running flag.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliSessionTranscriptResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/sessions/{session_id}/send:
+    post:
+      tags: [sessions]
+      summary: Send a prompt (runs one agent turn resuming the native CLI session).
+      operationId: sendSessionPrompt
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CliSessionSendRequest"
+      responses:
+        "200":
+          description: Updated session wrapped under the `session` key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliSessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/sessions/{session_id}/cancel:
+    post:
+      tags: [sessions]
+      summary: Cancel the running turn.
+      operationId: cancelSessionTurn
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Updated session wrapped under the `session` key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliSessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/sessions/{session_id}/edit:
+    post:
+      tags: [sessions]
+      summary: Rename the session.
+      operationId: editSession
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CliSessionEditRequest"
+      responses:
+        "200":
+          description: Updated session wrapped under the `session` key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliSessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/sessions/{session_id}/close:
+    post:
+      tags: [sessions]
+      summary: Close the session (rejected while a turn runs).
+      operationId: closeSession
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Updated session wrapped under the `session` key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliSessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/sessions/{session_id}/reopen:
+    post:
+      tags: [sessions]
+      summary: Reopen a closed session.
+      operationId: reopenSession
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Updated session wrapped under the `session` key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliSessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
 components:
   responses:
     BadRequest:
@@ -990,6 +1232,13 @@ components:
       name: token
       description: Same optional token passed as a query parameter (browser/websocket friendly); only enforced when tokens are configured.
   parameters:
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      description: Direct CLI session identifier, e.g. `20261018-101500-a1b2c3`.
+      schema:
+        type: string
     TaskId:
       name: task_id
       in: path
@@ -1032,6 +1281,98 @@ components:
         minimum: 1
         default: 1
   schemas:
+    OkResponse:
+      type: object
+      properties:
+        ok: {type: boolean}
+      required: [ok]
+    CliSessionSummary:
+      type: object
+      description: Summary of a direct CLI session; `running` is in-memory state of the current turn.
+      properties:
+        id: {type: string}
+        name: {type: string}
+        workdir: {type: string}
+        project_name: {type: string}
+        cli: {type: string, enum: [claude, opencode]}
+        model: {type: string}
+        effort: {type: string}
+        cli_session_id: {type: string, description: Native session id of the CLI (resume key).}
+        state: {type: string, enum: [active, closed]}
+        running: {type: boolean}
+        turns: {type: integer}
+        last_prompt: {type: string}
+        last_error: {type: string}
+        tokens:
+          type: object
+          properties:
+            input: {type: integer}
+            output: {type: integer}
+        seconds: {type: integer}
+        created_at: {type: string}
+        updated_at: {type: string}
+      required: [id, name, workdir, cli, state, running, turns]
+    CliSessionResponse:
+      type: object
+      properties:
+        session:
+          $ref: "#/components/schemas/CliSessionSummary"
+      required: [session]
+    CliSessionListResponse:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CliSessionSummary"
+        clis:
+          type: array
+          items: {type: string}
+        available:
+          type: boolean
+          description: False in remote session mode.
+      required: [sessions, clis, available]
+    CliSessionCreateRequest:
+      type: object
+      properties:
+        workdir: {type: string, description: Absolute local project folder.}
+        cli: {type: string, enum: [claude, opencode], default: claude}
+        model: {type: string}
+        effort: {type: string}
+        name: {type: string}
+        prompt: {type: string, description: Optional first prompt sent right after creation.}
+      required: [workdir]
+    CliSessionSendRequest:
+      type: object
+      properties:
+        prompt: {type: string}
+      required: [prompt]
+    CliSessionEditRequest:
+      type: object
+      properties:
+        name: {type: string}
+      required: [name]
+    CliSessionTranscriptEntry:
+      type: object
+      properties:
+        seq: {type: integer, description: Global 1-based index of the entry.}
+        turn: {type: integer}
+        kind: {type: string, enum: [user, text, tool, info, error]}
+        text: {type: string}
+        ts: {type: string}
+      required: [seq, turn, kind, text]
+    CliSessionTranscriptResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/CliSessionTranscriptEntry"
+        total: {type: integer}
+        running: {type: boolean}
+        session:
+          $ref: "#/components/schemas/CliSessionSummary"
+      required: [entries, total, running, session]
     Error:
       type: object
       properties:
@@ -1581,6 +1922,9 @@ components:
           type: array
           items: {type: string}
         known_clis:
+          type: array
+          items: {type: string}
+        session_clis:
           type: array
           items: {type: string}
         available_clis:

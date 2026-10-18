@@ -73,6 +73,42 @@ def record_tokens(
     ))
 
 
+SESSION_PHASE = "session"  # phase of the records of direct CLI sessions
+
+
+def record_session(
+    project: str, cli: str, model: str, tokens_in: int, tokens_out: int, seconds: int
+) -> None:
+    """Append the usage of one direct CLI session turn (never raises).
+
+    ``task_id`` stays empty: sessions add tokens and time to the project
+    without counting as tasks in the reports.
+    """
+    if tokens_in > 0 or tokens_out > 0:
+        _append(UsageRecord(
+            date=_today(),
+            task_id="",
+            task_name="",
+            project=project,
+            cli=cli,
+            model=model or DEFAULT_MODEL_LABEL,
+            phase=SESSION_PHASE,
+            tokens_in=max(0, tokens_in),
+            tokens_out=max(0, tokens_out),
+        ))
+    if seconds > 0:
+        _append(UsageRecord(
+            date=_today(),
+            task_id="",
+            task_name="",
+            project=project,
+            cli="",
+            model="",
+            phase=SESSION_PHASE,
+            seconds=seconds,
+        ))
+
+
 def record_duration(task: Task, phase: str, seconds: int) -> None:
     """Append a dated duration record. Never raises: the pipeline must not break."""
     if seconds <= 0:

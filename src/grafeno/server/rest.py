@@ -2,8 +2,8 @@
 
 Routes are precompiled into ``re.Pattern`` objects at import time so the
 runtime dispatch is a flat ``fullmatch`` per request, O(1) per pattern.
-``{task_id}`` placeholders are translated to ``[^/]+`` and the captured
-group becomes ``request.task_id``.
+Generic ``{name}`` placeholders (``{task_id}``, ``{session_id}``) are
+translated to a named ``[^/]+`` group whose value lands in ``params``.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
-from . import actions, settings
+from . import actions, clisessions, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -30,19 +30,18 @@ class _Route:
 
 
 _ROUTES: list[_Route] = []
+_PLACEHOLDER = re.compile(r"\\\{(\w+)\\\}")  # an escaped "{name}" inside re.escape(path)
 
 
 def route(method: str, path: str) -> Callable[[REST_HANDLER], REST_HANDLER]:
     """Decorator that registers a REST handler at ``method path``.
 
-    Path may include ``{task_id}`` which becomes a captured group; the
-    captured value lands in the ``params`` dict passed to the handler.
+    Path may include ``{name}`` placeholders which become named groups; the
+    captured values land in the ``params`` dict passed to the handler.
     """
 
     def decorator(handler: REST_HANDLER) -> REST_HANDLER:
-        regex = re.compile(
-            re.escape(path).replace(r"\{task_id\}", r"(?P<task_id>[^/]+)") + "$"
-        )
+        regex = re.compile(_PLACEHOLDER.sub(r"(?P<\1>[^/]+)", re.escape(path)) + "$")
         _ROUTES.append(_Route(method=method, pattern=regex, handler=handler))
         return handler
 
@@ -286,8 +285,75 @@ async def _task_extend(service: "ServerService", request: Request, params: dict[
 
 
 # ---------------------------------------------------------------------- #
+# Direct CLI sessions
+# ---------------------------------------------------------------------- #
+@route("GET", "/api/v1/sessions")
+async def _sessions_list(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return clisessions.list_sessions(service, workdir=request.query.get("workdir") or "")
+
+
+@route("POST", "/api/v1/sessions")
+async def _sessions_create(service: "ServerService", request: Request, params: dict[str, str]) -> Response:
+    status, body = clisessions.create_session(service, parse_json_body(request))
+    return Response.json(status, body)
+
+
+@route("GET", "/api/v1/sessions/{session_id}")
+async def _session_get(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return clisessions.get_session(service, params["session_id"])
+
+
+@route("DELETE", "/api/v1/sessions/{session_id}")
+async def _session_delete(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await clisessions.delete_session(service, params["session_id"])
+
+
+@route("GET", "/api/v1/sessions/{session_id}/transcript")
+async def _session_transcript(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    after = _query_int(request, "after", 0)
+    limit = _query_int(request, "limit", 0)
+    return clisessions.get_transcript(service, params["session_id"], after=after, limit=limit)
+
+
+@route("POST", "/api/v1/sessions/{session_id}/send")
+async def _session_send(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    payload = parse_json_body(request)
+    return clisessions.send_prompt(service, params["session_id"], str(payload.get("prompt") or ""))
+
+
+@route("POST", "/api/v1/sessions/{session_id}/cancel")
+async def _session_cancel(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return clisessions.cancel_session(service, params["session_id"])
+
+
+@route("POST", "/api/v1/sessions/{session_id}/edit")
+async def _session_edit(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return clisessions.edit_session(service, params["session_id"], parse_json_body(request))
+
+
+@route("POST", "/api/v1/sessions/{session_id}/close")
+async def _session_close(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return clisessions.close_session(service, params["session_id"])
+
+
+@route("POST", "/api/v1/sessions/{session_id}/reopen")
+async def _session_reopen(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return clisessions.reopen_session(service, params["session_id"])
+
+
+# ---------------------------------------------------------------------- #
 # Helpers
 # ---------------------------------------------------------------------- #
+def _query_int(request: Request, name: str, default: int) -> int:
+    raw = request.query.get(name)
+    if raw in (None, ""):
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise actions.ApiError(400, f"{name} must be an integer") from exc
+
+
 def _match(request: Request) -> tuple[Optional[REST_HANDLER], dict[str, str]]:
     for route in _ROUTES:
         if route.method != request.method:

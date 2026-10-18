@@ -1493,3 +1493,31 @@ def test_driver_detect_usage_wait_delegates():
     assert driver.detect_usage_wait("syntax error") is None
     assert driver.detect_usage_wait("429 Too Many Requests") == 0.0
     assert driver.detect_usage_wait("rate limit, retry after 30 seconds") == 30.0
+
+
+def test_run_on_session_called_once_per_new_session_id(tmp_path):
+    """``on_session`` fires when the native session id first appears, not per line."""
+    import sys
+
+    class FakeSession(CLIDriver):
+        name = "fake"
+        display_name = "Fake"
+        executable = sys.executable
+
+        def stdin_prompt(self):
+            return False
+
+        def build_command(self, request: RunRequest) -> list[str]:
+            code = "print('{\"session_id\": \"s-1\"}'); print('{\"session_id\": \"s-1\"}')"
+            return [sys.executable, "-c", code]
+
+        def decode_event(self, payload):
+            return None, payload.get("session_id")
+
+    seen: list[str] = []
+    result = asyncio.run(
+        FakeSession().run(_request(workdir=tmp_path), on_session=seen.append)
+    )
+    assert result.ok, result.error
+    assert seen == ["s-1"]
+    assert result.session_id == "s-1"

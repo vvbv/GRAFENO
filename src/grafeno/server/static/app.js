@@ -267,7 +267,18 @@ async function api(method, path, body) {
   return data;
 }
 const enc = encodeURIComponent;
+// CSS class of a log line from its Rich style (task log tab).
+function logStyleClass(style) {
+  if (/red/.test(style)) return "l-err";
+  if (/magenta/.test(style)) return "l-info";
+  if (/cyan/.test(style)) return "l-tool";
+  if (/dim/.test(style)) return "l-dim";
+  return "";
+}
+// CSS class of a CLI session transcript entry by kind.
+const SESSION_KIND_CLASS = { text: "", tool: "l-tool", info: "l-dim", error: "l-err" };
 const taskPath = (id, rest) => "/api/v1/tasks/" + enc(id) + (rest || "");
+const sessionPath = (id, rest) => "/api/v1/sessions/" + enc(id) + (rest || "");
 
 // ---------------------------------------------------------------- dialogs
 // Generic modal: build(form, close) fills the form; resolves with the value
@@ -440,6 +451,7 @@ const live = {
   ws: null,
   ok: false,
   listeners: new Set(),
+  sessionListeners: new Set(),  // CLI session events (session.changed / session.deleted)
   connect() {
     if (this.ws) { const old = this.ws; this.ws = null; try { old.close(); } catch (e) { /* closed */ } }
     const scheme = location.protocol === "https:" ? "wss://" : "ws://";
@@ -448,7 +460,7 @@ const live = {
     try { socket = new WebSocket(scheme + location.host + "/api/v1/ws" + query); } catch (e) { return; }
     this.ws = socket;
     socket.onopen = () => {
-      socket.send(JSON.stringify({ id: 1, method: "subscribe", params: { topics: ["tasks"] } }));
+      socket.send(JSON.stringify({ id: 1, method: "subscribe", params: { topics: ["tasks", "sessions"] } }));
       this.ok = true;
       setStatus("live");
     };
@@ -456,6 +468,7 @@ const live = {
       let data;
       try { data = JSON.parse(message.data); } catch (e) { return; }
       if (data.event === "task.changed" && data.task) this.listeners.forEach((fn) => fn(data.task));
+      if (data.event === "session.changed" || data.event === "session.deleted") this.sessionListeners.forEach((fn) => fn(data));
     };
     socket.onclose = () => {
       if (this.ws !== socket) return;
@@ -472,9 +485,9 @@ const live = {
 function rolesEditor(initial, opts) {
   opts = opts || {};
   const roleList = opts.roles || ROLES;
-  const known = (store.options && store.options.known_clis) || ["opencode", "kimi", "codex", "claude", "cursor", "minimax"];
+  const known = opts.clis || (store.options && store.options.known_clis) || ["opencode", "kimi", "codex", "claude", "cursor", "minimax"];
   const values = {};
-  for (const role of roleList) values[role] = Object.assign({ cli: "opencode", model: "", effort: "" }, (initial || {})[role]);
+  for (const role of roleList) values[role] = Object.assign({ cli: opts.clis ? known[0] : "opencode", model: "", effort: "" }, (initial || {})[role]);
   const status = h("div", { class: "help", text: tr("cfg.models.loading") });
   const grid = h("div", { class: "role-grid" },
     h("span", { class: "hdr", text: tr("web.ui.col_role") }), h("span", { class: "hdr", text: "CLI" }),
@@ -1531,14 +1544,7 @@ const tasksView = {
     this.lastLogKey = key;
     const stick = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
     if (!entries.length) { body.replaceChildren(h("div", { class: "empty", text: tr("web.ui.no_log") })); return; }
-    const styleClass = (style) => {
-      if (/red/.test(style)) return "l-err";
-      if (/magenta/.test(style)) return "l-info";
-      if (/cyan/.test(style)) return "l-tool";
-      if (/dim/.test(style)) return "l-dim";
-      return "";
-    };
-    const log = h("div", { class: "log" }, entries.map((entry) => h("div", { class: styleClass(entry.style), text: entry.text })));
+    const log = h("div", { class: "log" }, entries.map((entry) => h("div", { class: logStyleClass(entry.style), text: entry.text })));
     body.replaceChildren(h("div", { class: "toolbar" }, tr("web.ui.log_lines", { count: entries.length }),
       h("button", { class: "small", text: tr("web.ui.refresh"), onclick: () => this.logTab(true) })), log);
     if (stick || full) body.scrollTop = body.scrollHeight;
@@ -1644,10 +1650,253 @@ const projectsView = {
         h("div", { class: "detail mono", text: item.workdir }),
         h("div", { class: "buttons" },
           h("button", { type: "button", text: tr("common.cancel"), onclick: () => close(undefined) }),
+          h("button", { type: "button", text: tr("cs.open"), onclick: () => close("sessions") }),
           h("button", { type: "submit", class: "primary", autofocus: true, text: tr("projects.action.new_task"),
             onclick: () => close("new") })));
     });
     if (choice === "new") location.hash = "#/new/" + enc(item.workdir);
+    if (choice === "sessions") location.hash = "#/sessions/" + enc(item.workdir);
+  },
+};
+
+// ---------------------------------------------------------------- CLI sessions view
+// #/sessions -> every session; #/sessions/<folder> -> the sessions of a project;
+// #/sessions/<folder>/<id> -> the conversation. Everything goes through /api/v1/sessions.
+const sessionsView = {
+  workdir: "", sessionId: "", data: null, entries: [], total: 0, session: null,
+  timers: [], polling: false, onLive: null, onKey: null, box: null, headNode: null, composer: null,
+  mount(params) {
+    this.workdir = (params && params[0]) || "";
+    this.sessionId = (params && params[1]) || "";
+    this.data = null; this.entries = []; this.total = 0; this.session = null;
+    this.onKey = (event) => {
+      if (event.key === "Escape" && !document.querySelector("dialog[open], .lightbox")) this.back();
+    };
+    document.addEventListener("keydown", this.onKey);
+    if (this.sessionId) this.openChat(); else this.loadList();
+  },
+  unmount() {
+    this.timers.forEach(clearInterval);
+    this.timers = [];
+    if (this.onLive) { live.sessionListeners.delete(this.onLive); this.onLive = null; }
+    if (this.onKey) { document.removeEventListener("keydown", this.onKey); this.onKey = null; }
+  },
+  back() {
+    if (this.sessionId) location.hash = "#/sessions/" + enc(this.workdir);
+    else if (this.workdir) location.hash = "#/projects";
+  },
+  async loadList() {
+    $("main").replaceChildren(h("div", { class: "page" }, h("div", { class: "empty", text: tr("web.ui.loading") })));
+    try {
+      this.data = await api("GET", "/api/v1/sessions" + (this.workdir ? "?workdir=" + enc(this.workdir) : ""));
+    } catch (err) { fail(err); return; }
+    this.renderList();
+    if (!this.onLive) {
+      this.onLive = debounce(() => {
+        if (this.sessionId) return;
+        api("GET", "/api/v1/sessions" + (this.workdir ? "?workdir=" + enc(this.workdir) : ""))
+          .then((data) => { this.data = data; this.renderList(); }).catch(fail);
+      }, 300);
+      live.sessionListeners.add(this.onLive);
+    }
+  },
+  renderList() {
+    const data = this.data;
+    const sessions = data.sessions || [];
+    const title = this.workdir ? tr("cs.title.project", { name: this.workdir.split("/").filter(Boolean).pop() || this.workdir }) : tr("cs.title");
+    const toolbar = h("div", { class: "toolbar" },
+      this.workdir ? h("button", { type: "button", class: "small", text: tr("common.back"), onclick: () => this.back() }) : null,
+      data.available === false ? null : h("button", { type: "button", class: "primary small", text: tr("cs.new"), onclick: () => this.newSession() }),
+      h("button", { type: "button", class: "small", text: tr("tasks.bind.reload"), onclick: () => this.loadList() }));
+    let body;
+    if (data.available === false) body = h("div", { class: "empty", text: tr("cs.unavailable.remote") });
+    else if (!sessions.length) body = h("div", { class: "empty", text: tr(this.workdir ? "cs.empty" : "cs.empty.all") });
+    else {
+      body = h("div", { class: "card" }, h("div", { class: "table-wrap" }, h("table", { id: "session-table" },
+        h("thead", null, h("tr", null,
+          h("th", { text: tr("cs.col.name") }),
+          this.workdir ? null : h("th", { text: tr("cs.col.project") }),
+          h("th", { text: tr("cs.col.agent") }),
+          h("th", { text: tr("cs.col.state") }),
+          h("th", { class: "num", text: tr("cs.col.turns") }),
+          h("th", { text: tr("cs.col.updated") }))),
+        h("tbody", null, sessions.map((item) => this.row(item))))));
+    }
+    $("main").replaceChildren(h("div", { class: "page" }, h("div", { class: "page-inner" },
+      h("h2", { text: title }), h("p", { class: "subtitle", text: tr("cs.subtitle") }), toolbar, body)));
+  },
+  stateBadge(item) {
+    if (item.running) return h("span", { class: "badge run", text: tr("cs.state.running") });
+    if (item.state === "closed") return h("span", { class: "badge paused", text: tr("cs.state.closed") });
+    return h("span", { class: "badge", text: tr("cs.state.active") });
+  },
+  row(item) {
+    const open = () => { location.hash = "#/sessions/" + enc(item.workdir) + "/" + enc(item.id); };
+    const row = h("tr", { class: "project", tabindex: "0" },
+      h("td", { class: "name", text: item.name }),
+      this.workdir ? null : h("td", { title: item.workdir, text: item.project_name }),
+      h("td", { text: (item.cli + " " + (item.model || "")).trim() }),
+      h("td", null, this.stateBadge(item)),
+      h("td", { class: "num", text: String(item.turns || 0) }),
+      h("td", { text: when(item.updated_at) }));
+    row.addEventListener("click", open);
+    row.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); open(); } });
+    return row;
+  },
+  async newSession() {
+    let options;
+    try { options = await store.getOptions(); } catch (err) { fail(err); return; }
+    const clis = options.session_clis || ["claude", "opencode"];
+    const implementer = options.defaults && options.defaults.roles && options.defaults.roles.implementer;
+    const initial = implementer && clis.includes(implementer.cli) ? implementer : { cli: "claude", model: "", effort: "" };
+    const values = await modal({ title: tr("cs.new.title"), wide: true }, (form, close) => {
+      const folder = h("input", { type: "text", value: this.workdir, readOnly: !!this.workdir, class: "mono" });
+      if (!this.workdir) dirSuggestions(folder);
+      const name = h("input", { type: "text" });
+      const roles = rolesEditor({ session: initial }, { roles: ["session"], labels: { session: tr("cs.role") }, clis });
+      const prompt = h("textarea", { rows: 3 });
+      form.append(
+        h("label", { class: "field" }, h("span", { class: "lbl", text: tr("cs.field.workdir") }), folder),
+        h("label", { class: "field" }, h("span", { class: "lbl", text: tr("cs.field.name") }), name),
+        roles.node,
+        h("label", { class: "field" }, h("span", { class: "lbl", text: tr("cs.field.prompt") }), prompt),
+        h("div", { class: "buttons" },
+          h("button", { type: "button", text: tr("common.cancel"), onclick: () => close(undefined) }),
+          h("button", { type: "submit", class: "primary", text: tr("cs.new"), onclick: () => {
+            const role = roles.values().session;
+            close({ workdir: folder.value.trim(), name: name.value.trim(), cli: role.cli, model: role.model, effort: role.effort, prompt: prompt.value.trim() });
+          } })));
+    });
+    if (!values) return;
+    try {
+      const data = await api("POST", "/api/v1/sessions", values);
+      toast(tr("cs.created"));
+      location.hash = "#/sessions/" + enc(data.session.workdir) + "/" + enc(data.session.id);
+    } catch (err) { fail(err); }
+  },
+  async openChat() {
+    $("main").replaceChildren(h("div", { class: "page" }, h("div", { class: "empty", text: tr("web.ui.loading") })));
+    let data;
+    try { data = await api("GET", sessionPath(this.sessionId, "/transcript")); } catch (err) { fail(err); this.back(); return; }
+    this.session = data.session;
+    this.entries = data.entries || [];
+    this.total = data.total || 0;
+    this.headNode = h("div", { class: "detail-head" });
+    this.box = h("div", { class: "cs-transcript" });
+    this.composer = h("div", { class: "cs-compose" });
+    $("main").replaceChildren(h("div", { class: "cs-chat" }, this.headNode, this.box,
+      h("div", { class: "cs-hint", id: "cs-hint" }), this.composer));
+    this.renderHead();
+    this.renderComposer();
+    this.box.replaceChildren();
+    if (!this.entries.length) this.box.appendChild(h("div", { class: "empty", text: tr("cs.empty.transcript") }));
+    this.appendEntries(this.entries);
+    this.box.scrollTop = this.box.scrollHeight;
+    this.timers.push(setInterval(() => this.poll(), 1500));
+    this.onLive = (event) => {
+      if (event.session_id === this.sessionId) { toast(tr("cs.deleted")); this.back(); return; }
+      if (event.session && event.session.id === this.sessionId) this.poll();
+    };
+    live.sessionListeners.add(this.onLive);
+  },
+  renderHead() {
+    const item = this.session;
+    const tokens = tokenPair(item.tokens.input, item.tokens.output);
+    const running = item.running;
+    const closed = item.state === "closed";
+    const button = (label, cls, fn, disabled) => h("button", { type: "button", class: "small " + cls, text: label, disabled: !!disabled, onclick: fn });
+    this.headNode.replaceChildren(
+      h("button", { type: "button", class: "small", text: tr("common.back"), onclick: () => this.back() }),
+      h("strong", { text: item.name }),
+      h("span", { class: "muted", text: (item.cli + " " + (item.model || "")).trim() }),
+      this.stateBadge(item),
+      h("span", { class: "muted", text: tr("cs.tokens", { tokens, turns: item.turns }) }),
+      h("span", { class: "spacer" }),
+      running ? button(tr("cs.stop"), "", () => this.action("cancel")) : null,
+      button(tr("cs.rename"), "", () => this.rename()),
+      button(tr(closed ? "cs.reopen" : "cs.close"), "", () => this.action(closed ? "reopen" : "close"), running),
+      button(tr("cs.delete"), "danger", () => this.remove()));
+    const hint = $("cs-hint");
+    if (hint) hint.textContent = closed ? tr("cs.closed_notice") : tr("cs.hint.auto", { workdir: item.workdir });
+  },
+  renderComposer() {
+    const item = this.session;
+    const closed = item.state === "closed";
+    const prompt = h("textarea", { placeholder: tr("cs.prompt.placeholder_web"), disabled: closed });
+    prompt.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); this.send(); }
+    });
+    this.prompt = prompt;
+    this.sendButton = h("button", { type: "button", class: "primary", text: tr("cs.send"), disabled: closed || item.running, onclick: () => this.send() });
+    this.composer.replaceChildren(prompt, this.sendButton);
+  },
+  appendEntries(list) {
+    if (!list.length) return;
+    const box = this.box;
+    const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    const placeholder = box.querySelector(".empty");
+    if (placeholder) placeholder.remove();
+    for (const entry of list) box.appendChild(this.entryNode(entry));
+    if (stick) box.scrollTop = box.scrollHeight;
+  },
+  entryNode(entry) {
+    if (entry.kind === "user") return h("div", { class: "cs-user", text: entry.text });
+    if (entry.kind === "text") return h("div", { class: "cs-text" }, renderMarkdown(entry.text));
+    return h("div", { class: "cs-line " + (SESSION_KIND_CLASS[entry.kind] || ""), text: entry.text });
+  },
+  async poll() {
+    if (this.polling || !this.sessionId) return;
+    this.polling = true;
+    try {
+      const data = await api("GET", sessionPath(this.sessionId, "/transcript?after=" + this.total));
+      this.appendEntries(data.entries || []);
+      this.total = data.total;
+      const changed = JSON.stringify(data.session) !== JSON.stringify(this.session);
+      this.session = data.session;
+      if (changed) { this.renderHead(); this.renderComposer(); }
+    } catch (err) { if (err && err.status === 404) this.back(); }
+    finally { this.polling = false; }
+  },
+  async send() {
+    const text = this.prompt.value.trim();
+    if (!text) { toast(tr("cs.error.empty_prompt"), "error"); return; }
+    try {
+      await api("POST", sessionPath(this.sessionId, "/send"), { prompt: text });
+      this.prompt.value = "";
+    } catch (err) { if (err && err.status === 409) toast(err.message, "error"); else fail(err); return; }
+    this.poll();
+  },
+  async action(name) {
+    try {
+      const data = await api("POST", sessionPath(this.sessionId, "/" + name));
+      this.session = data.session;
+      this.renderHead();
+      this.renderComposer();
+    } catch (err) { fail(err); }
+  },
+  async rename() {
+    const name = await modal({ title: tr("cs.rename") }, (form, close) => {
+      const input = h("input", { type: "text", value: this.session.name });
+      form.append(h("label", { class: "field" }, input),
+        h("div", { class: "buttons" },
+          h("button", { type: "button", text: tr("common.cancel"), onclick: () => close(undefined) }),
+          h("button", { type: "submit", class: "primary", text: tr("common.save"), onclick: () => close(input.value.trim()) })));
+    });
+    if (!name) return;
+    try {
+      const data = await api("POST", sessionPath(this.sessionId, "/edit"), { name });
+      this.session = data.session;
+      this.renderHead();
+    } catch (err) { fail(err); }
+  },
+  async remove() {
+    const ok = await confirmDialog(tr("cs.delete"), tr("cs.delete.confirm", { name: this.session.name }), "", tr("cs.delete"), true);
+    if (!ok) return;
+    try {
+      await api("DELETE", sessionPath(this.sessionId));
+      toast(tr("cs.deleted"));
+      this.back();
+    } catch (err) { fail(err); }
   },
 };
 
@@ -2092,7 +2341,7 @@ const settingsView = {
 // ---------------------------------------------------------------- router
 const router = {
   current: null,
-  views: { tasks: tasksView, projects: projectsView, new: newTaskView, reports: reportsView, settings: settingsView },
+  views: { tasks: tasksView, projects: projectsView, sessions: sessionsView, new: newTaskView, reports: reportsView, settings: settingsView },
   parse() {
     const parts = (location.hash.replace(/^#\/?/, "") || "tasks").split("/").map(decodeURIComponent);
     const name = this.views[parts[0]] ? parts[0] : "tasks";
@@ -2140,6 +2389,7 @@ function boot() {
   $("version").textContent = "v" + BOOT.version;
   $("nav-tasks").textContent = tr("web.nav.tasks");
   $("nav-projects").textContent = tr("tasks.bind.projects");
+  $("nav-sessions").textContent = tr("cs.title");
   $("nav-new").textContent = tr("web.nav.new");
   $("nav-reports").textContent = tr("tasks.bind.reports");
   $("nav-settings").textContent = tr("tasks.bind.config");

@@ -97,3 +97,20 @@ def test_rolesform_cli_change_clears_filter(monkeypatch):
             assert filter_input.value == ""
 
     asyncio.run(scenario())
+
+
+def test_rolesform_restricts_offered_clis():
+    from textual.app import App
+
+    class Host(App):
+        def compose(self):
+            yield RolesForm((("session", "cs.role"),), clis=("claude", "opencode"), id="rf")
+
+    async def main():
+        app = Host()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            select = app.query_one("#session-cli", Select)
+            assert [opt[1] for opt in select._options] == ["claude", "opencode"]
+
+    asyncio.run(main())

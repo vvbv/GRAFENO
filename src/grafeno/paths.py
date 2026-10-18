@@ -157,3 +157,15 @@ def consoles_path(workdir: Path | str) -> Path:
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", Path(text).name).strip("-").lower() or "project"
     digest = hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
     return consoles_dir() / f"{slug}-{digest}.toml"
+
+
+def cli_sessions_dir() -> Path:
+    """Direct CLI sessions (outside the task pipeline): one folder per session."""
+    path = home() / "cli-sessions"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def cli_session_dir(session_id: str) -> Path:
+    """Folder of one direct CLI session (created by ``clisessions.save``)."""
+    return cli_sessions_dir() / session_id

@@ -38,6 +38,8 @@ src/grafeno/
 ├── references.py           # Modelo `Reference` y niveles global/proyecto/tarea con `resolve()`
 ├── profiles.py             # Perfiles de procesamiento con nombre: Profile (5 RoleConfig), ~/.grafeno/profiles.toml, find() por nombre y helper roles_summary() (formato compacto cli/model compartido por Profile.summary, /api/v1/options y la línea de ayuda del selector del panel web)
 ├── consoles.py             # Consolas del proyecto: ConsoleSpec (nombre/comando/color), paleta CONSOLE_COLORS y persistencia por proyecto bajo ~/.grafeno/consoles/<slug>-<hash8>.toml (migra el [[consoles]] legacy del .grafeno.toml)
+├── clisessions.py          # Sesiones CLI directas (conversaciones con Claude Code u OpenCode en la carpeta de un proyecto, sin tarea): `CliSession`, `SESSION_CLIS` (único punto para ampliar los CLIs), almacén en `~/.grafeno/cli-sessions/<id>/` (`session.toml`, `transcript.jsonl` best effort, `logs/turn-NNN.jsonl`), ids validados contra path traversal y transcript incremental con `seq` global
+├── clisession_runtime.py   # `CliSessionManager` (vive en `GrafenoApp.cli_sessions`): un turno a la vez por sesión, turnos como workers de la App, listeners (`changed`/`entry`/`deleted`), estado running solo en memoria; usa `CLIDriver.run(on_session=...)` para persistir pronto el id nativo
 ├── remote.py               # Proyectos remotos por SSH: parseo del spec, montaje sshfs bajo ~/.grafeno/mounts/ y espejo de datos de la tarea con rsync (best-effort), sondeo del SO destino (detect_os)
 ├── remotesession.py        # Modo sesión remota (`grafeno [user@]host[:port]`): bootstrap (sondeo de $HOME remoto, mkdir ~/.grafeno, montaje sshfs), activate() exporta GRAFENO_HOME al montaje; spec_for_task/describe_target para el fallback de sesión
 ├── triggers.py             # Tareas trigger: modelo, niveles global/proyecto, fire() y spawn() best-effort
@@ -51,14 +53,15 @@ src/grafeno/
 │   ├── service.py          #   Ciclo de vida: bind, eventos push por sondeo (signature) y registro de conexiones WS; logs a ~/.grafeno/api.log (cap 1 MiB) sin el token
 │   ├── httpcore.py         #   HTTP/1.1 parseo/serialización (límites 32 KiB head/8 MiB body; `body_policy`: rutas de subida autorizadas antes de leer el cuerpo, JSON+base64 hasta el base64 de un archivo de 500 MiB + 1 MiB y cuerpo binario de `POST .../attachments` volcado a `~/.grafeno/uploads/` por bloques hasta 500 MiB; timeout por inactividad de 60 s; 413 si excede, 507 sin espacio, `Expect: 100-continue`; `Response.file` sirve archivos en streaming, keep-alive)
 │   ├── auth.py             #   Bearer/query token; denegar todo cuando no hay tokens
-│   ├── rest.py             #   Router con placeholder {task_id} precompilado (regex fullmatch); dispatch a actions.py
+│   ├── rest.py             #   Router con placeholders genéricos `{nombre}` (`{task_id}`, `{session_id}`) precompilados (regex fullmatch); dispatch a actions.py
 │   ├── actions.py          #   Operaciones compartidas REST/WS (read y write); ApiError(status, message) -> Response
+│   ├── clisessions.py      #   Operaciones REST/WS de las sesiones CLI directas (`session_summary`, crear/enviar/cancelar/renombrar/cerrar/reabrir/eliminar, transcript incremental)
 │   ├── web.py              #   Panel web (`grafeno --web`): prepare() (copia en memoria de ApiConfig, loopback por defecto, token efímero si se expone sin tokens), URLs del panel y render de la página con las cadenas i18n inyectadas
 │   ├── settings.py         #   Operaciones REST/WS de catálogo, reportes y ajustes: opciones del formulario, modelos+variantes (caché 10 min), autocompletado de directorios, issues de gh, reporte de uso y ajustes globales (secretos de solo escritura)
 │   ├── static/             #   Panel web (paquete de datos en pyproject): index.html (shell + JSON de arranque no ejecutable), app.css, app.js (SPA vanilla sin dependencias ni CDN: lista, detalle, nueva tarea, reportes, ajustes)
 │   └── ws.py               #   RFC 6455: handshake (accept key), frames enmascarados de cliente, comandos JSON-RPC {"id","method","params"} y eventos {"event":...,...} con suscripción por topic
 ├── drivers/                # Abstracción de CLIs de agentes
-│   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL; expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
+│   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL (`run` acepta el callback `on_session` con el id nativo de sesión en cuanto aparece); expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
 │   ├── opencode.py, kimi.py, codex.py, claude.py, cursor.py, minimax.py#   Dialectos concretos (opencode detecta la versión mayor con `--version`: en 2.x sin `--dir`/`--variant`, el esfuerzo va como sufijo `#variante` del modelo, el directorio se pasa vía `PWD` con `run_env()` y las variantes salen de `opencode api model.list`; minimax = MiniMax Code, ejecutable `mcode`; el esfuerzo se mapea a la variante de thinking como sufijo `#variante` del modelo)
 │   └── __init__.py         #   Registro: get_driver(), available_clis(), fetch_all_models(), fetch_all_variants()
 ├── pipeline/
@@ -71,13 +74,14 @@ src/grafeno/
     ├── runtime.py          # TaskRuntime: ejecución en segundo plano por tarea (workers Textual); notifica a la App cuando una ejecución termina en DONE (gancho de encadenamiento/repetición)
     ├── console_pty.py      #   Proceso shell sobre PTY (POSIX): start/read/write/interrupt/close, sin shell=True; lectura no bloqueante; eco del kernel desactivado (la pantalla ecoa localmente)
     ├── dirpicker.py        # Autocompletado de rutas (formulario de nueva tarea y directorios de trabajo); placeholder y suggest_empty opcionales; include_files sugiere también archivos
-    ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol; incluye filtro de texto sobre el selector de modelos; parametrizable (lista de roles, opción CLI heredada y CLI de respaldo; lo usa también el intérprete de Telegram)
+    ├── rolesform.py        # Formulario reutilizable CLI+modelo por rol; incluye filtro de texto sobre el selector de modelos; parametrizable (lista de roles, opción CLI heredada, CLI de respaldo y lista restringida de CLIs `clis`; lo usan también el intérprete de Telegram y el formulario de sesiones CLI)
     ├── profilesform.py     # Editor reutilizable de perfiles de procesamiento (tabla + alta/edición vía ProfileEditScreen)
     ├── attachform.py       # Editor reutilizable de adjuntos (rutas locales con autocompletado de archivos; copia a media/ al crear la tarea o al pedir más)
     ├── refform.py          # Editor reutilizable de referencias (tabla + añadir/borrar)
     ├── trigform.py         # Editor reutilizable de triggers globales (tabla + añadir/borrar)
     ├── workspacesform.py   # Editor reutilizable de directorios de trabajo (tabla con nº de proyectos o "no encontrada" + DirectoryPicker con autocompletado; Enter o Añadir agrega, Eliminar seleccionada o Supr quita; normaliza y deduplica)
     ├── widgets.py          # Widgets comunes (cabecera GrafenoHeader con reloj fecha/hora (refresco alineado al cambio de minuto, sin segundos), LocationBar con la ruta actual y la de la tarea + distintivo SSH, barra de fases, helpers Markdown, MediaTextArea que guarda imágenes pegadas e inserta tokens media/media-NN.png)
+    ├── screens/clisessions.py#   Pantalla de sesiones CLI (`CliSessionsScreen`: lista + conversación en vivo; `NewCliSessionScreen`): se abre desde Proyectos (botón "CLI sessions" o `s`) o desde la lista de tareas (`s`, todas las sesiones)
     └── screens/            # tasks (lista con filtros combinables: ámbito proyecto/todas con `v`, estado todas/sin completadas/solo completadas en ciclo con `h`, y fecha de creación con input YYYY-MM-DD + botón Hoy/Todas las fechas (toggle: aplica el día actual o quita el filtro activo), tecla `d`), detail (detalle+acciones: `u` reanuda una tarea FAILED reusando artefactos, `c` continúa una tarea fallida o interrumpida (estado transitorio huérfano) desde la fase donde paró vía `run_continue`, `R` reinicia desde cero borrandolos), config (ConfigScreen(section="workspaces") abre desplazada a los directorios de trabajo), roles, profileedit (modal nombre + RolesForm, clon de roles.py), consoles (tabs de shells del proyecto), reports (reporte de uso: tokens/modelos/tiempo/proyectos por día, semana, mes o rango; atajo `i` desde la lista), projects (pantalla Proyectos: subcarpetas de los directorios de trabajo con nº de tareas y filtro de texto; tecla `p` o botón Proyectos desde la lista; Enter/clic abre el modal ProjectActionsScreen -> "Nueva tarea en este proyecto", `n` atajo directo, `w` abre la configuración en los directorios de trabajo; se cierra con dismiss(carpeta) y la lista abre NewTaskScreen(workdir) con la ruta predefinida)
 tests/                      # pytest; conftest aísla GRAFENO_HOME e idioma por test
 docs/screenshot.png         # captura de la lista de tareas usada en el README
@@ -85,7 +89,7 @@ install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), v
 ```
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
-`task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `attachments.toml`, `logs/live.jsonl`, `logs/*.jsonl`;
+`task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `attachments.toml`, `logs/live.jsonl`, `logs/*.jsonl`; `cli-sessions/<id>/` con `session.toml`, `transcript.jsonl` y `logs/turn-NNN.jsonl`;
 además `config.toml`, `references.toml`, `triggers.toml`, `profiles.toml` (con backup rotativo `profiles.toml.bak` best-effort en cada guardado), `consoles/`,
 `mounts/`, `telegram-state.toml`, `api.log`); no
 en el repo.
@@ -219,8 +223,8 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   este servidor, independiente de la del bot de Telegram (integración
   separada que sigue funcionando como canal alternativo). Tokens también por
   env `GRAFENO_API_TOKEN` (prioridad al env). El router se compila al importar
-  con `re.fullmatch` y soporta `{task_id}` como placeholder. Acciones REST
-  bajo `/api/v1`: status, tasks (GET/POST con todas las opciones del
+  con `re.fullmatch` y soporta placeholders genéricos `{nombre}` (`{task_id}`, `{session_id}`). Acciones REST
+  bajo `/api/v1`: status, sessions (sesiones CLI directas, ver su viñeta), tasks (GET/POST con todas las opciones del
   formulario de la TUI y `attachments?` opcional base64
   máx. 10: los adjuntos de audio por nombre de archivo (`AUDIO_SUFFIXES`:
   ogg/oga/opus/mp3/wav/m4a/flac) se transcriben además con el proveedor STT
@@ -536,6 +540,24 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   sobre bugs o revisiones, qué lo estaba causando y cuál fue la solución;
   si el agente no lo genera, el orquestador escribe un fallback mínimo
   (best effort, con cabeceras en español como changes.md).
+- **Sesiones CLI directas**: conversaciones con Claude Code u OpenCode abiertas
+  en la carpeta de un proyecto, SIN crear una tarea del pipeline (`clisessions.py`
+  + `clisession_runtime.py`). No usan PTY: cada turno ejecuta el CLI en modo no
+  interactivo (`CLIDriver.run` con `RunRequest.session_id` = id nativo del CLI,
+  `--resume`/`--session`), de modo que el contexto se conserva entre turnos;
+  `on_session` persiste pronto el id nativo (sobrevive a una cancelación). Un
+  turno a la vez por sesión (varias sesiones, también del mismo proyecto, en
+  paralelo); el estado running vive solo en memoria (en disco solo
+  `active`/`closed`). Se gestionan en la TUI (Proyectos -> "CLI sessions" o `s`;
+  `s` en la lista de tareas abre todas), en el panel web
+  (`#/sessions[/<carpeta>[/<id>]]`, polling del transcript cada 1.5 s) y por API:
+  rutas `/api/v1/sessions...`, métodos WS `sessions.*` y topic `sessions` con los
+  eventos `session.changed`/`session.deleted` (las entradas del transcript se
+  consultan con `after`). `SESSION_CLIS` es el único punto para añadir CLIs.
+  Quedan deshabilitadas en modo sesión remota y para proyectos SSH. El uso se
+  registra en `usage.toml` con fase `session` y `task_id` vacío (suma tokens y
+  tiempo al proyecto sin contar como tarea). Las herramientas se ejecutan
+  autoaprobadas, igual que en el pipeline.
 - **Consolas por proyecto**: la lista de tareas (botón/tecla `k`) y el
   detalle de cada tarea (`k`) abren la pantalla de consolas del proyecto
   (en remotas, sobre el montaje sshfs vía `remote.effective_workdir`).

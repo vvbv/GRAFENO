@@ -23,13 +23,15 @@ from ... import models, remotesession
 from ... import workspaces as workspaces_module
 from ...i18n import t
 from ..widgets import GrafenoHeader, LocationBar
+from .clisessions import CliSessionsScreen
 from .config import ConfigScreen
 
 NEW_TASK = "new_task"  # ProjectActionsScreen result: create a task in the project
+SESSIONS = "sessions"  # ProjectActionsScreen result: open the CLI sessions of the project
 
 
 class ProjectActionsScreen(ModalScreen[str | None]):
-    """Actions offered for one project (for now: create a task in it)."""
+    """Actions offered for one project: create a task in it or open its CLI sessions."""
 
     BINDINGS = [Binding("escape", "cancel", t("common.cancel"))]
 
@@ -47,6 +49,7 @@ class ProjectActionsScreen(ModalScreen[str | None]):
             yield Static(str(self._project.path), classes="pc-detail", markup=False)
             with Horizontal(id="pa-buttons"):
                 yield Button(t("projects.action.new_task"), variant="primary", id="pa-new-task")
+                yield Button(t("cs.open"), id="pa-sessions")
                 yield Button(t("common.cancel"), id="pa-cancel")
 
     def on_mount(self) -> None:
@@ -54,7 +57,8 @@ class ProjectActionsScreen(ModalScreen[str | None]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        self.dismiss(NEW_TASK if event.button.id == "pa-new-task" else None)
+        actions = {"pa-new-task": NEW_TASK, "pa-sessions": SESSIONS}
+        self.dismiss(actions.get(event.button.id or ""))
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -70,6 +74,7 @@ class ProjectsScreen(Screen[str | None]):
     BINDINGS = [
         Binding("escape", "back", t("common.back")),
         Binding("n", "new_task", t("tasks.bind.new")),
+        Binding("s", "sessions", t("cs.bind.sessions")),
         Binding("f", "focus_filter", t("projects.bind.filter")),
         Binding("w", "workspaces", t("projects.bind.workspaces")),
         Binding("r", "reload", t("tasks.bind.reload")),
@@ -198,6 +203,8 @@ class ProjectsScreen(Screen[str | None]):
         def chosen(action: str | None) -> None:
             if action == NEW_TASK:
                 self.dismiss(str(project.path))
+            elif action == SESSIONS:
+                self.app.push_screen(CliSessionsScreen(str(project.path)))
 
         self.app.push_screen(ProjectActionsScreen(project), chosen)
 
@@ -207,6 +214,12 @@ class ProjectsScreen(Screen[str | None]):
         project = self._highlighted()
         if project is not None:
             self.dismiss(str(project.path))
+
+    def action_sessions(self) -> None:
+        """Shortcut: CLI sessions of the highlighted project."""
+        project = self._highlighted()
+        if project is not None:
+            self.app.push_screen(CliSessionsScreen(str(project.path)))
 
     def action_focus_filter(self) -> None:
         self.query_one("#projects-filter", Input).focus()

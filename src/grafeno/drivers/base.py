@@ -452,7 +452,9 @@ class CLIDriver:
         request: RunRequest,
         on_event: EventCallback | None = None,
         on_activity: Callable[[], None] | None = None,
+        on_session: Callable[[str], None] | None = None,
     ) -> RunResult:
+        """Run the CLI; ``on_session`` receives each new native session id as soon as it appears."""
         command = self.resolve_command(self.build_command(request))
         log_handle = request.log_path.open("a", encoding="utf-8") if request.log_path else None
         text_parts: list[str] = []
@@ -504,8 +506,10 @@ class CLIDriver:
                     decoded, found_session, usage = self.decode_line(line)
                 except Exception:  # noqa: BLE001 - a driver decode bug never aborts the run
                     continue  # the raw line is already in the phase JSONL log
-                if found_session:
+                if found_session and found_session != session_id:
                     session_id = found_session
+                    if on_session:
+                        on_session(found_session)  # persisted early: survives a cancel
                 if usage:
                     tokens.add(usage)
                 events = decoded if isinstance(decoded, list) else (

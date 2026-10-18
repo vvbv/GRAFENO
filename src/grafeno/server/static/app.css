@@ -322,3 +322,18 @@ dialog .detail { font-size: 13px; color: var(--muted); white-space: pre-line; }
 .media-upload { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 
 .upload-progress { margin-top: 4px; }
+
+/* CLI sessions */
+.cs-chat { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.cs-chat .detail-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.cs-chat .detail-head .spacer { flex: 1; }
+.cs-transcript { flex: 1; overflow: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+.cs-user { align-self: flex-end; max-width: 80%; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
+.cs-text { max-width: 92%; }
+.cs-line { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
+.cs-line.l-err { color: var(--danger); font-weight: 600; }
+.cs-line.l-tool { color: #1b8ba0; }
+.cs-line.l-dim { color: var(--muted); }
+.cs-compose { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--panel); }
+.cs-compose textarea { flex: 1; min-height: 60px; }
+.cs-hint { padding: 4px 16px; color: var(--muted); font-size: 12px; }

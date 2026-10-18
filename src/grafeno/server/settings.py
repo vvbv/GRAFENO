@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .. import config as config_module
+from ..clisessions import SESSION_CLIS
 from .. import editor as editor_module
 from .. import gh as gh_module
 from .. import paths
@@ -85,6 +86,7 @@ def form_options(service: "ServerService") -> dict:
         "profiles": [_profile_dict(profile) for profile in profiles_module.load_global()],
         "hook_stages": list(HOOK_STAGES),
         "known_clis": list(KNOWN_CLIS),
+        "session_clis": list(SESSION_CLIS),
         "available_clis": available_clis(),
         "session": {
             "active": remotesession.active(),

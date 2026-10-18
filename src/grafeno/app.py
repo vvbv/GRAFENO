@@ -16,6 +16,7 @@ from textual.reactive import Reactive
 
 from . import __version__, models, paths, remotesession, scheduler
 from .i18n import t
+from .clisession_runtime import CliSessionManager
 from .models import Task, TaskState
 from .tui.runtime import TaskRuntime
 
@@ -67,6 +68,8 @@ class GrafenoApp(App):
         self.api_config = api_config
         # Background task runtimes: they survive navigation.
         self.runtimes: dict[str, TaskRuntime] = {}
+        # Direct CLI sessions (outside the pipeline): turns survive navigation.
+        self.cli_sessions = CliSessionManager(spawn=self._spawn_session_turn)
         # Telegram bot service (None when disabled or misconfigured).
         self.telegram: TelegramService | None = None
         # REST + WebSocket server (None when disabled).
@@ -126,6 +129,10 @@ class GrafenoApp(App):
         if cfg.theme != theme_name:
             cfg.theme = theme_name
             config_module.save(cfg)
+
+    def _spawn_session_turn(self, coro, group: str):
+        """Run a CLI session turn as an App worker (cancelled on exit)."""
+        return self.run_worker(coro, group=group, exclusive=False, exit_on_error=False)
 
     def runtime_for(self, task: Task) -> TaskRuntime:
         """Return (or create) the runtime for a task, refreshing its state."""

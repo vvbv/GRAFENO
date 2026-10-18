@@ -1,7 +1,8 @@
 """Reusable pipeline roles form (CLI + model + effort per role).
 
 Used by the global settings screen, the per-task settings modal and the
-Telegram parser row (a parametrized form with one custom role).
+Telegram parser row and the CLI session form (parametrized forms with one
+custom role and, optionally, a restricted list of CLIs).
 The model and variant loading is done by the container (screen), which
 calls ``set_models`` and ``set_variants`` when ``fetch_all_models`` and
 ``fetch_all_variants`` finish.
@@ -45,14 +46,22 @@ def filter_models(models: list[str], query: str) -> list[str]:
 class RoleRow(Static):
     """Configuration row for a role: CLI Select + model + effort."""
 
-    def __init__(self, role: str, title_key: str, *, default_cli_label: str = ""):
+    def __init__(
+        self,
+        role: str,
+        title_key: str,
+        *,
+        default_cli_label: str = "",
+        clis: tuple[str, ...] = KNOWN_CLIS,
+    ):
         super().__init__(classes="role-row")
+        self._clis = tuple(clis)
         self.role = role
         self._title_key = title_key
         self._default_cli_label = default_cli_label
 
     def compose(self) -> ComposeResult:
-        options = [(cli, cli) for cli in KNOWN_CLIS]
+        options = [(cli, cli) for cli in self._clis]
         if self._default_cli_label:
             options = [(self._default_cli_label, "")] + options  # "" = inherit (e.g. planner role)
         yield Label(t(self._title_key), classes="role-title")
@@ -94,10 +103,12 @@ class RolesForm(Static):
         roles: tuple[tuple[str, str], ...] = ROLES,
         *,
         default_cli_label: str = "",
+        clis: tuple[str, ...] = KNOWN_CLIS,
         id: str | None = None,
     ):
         super().__init__(id=id)
         self.roles = tuple(roles)
+        self._clis = tuple(clis)
         self._default_cli_label = default_cli_label
         self.fallback_cli = ""  # CLI whose catalogue feeds rows whose CLI is ""
         self.models: dict[str, list[str]] = {}
@@ -105,7 +116,9 @@ class RolesForm(Static):
 
     def compose(self) -> ComposeResult:
         for role, title_key in self.roles:
-            yield RoleRow(role, title_key, default_cli_label=self._default_cli_label)
+            yield RoleRow(
+                role, title_key, default_cli_label=self._default_cli_label, clis=self._clis
+            )
 
     def _catalog_cli(self, role: str) -> str:
         """CLI whose catalogue feeds the row: the selected one or ``fallback_cli`` for ""."""

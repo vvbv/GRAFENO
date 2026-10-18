@@ -17,7 +17,7 @@ import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Optional
 
-from . import actions, settings
+from . import actions, clisessions, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -403,6 +403,60 @@ async def _tasks_detach(service: "ServerService", params: dict, conn: "WsConnect
     )
 
 
+def _required_session_id(params: dict) -> str:
+    """Extract a non-empty ``session_id`` string from the call params."""
+    session_id = params.get("session_id")
+    if not session_id or not isinstance(session_id, str):
+        raise actions.ApiError(400, "session_id is required")
+    return session_id
+
+
+async def _sessions_list(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return clisessions.list_sessions(service, workdir=str(params.get("workdir") or ""))
+
+
+async def _sessions_get(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return clisessions.get_session(service, _required_session_id(params))
+
+
+async def _sessions_transcript(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return clisessions.get_transcript(
+        service, _required_session_id(params),
+        after=_parse_int(params.get("after"), 0, field="after"),
+        limit=_parse_int(params.get("limit"), 0, field="limit"),
+    )
+
+
+async def _sessions_create(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return clisessions.create_session(service, params)[1]
+
+
+async def _sessions_send(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return clisessions.send_prompt(
+        service, _required_session_id(params), str(params.get("prompt") or "")
+    )
+
+
+async def _sessions_cancel(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return clisessions.cancel_session(service, _required_session_id(params))
+
+
+async def _sessions_edit(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return clisessions.edit_session(service, _required_session_id(params), params)
+
+
+async def _sessions_close(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return clisessions.close_session(service, _required_session_id(params))
+
+
+async def _sessions_reopen(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return clisessions.reopen_session(service, _required_session_id(params))
+
+
+async def _sessions_delete(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await clisessions.delete_session(service, _required_session_id(params))
+
+
 async def _options_get(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
     return settings.form_options(service)
 
@@ -497,6 +551,16 @@ METHODS: dict[str, Callable] = {
     "tasks.attachments": _tasks_attachments,
     "tasks.attach": _tasks_attach,
     "tasks.detach": _tasks_detach,
+    "sessions.list": _sessions_list,
+    "sessions.get": _sessions_get,
+    "sessions.transcript": _sessions_transcript,
+    "sessions.create": _sessions_create,
+    "sessions.send": _sessions_send,
+    "sessions.cancel": _sessions_cancel,
+    "sessions.edit": _sessions_edit,
+    "sessions.close": _sessions_close,
+    "sessions.reopen": _sessions_reopen,
+    "sessions.delete": _sessions_delete,
     "options.get": _options_get,
     "models.list": _models_list,
     "fs.dirs": _fs_dirs,

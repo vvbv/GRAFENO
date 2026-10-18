@@ -44,6 +44,16 @@ info:
     | tasks.attachments   | `task_id`                                        | GET /api/v1/tasks/{id}/attachments |
     | tasks.attach        | `task_id`, `attachments` (base64; 1 MiB per WS message, for larger files use the REST raw upload) | POST /api/v1/tasks/{id}/attachments |
     | tasks.detach        | `task_id`, `file`                                | DELETE /api/v1/tasks/{id}/attachments |
+    | sessions.list       | `workdir?`                                       | GET /api/v1/sessions               |
+    | sessions.get        | `session_id`                                     | GET /api/v1/sessions/{id}          |
+    | sessions.transcript | `session_id`, `after?`, `limit?`                 | GET /api/v1/sessions/{id}/transcript |
+    | sessions.create     | `workdir`, `cli?`, `model?`, `effort?`, `name?`, `prompt?` | POST /api/v1/sessions    |
+    | sessions.send       | `session_id`, `prompt`                           | POST /api/v1/sessions/{id}/send    |
+    | sessions.cancel     | `session_id`                                     | POST /api/v1/sessions/{id}/cancel  |
+    | sessions.edit       | `session_id`, `name`                             | POST /api/v1/sessions/{id}/edit    |
+    | sessions.close      | `session_id`                                     | POST /api/v1/sessions/{id}/close   |
+    | sessions.reopen     | `session_id`                                     | POST /api/v1/sessions/{id}/reopen  |
+    | sessions.delete     | `session_id`                                     | DELETE /api/v1/sessions/{id}       |
     | options.get         | -                                                | GET /api/v1/options                |
     | models.list         | `refresh?`                                       | GET /api/v1/models                 |
     | fs.dirs             | `path?`                                          | GET /api/v1/fs/dirs                |
@@ -51,7 +61,7 @@ info:
     | reports.get         | `period?`, `from?`, `to?`                        | GET /api/v1/reports                |
     | settings.get        | -                                                | GET /api/v1/settings               |
     | settings.update     | settings sections                                | POST /api/v1/settings              |
-    | subscribe           | `topics` (list of strings, `tasks` supported)    | -                                  |
+    | subscribe           | `topics` (list of strings, `tasks` and `sessions` supported)    | -                                  |
     | unsubscribe         | -                                                | -                                  |
 
     After `subscribe {"topics":["tasks"]}`, every task whose `state`
@@ -60,6 +70,11 @@ info:
     on-disk task store every 2 s (signature of every `task.toml`: mtime +
     size); the snapshot is kept fresh even with no subscribers, so a new
     client is never spammed with the backlog.
+
+    After `subscribe {"topics":["sessions"]}`, direct CLI session changes
+    are pushed as `session.changed` (carrying the `CliSessionSummary`) and
+    `session.deleted` (carrying `session_id`) events. Transcript entries
+    are not pushed: poll `sessions.transcript` with `after`.
 servers:
   local:
     host: 127.0.0.1:8735
@@ -81,6 +96,10 @@ channels:
         $ref: "#/components/messages/ErrorResult"
       taskChanged:
         $ref: "#/components/messages/TaskChanged"
+      sessionChanged:
+        $ref: "#/components/messages/SessionChanged"
+      sessionDeleted:
+        $ref: "#/components/messages/SessionDeleted"
 operations:
   sendCommand:
     action: send
@@ -104,6 +123,14 @@ operations:
       $ref: "#/channels/control"
     messages:
       - $ref: "#/channels/control/messages/taskChanged"
+  receiveSessionEvents:
+    action: receive
+    title: Server pushes CLI session changes to `sessions` subscribers
+    channel:
+      $ref: "#/channels/control"
+    messages:
+      - $ref: "#/channels/control/messages/sessionChanged"
+      - $ref: "#/channels/control/messages/sessionDeleted"
 components:
   securitySchemes:
     BearerAuth:
@@ -142,6 +169,16 @@ components:
         - tasks.attachments
         - tasks.attach
         - tasks.detach
+        - sessions.list
+        - sessions.get
+        - sessions.transcript
+        - sessions.create
+        - sessions.send
+        - sessions.cancel
+        - sessions.edit
+        - sessions.close
+        - sessions.reopen
+        - sessions.delete
         - options.get
         - models.list
         - fs.dirs
@@ -169,6 +206,32 @@ components:
         scheduled_at: {type: string}
         parent_id: {type: string}
       required: [id, name, workdir, state, automode]
+    CliSessionSummary:
+      type: object
+      description: Same payload as the REST session summary.
+      properties:
+        id: {type: string}
+        name: {type: string}
+        workdir: {type: string}
+        project_name: {type: string}
+        cli: {type: string}
+        model: {type: string}
+        effort: {type: string}
+        cli_session_id: {type: string}
+        state: {type: string, enum: [active, closed]}
+        running: {type: boolean}
+        turns: {type: integer}
+        last_prompt: {type: string}
+        last_error: {type: string}
+        tokens:
+          type: object
+          properties:
+            input: {type: integer}
+            output: {type: integer}
+        seconds: {type: integer}
+        created_at: {type: string}
+        updated_at: {type: string}
+      required: [id, name, workdir, cli, state, running, turns]
   messages:
     Command:
       name: Command
@@ -273,3 +336,26 @@ components:
               origin: api
               scheduled_at: ""
               parent_id: ""
+    SessionChanged:
+      name: SessionChanged
+      title: Push event delivered to `sessions` subscribers
+      payload:
+        type: object
+        properties:
+          event:
+            type: string
+            const: session.changed
+          session:
+            $ref: "#/components/schemas/CliSessionSummary"
+        required: [event, session]
+    SessionDeleted:
+      name: SessionDeleted
+      title: Push event delivered when a CLI session is deleted
+      payload:
+        type: object
+        properties:
+          event:
+            type: string
+            const: session.deleted
+          session_id: {type: string}
+        required: [event, session_id]

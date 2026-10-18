@@ -42,6 +42,7 @@ from ..widgets import GrafenoHeader, LocationBar, MediaTextArea
 from .config import ConfigScreen
 from .consoles import ConsolesScreen
 from .detail import TaskDetailScreen
+from .clisessions import CliSessionsScreen
 from .projects import ProjectsScreen
 from .reports import ReportsScreen
 
@@ -336,6 +337,7 @@ class TaskListScreen(Screen[None]):
         Binding("k", "consoles", t("tasks.bind.consoles")),
         Binding("i", "reports", t("tasks.bind.reports")),
         Binding("p", "projects", t("tasks.bind.projects")),
+        Binding("s", "cli_sessions", t("cs.bind.sessions")),
         Binding("q", "quit_hint", t("common.quit")),
     ]
 
@@ -593,6 +595,10 @@ class TaskListScreen(Screen[None]):
                 self.action_new_task(workdir)
 
         self.app.push_screen(ProjectsScreen(), chosen)
+
+    def action_cli_sessions(self) -> None:
+        """Open the direct CLI sessions of every project."""
+        self.app.push_screen(CliSessionsScreen(None))
 
     def action_config(self) -> None:
         self.app.push_screen(ConfigScreen())

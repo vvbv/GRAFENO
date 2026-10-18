@@ -8,7 +8,9 @@ the TUI keeps running even when the port is taken.
 WebSocket clients connected to the service receive a stream of
 ``task.changed`` events polled from the on-disk task store (no App
 hooks involved); the poll loop is started by :meth:`run` and cancelled
-on :meth:`stop`.
+on :meth:`stop`. Direct CLI sessions publish ``session.changed`` and
+``session.deleted`` events to the ``sessions`` topic through the listener
+that :meth:`run` registers on ``App.cli_sessions``.
 
 The same server also serves the web administration panel at ``/`` (see
 :mod:`server.web`); with ``web`` launch settings (``grafeno --web``) the
@@ -61,6 +63,8 @@ class ServerService:
         self._connection_topics: dict[int, set[str]] = {}
         self._last_states: dict[str, TaskState] = {}
         self._events_task: Optional[asyncio.Task] = None
+        self._session_listener_on = None  # CliSessionManager we are subscribed to
+        self._pending_broadcasts: set[asyncio.Task] = set()
         self._logger = logging.getLogger("grafeno.api")
         self._log_path: Path = paths.api_log_path()
         self._log_startup_token_note()
@@ -85,6 +89,10 @@ class ServerService:
         self._notify(t("api.started", host=self.config.host, port=self.port))
         self._announce_web()
         self._events_task = asyncio.create_task(self._events_loop())
+        manager = getattr(self.app, "cli_sessions", None)
+        if manager is not None:
+            manager.add_listener(self._on_session_event)
+            self._session_listener_on = manager
         try:
             async with self.server:
                 await self.server.serve_forever()
@@ -102,6 +110,9 @@ class ServerService:
             self._events_task.cancel()
 
     async def _shutdown(self) -> None:
+        if self._session_listener_on is not None:
+            self._session_listener_on.remove_listener(self._on_session_event)
+            self._session_listener_on = None
         if self._events_task is not None and not self._events_task.done():
             self._events_task.cancel()
             try:
@@ -229,6 +240,25 @@ class ServerService:
                         await self._broadcast_event("tasks", {"event": "task.changed", "task": task_summary(task)})
         except asyncio.CancelledError:
             return
+
+    def _on_session_event(self, kind: str, session, entry) -> None:
+        """Push CLI session changes to ``sessions`` subscribers (entries are polled)."""
+        if kind == "entry" or not self._connections:
+            return
+        from .clisessions import session_summary
+
+        if kind == "deleted":
+            payload = {"event": "session.deleted", "session_id": session.id}
+        else:
+            manager = getattr(self.app, "cli_sessions", None)
+            running = bool(manager and manager.is_running(session.id))
+            payload = {"event": "session.changed", "session": session_summary(session, running)}
+        try:
+            task = asyncio.get_running_loop().create_task(self._broadcast_event("sessions", payload))
+        except RuntimeError:
+            return  # no running loop (tests without the server)
+        self._pending_broadcasts.add(task)
+        task.add_done_callback(self._pending_broadcasts.discard)
 
     async def _broadcast_event(self, topic: str, payload: dict) -> None:
         for conn in list(self._connections):
