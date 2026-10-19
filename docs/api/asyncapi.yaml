@@ -23,6 +23,7 @@ info:
     | tasks.list          | `state?`, `workdir?`, `project?`, `sort?`, ...    | GET /api/v1/tasks                  |
     | tasks.get           | `task_id`                                        | GET /api/v1/tasks/{id}             |
     | projects.list       | -                                                | GET /api/v1/projects               |
+    | projects.create     | `name?`, `url?`, `mode?` (init/clone/plain), `workspace?` | POST /api/v1/projects |
     | projects.docs       | `workdir?`, `project?`                           | GET /api/v1/projects/docs          |
     | projects.doc        | `workdir?`, `project?`, `name`, `offset?`, `max_chars?` | GET /api/v1/projects/doc    |
     | tasks.logs          | `task_id`, `limit?` (1..1000, default 200)      | GET /api/v1/tasks/{id}/logs        |
@@ -150,6 +151,7 @@ components:
         - tasks.list
         - tasks.get
         - projects.list
+        - projects.create
         - projects.docs
         - projects.doc
         - tasks.logs

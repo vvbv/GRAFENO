@@ -162,7 +162,8 @@ paths:
         (first-level subfolders of each configured root) also carry `name` and
         `workspace`. `workspaces` lists the configured roots (global + project
         level of the TUI cwd) with their state. In remote session mode no folder
-        is discovered and `session` is true.
+        is discovered and `session` is true. Items also carry `sessions` (direct
+        CLI sessions of the folder) and the root has `create` (creation options).
       operationId: listProjects
       responses:
         "200":
@@ -173,6 +174,66 @@ paths:
                 $ref: "#/components/schemas/ProjectListResponse"
         "401":
           description: Missing or invalid token (only enforced when tokens are configured).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags: [projects]
+      summary: Create a project in a configured working directory (git init, git clone or plain folder).
+      description: |
+        Modes: `init` (folder + `git init`, default without `url`), `clone`
+        (`git clone` of an https/http/ssh/scp-like `url`, default with `url`)
+        and `plain` (folder only, "create without Git"). The folder is always
+        created inside a configured working directory; `workspace` is required
+        only when several are configured. Names and URLs are validated and
+        credentials in the URL are never echoed. See `docs/api/project-create.md`.
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectCreateRequest"
+      responses:
+        "201":
+          description: Project created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectCreateResponse"
+        "400":
+          description: Invalid name, URL, mode or workspace, or a field that is not a string.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token (only enforced when tokens are configured).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Project already exists, no working directory configured, or remote session mode.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: git clone failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: git init failed or the folder could not be created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: git is not installed on the host.
           content:
             application/json:
               schema:
@@ -1925,12 +1986,40 @@ components:
         count:
           type: integer
           description: Number of tasks whose workdir is this folder.
+        sessions:
+          type: integer
+          description: Number of direct CLI sessions whose workdir is this folder.
         name:
           type: string
           description: Folder name.
         workspace:
           type: string
           description: Resolved working directory where the folder was found; empty for workdirs only known from tasks.
+    ProjectCreateOptions:
+      type: object
+      description: What a client needs to offer project creation.
+      properties:
+        available: {type: boolean, description: False without existing working directories or in remote session mode.}
+        git: {type: boolean, description: True when git is installed on the host (needed by init and clone).}
+        modes: {type: array, items: {type: string, enum: [init, clone, plain]}}
+        default_mode: {type: string, example: init}
+        url_schemes: {type: array, items: {type: string}, example: [https, http, ssh, scp]}
+        name_max_length: {type: integer, example: 100}
+        workspaces: {type: array, items: {type: string}, description: Resolved paths accepted as `workspace`.}
+    ProjectCreateRequest:
+      type: object
+      properties:
+        name: {type: string, description: Folder name. Optional with `url` (derived from the repository name).}
+        url: {type: string, description: "Clone URL: https://, http://, ssh:// or scp-like user@host:path."}
+        mode: {type: string, enum: [init, clone, plain], description: "Default: clone with url, init otherwise. plain creates the folder without git."}
+        workspace: {type: string, description: Working directory (entry as configured or resolved path). Required only when several are configured.}
+    ProjectCreateResponse:
+      type: object
+      properties:
+        project: {$ref: "#/components/schemas/ProjectItem"}
+        mode: {type: string}
+        git: {type: boolean}
+        url: {type: string, description: Clone URL with credentials redacted; empty unless mode is clone.}
     WorkspaceRoot:
       type: object
       properties:
@@ -2021,6 +2110,8 @@ components:
         session:
           type: boolean
           description: True in remote session mode (folder discovery skipped).
+        create:
+          $ref: "#/components/schemas/ProjectCreateOptions"
     StatusResponse:
       type: object
       properties:

@@ -32,6 +32,7 @@ src/grafeno/
 ├── updater.py              # Auto-actualización best-effort de los CLIs de agentes (comando nativo de cada uno) al arrancar la TUI si auto_update está activado en el config
 ├── selfupdate.py           # Auto-actualización de GRAFENO desde las releases de GitHub: chequeo de versión (API releases/latest) con motivo del fallo y fallback a la redirección web de releases/latest; instala el wheel de la release si existe (si no, el tag git), comparación semver y comando pipx/pip; comando CLI `grafeno update`
 ├── workspaces.py           # Workspaces raíz (directorios de trabajo): lectura del nivel proyecto (.grafeno.toml), effective_entries()/resolve() global+proyecto, roots() (estado de cada entrada: ruta resuelta y si existe), projects()/discover() (subcarpetas de primer nivel con su raíz, orden sin distinguir mayúsculas) y normalize_entries()/entry_key() (limpieza y dedupe de la lista guardada)
+├── projectsetup.py         # Creación de proyectos en los workspaces: validación de nombre/URL/workspace, modos init (git init, defecto)/clone (git clone http(s)/ssh/scp)/plain (sin Git), git asíncrono sin shell ni prompts (GIT_ALLOW_PROTOCOL), redacción de credenciales y limpieza si git falla; ProjectError(code, message)
 ├── _toml.py                # Serializador TOML propio (escritura; lectura con tomllib)
 ├── editor.py               # Detección de terminal/editores y apertura del editor al arrancar (config [editor] global + .grafeno.toml por proyecto)
 ├── gh.py                   # Integración con GitHub CLI: detección de disponibilidad (repo + gh + acceso) y listado de issues abiertos (best-effort, nunca lanza)
@@ -58,6 +59,7 @@ src/grafeno/
 │   ├── clisessions.py      #   Operaciones REST/WS de las sesiones CLI directas (`session_summary`, crear/enviar/cancelar/renombrar/cerrar/reabrir/eliminar, transcript incremental)
 │   ├── web.py              #   Panel web (`grafeno --web`): prepare() (copia en memoria de ApiConfig, loopback por defecto, token efímero si se expone sin tokens), URLs del panel y render de la página con las cadenas i18n inyectadas
 │   ├── projectdocs.py      #   Documentos de proyecto de solo lectura (README.md, AGENTS.md, GRAFENO.md): lista blanca, proyecto resuelto contra list_projects, symlinks fuera del proyecto bloqueados, tope 1 MiB, paginación por caracteres sobre el texto normalizado y esquema de encabezados (mdnorm.markdown_outline)
+│   ├── projectcreate.py    #   POST /api/v1/projects y WS projects.create: mapea ProjectError.code a status (400/409/422/500/503); 409 en modo sesión remota
 │   ├── settings.py         #   Operaciones REST/WS de catálogo, reportes y ajustes: opciones del formulario, modelos+variantes (caché 10 min), autocompletado de directorios, issues de gh, reporte de uso y ajustes globales (secretos de solo escritura)
 │   ├── static/             #   Panel web (paquete de datos en pyproject): index.html (shell + JSON de arranque no ejecutable), app.css, app.js (SPA vanilla sin dependencias ni CDN: lista, detalle, nueva tarea, reportes, ajustes)
 │   └── ws.py               #   RFC 6455: handshake (accept key), frames enmascarados de cliente, comandos JSON-RPC {"id","method","params"} y eventos {"event":...,...} con suscripción por topic
@@ -237,7 +239,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `/{id}/media?name=`, `/{id}/attachments` (GET lista con metadatos, POST JSON
   base64 o cuerpo binario con `?name=` y `?cycle=` opcional, sin arrancar ciclo; DELETE `?file=`,
   409 si corre; WS `tasks.attachments`/`tasks.attach`/`tasks.detach`), projects, options, models, fs/dirs, issues,
-  projects/docs y projects/doc (documentos README.md/AGENTS.md/GRAFENO.md de un proyecto; guía en `docs/api/project-docs.md`; métodos WS `projects.docs`/`projects.doc`; 409 en proyectos remotos y modo sesión remota), reports, settings (GET/POST) y `/audio/speech` (síntesis
+  `POST /projects` (crear proyecto; guía en `docs/api/project-create.md`; `GET /projects` devuelve además `sessions` por item y `create` con las opciones de creación), projects/docs y projects/doc (documentos README.md/AGENTS.md/GRAFENO.md de un proyecto; guía en `docs/api/project-docs.md`; métodos WS `projects.docs`/`projects.doc`; 409 en proyectos remotos y modo sesión remota), reports, settings (GET/POST) y `/audio/speech` (síntesis
   TTS bajo demanda con el proveedor configurado: WAV por defecto u OGG/OPUS
   cuando `format=ogg` y hay `ffmpeg` instalado en el host). WebSocket en `/api/v1/ws` con
   handshake RFC 6455 (cliente enmascarado obligatorio; servidor sin
@@ -442,7 +444,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   del panel web (`#/projects`) listan esas carpetas con su nº de tareas y
   desde un proyecto se crea una tarea con el directorio predefinido
   (`NewTaskScreen(workdir)` / `#/new/<carpeta codificada>`).
-  `GET /api/v1/projects` devuelve por item `workdir`, `count`, `name` y
+  `GET /api/v1/projects` fusiona los workdirs por ruta normalizada, devuelve por item `workdir`, `count`, `sessions`, `name` y
   `workspace` (raíz donde se encontró; vacío para workdirs que solo vienen
   de tareas) más `workspaces` (raíces con `entry`/`path`/`exists`) y
   `session`; en modo sesión remota no se descubre nada (las raíces viven en
@@ -450,7 +452,8 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   (`list_projects`) combina las carpetas descubiertas con los proyectos con
   tareas (count 0 y marca i18n `tg.projects.item_empty`), y la creación de
   tareas las resuelve como `workdir` vía
-  `intents.resolve_workdir`/`resolve_project_dir` con `extra_dirs`. Sin
+  `intents.resolve_workdir`/`resolve_project_dir` con `extra_dirs`. Los proyectos
+  también se crean vía API (`projectsetup.create_project`). Sin
   duplicados (dedup por ruta resuelta; los specs remotos `user@host:...`
   nunca se fusionan con rutas locales).
 - **Tareas trigger**: dos niveles (global `~/.grafeno/triggers.toml`,
