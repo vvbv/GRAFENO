@@ -17,7 +17,7 @@ import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Optional
 
-from . import actions, clisessions, settings
+from . import actions, clisessions, projectdocs, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -333,6 +333,26 @@ async def _projects_list(service: "ServerService", params: dict, conn: "WsConnec
     return actions.list_projects(service)
 
 
+async def _projects_docs(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return projectdocs.list_docs(
+        service,
+        workdir=str(params.get("workdir") or ""),
+        project=str(params.get("project") or ""),
+    )
+
+
+async def _projects_doc(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    max_chars = params.get("max_chars")
+    return projectdocs.read_doc(
+        service,
+        workdir=str(params.get("workdir") or ""),
+        project=str(params.get("project") or ""),
+        name=str(params.get("name") or ""),
+        offset=_parse_int(params.get("offset"), 0, field="offset"),
+        max_chars=None if max_chars in (None, "") else _parse_int(max_chars, 0, field="max_chars"),
+    )
+
+
 async def _tasks_logs(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
     task_id = _required_task_id(params)
     limit = _parse_int(params.get("limit"), 200, field="limit")
@@ -550,6 +570,8 @@ METHODS: dict[str, Callable] = {
     "tasks.list": _tasks_list,
     "tasks.get": _tasks_get,
     "projects.list": _projects_list,
+    "projects.docs": _projects_docs,
+    "projects.doc": _projects_doc,
     "tasks.logs": _tasks_logs,
     "tasks.artifacts": _tasks_artifacts,
     "tasks.create": _tasks_create,

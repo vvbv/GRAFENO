@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
-from . import actions, clisessions, settings
+from . import actions, clisessions, projectdocs, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -90,6 +90,27 @@ async def _task_detail(service: "ServerService", request: Request, params: dict[
 @route("GET", "/api/v1/projects")
 async def _projects_list(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
     return actions.list_projects(service)
+
+
+@route("GET", "/api/v1/projects/docs")
+async def _project_docs(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    query = request.query
+    return projectdocs.list_docs(
+        service, workdir=query.get("workdir") or "", project=query.get("project") or ""
+    )
+
+
+@route("GET", "/api/v1/projects/doc")
+async def _project_doc(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    query = request.query
+    return projectdocs.read_doc(
+        service,
+        workdir=query.get("workdir") or "",
+        project=query.get("project") or "",
+        name=query.get("name") or "",
+        offset=_query_int(request, "offset", 0),
+        max_chars=_query_int(request, "max_chars", None),
+    )
 
 
 @route("GET", "/api/v1/tasks/{task_id}/logs")

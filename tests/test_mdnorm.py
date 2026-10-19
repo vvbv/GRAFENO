@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from grafeno.mdnorm import normalize_markdown
+from grafeno.mdnorm import markdown_outline, normalize_markdown
 
 
 def test_tightens_loose_bullet_list():
@@ -50,3 +50,27 @@ def test_idempotent():
 
 def test_empty_string():
     assert normalize_markdown("") == ""
+
+
+def test_outline_levels_and_offsets():
+    text = "# A\n\ntext\n\n## Title\n\n### Sub\n\n#### Deep\n"
+    entries, truncated = markdown_outline(text)
+    assert [(e["level"], e["title"]) for e in entries] == [(1, "A"), (2, "Title"), (3, "Sub")]
+    assert entries[1]["offset"] == text.index("## Title")
+    assert truncated is False
+
+
+def test_outline_skips_fenced_code():
+    entries, _ = markdown_outline("# A\n```\n# comment\n```\n## B\n")
+    assert [e["title"] for e in entries] == ["A", "B"]
+
+
+def test_outline_limit_truncates():
+    entries, truncated = markdown_outline("# a\n# b\n# c\n", limit=2)
+    assert len(entries) == 2
+    assert truncated is True
+
+
+def test_outline_strips_closing_hashes():
+    entries, _ = markdown_outline("## Title ##\n")
+    assert entries[0]["title"] == "Title"

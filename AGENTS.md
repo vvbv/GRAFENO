@@ -21,7 +21,7 @@ src/grafeno/
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME; incluye `api_log_path()` y `uploads_dir()` (spool de subidas binarias de la API)
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs); además el idioma de los prompts internos (set_prompt_language/prompt_language, vacío = el de la GUI) y prompt_template() para elegir la variante de una plantilla por idioma
 ├── live_log.py             # Persistencia del log en vivo (Text -> logs/live.jsonl, carga al crear el runtime; best-effort)
-├── mdnorm.py               # Normalización de Markdown: colapsa saltos de línea y compacta listas sueltas en los .md de cada etapa
+├── mdnorm.py               # Normalización de Markdown: colapsa saltos de línea y compacta listas sueltas en los .md de cada etapa; `markdown_outline` da el esquema de encabezados con offsets
 ├── media.py                # Imágenes del portapapeles: lectura (wl-paste/xclip/pngpaste/osascript), guardado en media/ de la tarea, listado y apertura con el visor del SO; preview inline opcional vía textual-image; adjuntos de referencia de cualquier tipo (Word, Excel, PDF, imágenes, vídeo, otros): grupos de sufijos (`ATTACHMENT_KINDS`, `SAFE_SUFFIXES`, el resto `.bin`), tope `MAX_ATTACHMENT_BYTES` (500 MiB), `save_attachment_file` (copia/mueve desde disco sin cargarlo en memoria, chequeo de espacio libre `has_free_space`), `base64_length` y `LARGE_ATTACHMENT_BYTES` (50 MiB: los prompts avisan de leerlo por partes), manifiesto `attachments.toml` en la carpeta de la tarea (dataclass `Attachment`: nombre original, tipo, tamaño, origen, ciclo) con `list_attachments`/`delete_attachment`
 ├── modelcheck.py           # Verificación de modelos retirados: compara los pares cli+modelo configurados (config general + parser de Telegram, perfiles y tareas) con la lista que reporta cada CLI; lógica pura (collect_*/used_clis/find_missing/format_issues)
 ├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
@@ -57,6 +57,7 @@ src/grafeno/
 │   ├── actions.py          #   Operaciones compartidas REST/WS (read y write); ApiError(status, message) -> Response
 │   ├── clisessions.py      #   Operaciones REST/WS de las sesiones CLI directas (`session_summary`, crear/enviar/cancelar/renombrar/cerrar/reabrir/eliminar, transcript incremental)
 │   ├── web.py              #   Panel web (`grafeno --web`): prepare() (copia en memoria de ApiConfig, loopback por defecto, token efímero si se expone sin tokens), URLs del panel y render de la página con las cadenas i18n inyectadas
+│   ├── projectdocs.py      #   Documentos de proyecto de solo lectura (README.md, AGENTS.md, GRAFENO.md): lista blanca, proyecto resuelto contra list_projects, symlinks fuera del proyecto bloqueados, tope 1 MiB, paginación por caracteres sobre el texto normalizado y esquema de encabezados (mdnorm.markdown_outline)
 │   ├── settings.py         #   Operaciones REST/WS de catálogo, reportes y ajustes: opciones del formulario, modelos+variantes (caché 10 min), autocompletado de directorios, issues de gh, reporte de uso y ajustes globales (secretos de solo escritura)
 │   ├── static/             #   Panel web (paquete de datos en pyproject): index.html (shell + JSON de arranque no ejecutable), app.css, app.js (SPA vanilla sin dependencias ni CDN: lista, detalle, nueva tarea, reportes, ajustes)
 │   └── ws.py               #   RFC 6455: handshake (accept key), frames enmascarados de cliente, comandos JSON-RPC {"id","method","params"} y eventos {"event":...,...} con suscripción por topic
@@ -236,7 +237,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `/{id}/media?name=`, `/{id}/attachments` (GET lista con metadatos, POST JSON
   base64 o cuerpo binario con `?name=` y `?cycle=` opcional, sin arrancar ciclo; DELETE `?file=`,
   409 si corre; WS `tasks.attachments`/`tasks.attach`/`tasks.detach`), projects, options, models, fs/dirs, issues,
-  reports, settings (GET/POST) y `/audio/speech` (síntesis
+  projects/docs y projects/doc (documentos README.md/AGENTS.md/GRAFENO.md de un proyecto; guía en `docs/api/project-docs.md`; métodos WS `projects.docs`/`projects.doc`; 409 en proyectos remotos y modo sesión remota), reports, settings (GET/POST) y `/audio/speech` (síntesis
   TTS bajo demanda con el proveedor configurado: WAV por defecto u OGG/OPUS
   cuando `format=ogg` y hay `ffmpeg` instalado en el host). WebSocket en `/api/v1/ws` con
   handshake RFC 6455 (cliente enmascarado obligatorio; servidor sin

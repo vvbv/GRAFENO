@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GRAFENO Remote API
-  version: 1.5.0
+  version: 1.6.0
   summary: REST API of the GRAFENO remote server (optional token authentication).
   description: |
     REST control API exposed by the GRAFENO TUI while it is running
@@ -173,6 +173,107 @@ paths:
                 $ref: "#/components/schemas/ProjectListResponse"
         "401":
           description: Missing or invalid token (only enforced when tokens are configured).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/projects/docs:
+    get:
+      tags: [projects]
+      summary: Index of the README.md / AGENTS.md / GRAFENO.md documents of a project (no content).
+      description: |
+        The project must be one listed by `GET /api/v1/projects`; arbitrary paths
+        are rejected. Only `README.md`, `AGENTS.md` and `GRAFENO.md` of the project
+        folder (first level) can be read; symlinks leaving the folder are blocked.
+        Text is normalized with the Markdown normalizer, offsets and counts are in
+        characters, and at most 1 MiB (`DOC_MAX_BYTES`) of each file is read. Remote
+        projects and remote session mode answer 409.
+      operationId: listProjectDocs
+      parameters:
+        - $ref: "#/components/parameters/DocsWorkdirQuery"
+        - $ref: "#/components/parameters/DocsProjectQuery"
+      responses:
+        "200":
+          description: Presence, size and heading outline of each document.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectDocsResponse"
+        "400":
+          description: Neither workdir nor project given.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token (only enforced when tokens are configured).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Project or project folder not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Ambiguous project, remote project or remote session mode.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/projects/doc:
+    get:
+      tags: [projects]
+      summary: One page of one project document, paginated by characters.
+      description: |
+        The project must be one listed by `GET /api/v1/projects`; arbitrary paths
+        are rejected. Only `README.md`, `AGENTS.md` and `GRAFENO.md` of the project
+        folder (first level) can be read; symlinks leaving the folder are blocked.
+        Text is normalized with the Markdown normalizer, offsets and counts are in
+        characters, and at most 1 MiB (`DOC_MAX_BYTES`) of each file is read. Remote
+        projects and remote session mode answer 409.
+      operationId: getProjectDoc
+      parameters:
+        - $ref: "#/components/parameters/DocsWorkdirQuery"
+        - $ref: "#/components/parameters/DocsProjectQuery"
+        - $ref: "#/components/parameters/DocNameQuery"
+        - $ref: "#/components/parameters/DocOffsetQuery"
+        - $ref: "#/components/parameters/DocMaxCharsQuery"
+      responses:
+        "200":
+          description: A page of the document; continue with `next_offset` while `has_more`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectDocResponse"
+        "400":
+          description: Invalid parameter or document name outside the whitelist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token (only enforced when tokens are configured).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: The document is a symlink leaving the project folder.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Project, folder or document not found, or document not readable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Ambiguous project, remote project or remote session mode.
           content:
             application/json:
               schema:
@@ -1238,6 +1339,40 @@ components:
       name: token
       description: Same optional token passed as a query parameter (browser/websocket friendly); only enforced when tokens are configured.
   parameters:
+    DocsWorkdirQuery:
+      name: workdir
+      in: query
+      required: false
+      description: Absolute folder of a project listed by GET /api/v1/projects; takes precedence over `project`.
+      schema:
+        type: string
+    DocsProjectQuery:
+      name: project
+      in: query
+      required: false
+      description: Project folder name (case-insensitive, exact). Ambiguous names return 409.
+      schema:
+        type: string
+    DocNameQuery:
+      name: name
+      in: query
+      required: true
+      description: Document to read. Also accepted case-insensitively and without the `.md` extension.
+      schema:
+        type: string
+        enum: [README.md, AGENTS.md, GRAFENO.md]
+    DocOffsetQuery:
+      name: offset
+      in: query
+      required: false
+      description: Character offset in the normalized document.
+      schema: {type: integer, minimum: 0, default: 0}
+    DocMaxCharsQuery:
+      name: max_chars
+      in: query
+      required: false
+      description: Page size in characters (the cut backs up to the last line break when possible).
+      schema: {type: integer, minimum: 1, maximum: 200000, default: 4000}
     SessionId:
       name: session_id
       in: path
@@ -1808,6 +1943,69 @@ components:
         exists:
           type: boolean
           description: True when the path is an existing directory.
+    ProjectRef:
+      type: object
+      properties:
+        workdir: {type: string}
+        name: {type: string}
+    ProjectDocOutlineEntry:
+      type: object
+      properties:
+        level: {type: integer}
+        title: {type: string}
+        offset: {type: integer, description: Character offset usable as `offset` of the content endpoint.}
+    ProjectDocItem:
+      type: object
+      required: [name, exists, status]
+      properties:
+        name: {type: string}
+        exists: {type: boolean}
+        status:
+          type: string
+          enum: [ok, missing, blocked, unreadable]
+        file: {type: string, description: Real file name on disk (case may differ).}
+        size: {type: integer, description: File size in bytes.}
+        modified: {type: string}
+        chars: {type: integer, description: Characters of the normalized text.}
+        approx_tokens: {type: integer}
+        clipped: {type: boolean, description: True when the file exceeds the 1 MiB read cap.}
+        outline:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectDocOutlineEntry"
+        outline_truncated: {type: boolean}
+    ProjectDocsResponse:
+      type: object
+      required: [project, docs, available]
+      properties:
+        project:
+          $ref: "#/components/schemas/ProjectRef"
+        docs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectDocItem"
+        available:
+          type: array
+          items: {type: string}
+        default_max_chars: {type: integer}
+        max_chars_limit: {type: integer}
+    ProjectDocResponse:
+      type: object
+      required: [project, name, content, has_more]
+      properties:
+        project:
+          $ref: "#/components/schemas/ProjectRef"
+        name: {type: string}
+        file: {type: string}
+        size: {type: integer}
+        modified: {type: string}
+        total_chars: {type: integer}
+        approx_tokens: {type: integer}
+        offset: {type: integer}
+        next_offset: {type: [integer, "null"]}
+        has_more: {type: boolean}
+        clipped: {type: boolean}
+        content: {type: string}
     ProjectListResponse:
       type: object
       properties:

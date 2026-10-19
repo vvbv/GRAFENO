@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: GRAFENO Remote WebSocket API
-  version: 1.4.0
+  version: 1.5.0
   description: |
     Bidirectional JSON-RPC channel exposed on `/api/v1/ws` (implemented by
     hand on RFC 6455, see `src/grafeno/server/ws.py`). The HTTP GET upgrade
@@ -23,6 +23,8 @@ info:
     | tasks.list          | `state?`, `workdir?`, `project?`, `sort?`, ...    | GET /api/v1/tasks                  |
     | tasks.get           | `task_id`                                        | GET /api/v1/tasks/{id}             |
     | projects.list       | -                                                | GET /api/v1/projects               |
+    | projects.docs       | `workdir?`, `project?`                           | GET /api/v1/projects/docs          |
+    | projects.doc        | `workdir?`, `project?`, `name`, `offset?`, `max_chars?` | GET /api/v1/projects/doc    |
     | tasks.logs          | `task_id`, `limit?` (1..1000, default 200)      | GET /api/v1/tasks/{id}/logs        |
     | tasks.artifacts     | `task_id`, `kind`, `cycle?` (default 1)         | GET /api/v1/tasks/{id}/artifacts   |
     | tasks.create        | `name`, `workdir`, `description?`, `automode?`, `parent_id?`, `scheduled_at?`, `origin?`, `profile?`, `attachments?` (optional list of {name, data-base64}, max 10; limited by the 1 MiB message cap) | POST /api/v1/tasks |
@@ -148,6 +150,8 @@ components:
         - tasks.list
         - tasks.get
         - projects.list
+        - projects.docs
+        - projects.doc
         - tasks.logs
         - tasks.artifacts
         - tasks.create
