@@ -419,7 +419,65 @@ def test_list_projects_skips_discovery_in_session_mode(tmp_path) -> None:
         spec=remote.RemoteSpec(user="root", host="h", path="/root"), remote_home="/root",
     )
     data = actions.list_projects(FakeService(None))
-    assert data == {"projects": [], "workspaces": [], "session": True}
+    assert data["projects"] == []
+    assert data["workspaces"] == []
+    assert data["session"] is True
+    assert data["create"]["available"] is False
+
+def _ws_config(tmp_path, monkeypatch):
+    from grafeno import config as config_module
+
+    monkeypatch.chdir(tmp_path)
+    ws = (tmp_path / "ws").resolve()
+    (ws / "alpha").mkdir(parents=True)
+    cfg = config_module.load()
+    cfg.workspaces = [str(ws)]
+    config_module.save(cfg)
+    return ws
+
+
+def test_list_projects_empty_folder_has_zero_counts(tmp_path, monkeypatch) -> None:
+    ws = _ws_config(tmp_path, monkeypatch)
+    data = actions.list_projects(FakeService(None))
+    [item] = [p for p in data["projects"] if p["workdir"] == str(ws / "alpha")]
+    assert (item["count"], item["sessions"]) == (0, 0)
+
+
+def test_list_projects_counts_sessions(tmp_path, monkeypatch) -> None:
+    from grafeno import clisessions
+
+    ws = _ws_config(tmp_path, monkeypatch)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    clisessions.create(str(ws / "alpha"), "claude")
+    clisessions.create(str(outside), "claude")
+    data = actions.list_projects(FakeService(None))
+    alphas = [p for p in data["projects"] if p["workdir"] == str(ws / "alpha")]
+    assert len(alphas) == 1 and alphas[0]["sessions"] == 1
+    [out] = [p for p in data["projects"] if p["workdir"] == str(outside)]
+    assert out["workspace"] == "" and out["sessions"] == 1
+
+
+def test_list_projects_trailing_slash_does_not_duplicate(tmp_path, monkeypatch) -> None:
+    ws = _ws_config(tmp_path, monkeypatch)
+    _task(ws / "alpha", name="A")
+    task = _task(ws / "alpha", name="B")
+    task.workdir = str(ws / "alpha") + "/"
+    models.save(task)
+    data = actions.list_projects(FakeService(None))
+    items = [p for p in data["projects"] if actions._norm_dir(p["workdir"]) == str(ws / "alpha")]
+    assert len(items) == 1
+    assert items[0]["count"] == 2
+
+
+def test_list_projects_create_options(tmp_path, monkeypatch) -> None:
+    ws = _ws_config(tmp_path, monkeypatch)
+    create = actions.list_projects(FakeService(None))["create"]
+    assert create["modes"] == ["init", "clone", "plain"]
+    assert create["default_mode"] == "init"
+    assert create["workspaces"] == [str(ws)]
+    assert create["available"] is True
+
 
 def test_mark_done_stamps_completion(tmp_path) -> None:
     task = _task(tmp_path)

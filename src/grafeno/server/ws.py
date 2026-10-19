@@ -17,7 +17,7 @@ import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Optional
 
-from . import actions, clisessions, projectdocs, settings
+from . import actions, clisessions, projectcreate, projectdocs, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -333,6 +333,10 @@ async def _projects_list(service: "ServerService", params: dict, conn: "WsConnec
     return actions.list_projects(service)
 
 
+async def _projects_create(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return (await projectcreate.create_project(service, params))[1]
+
+
 async def _projects_docs(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
     return projectdocs.list_docs(
         service,
@@ -570,6 +574,7 @@ METHODS: dict[str, Callable] = {
     "tasks.list": _tasks_list,
     "tasks.get": _tasks_get,
     "projects.list": _projects_list,
+    "projects.create": _projects_create,
     "projects.docs": _projects_docs,
     "projects.doc": _projects_doc,
     "tasks.logs": _tasks_logs,

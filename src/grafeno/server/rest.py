@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
-from . import actions, clisessions, projectdocs, settings
+from . import actions, clisessions, projectcreate, projectdocs, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -90,6 +90,12 @@ async def _task_detail(service: "ServerService", request: Request, params: dict[
 @route("GET", "/api/v1/projects")
 async def _projects_list(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
     return actions.list_projects(service)
+
+
+@route("POST", "/api/v1/projects")
+async def _projects_create(service: "ServerService", request: Request, params: dict[str, str]) -> Response:
+    status, body = await projectcreate.create_project(service, parse_json_body(request))
+    return Response.json(status, body)
 
 
 @route("GET", "/api/v1/projects/docs")

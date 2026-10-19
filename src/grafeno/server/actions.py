@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .. import media, models, paths, profiles as profiles_module, remote, remotesession, scheduler
+from .. import clisessions as clisessions_module, media, models, paths, projectsetup, profiles as profiles_module, remote, remotesession, scheduler
 from .. import config as config_module
 from .. import workspaces as workspaces_module
 from ..config import KNOWN_CLIS, RoleConfig
@@ -441,40 +441,83 @@ def _detail_extras(service: "ServerService", task: Task) -> dict:
     }
 
 
-def list_projects(service: "ServerService") -> dict:
-    """Projects: task workdirs plus the folders of the working directories.
+def _workspace_roots() -> list[workspaces_module.Root]:
+    """Configured working directories (global + project level of the cwd); [] on error."""
+    try:
+        entries = workspaces_module.effective_entries(
+            config_module.load().workspaces, Path.cwd()
+        )
+        return workspaces_module.roots(entries)
+    except Exception:  # noqa: BLE001 - workspaces discovery is best effort
+        return []
 
-    Every item has its task ``count``; folders found in a working directory
-    also carry their root (``workspace``; empty for workdirs only known
-    from tasks). ``workspaces`` reports each configured root (global +
-    project level of the cwd) with its resolved path and whether it
-    exists. Discovery is skipped in remote session mode, where the roots
-    live on the remote host (``session`` is then true).
+
+def _create_options(roots: list[workspaces_module.Root], session: bool) -> dict:
+    """What a client needs to offer project creation (``POST /api/v1/projects``)."""
+    existing = [root.path for root in roots if root.exists] if not session else []
+    return {
+        "available": bool(existing),
+        "git": projectsetup.git_available(),
+        "modes": list(projectsetup.MODES),
+        "default_mode": projectsetup.DEFAULT_MODE,
+        "url_schemes": [*projectsetup.URL_SCHEMES, "scp"],
+        "name_max_length": projectsetup.NAME_MAX_LENGTH,
+        "workspaces": existing,
+    }
+
+
+def _all_sessions() -> list:
+    """Direct CLI sessions; [] on error (best effort)."""
+    try:
+        return list(clisessions_module.list_all())
+    except Exception:  # noqa: BLE001 - sessions are optional here
+        return []
+
+
+def list_projects(service: "ServerService") -> dict:
+    """Projects: task/session workdirs plus the folders of the working directories.
+
+    Every item has its task ``count`` and direct CLI ``sessions``; folders
+    found in a working directory also carry their root (``workspace``;
+    empty for workdirs only known from tasks or sessions). Workdirs are
+    merged by normalized path. ``workspaces`` reports each configured root
+    (global + project level of the cwd) with its resolved path and whether
+    it exists. Discovery is skipped in remote session mode, where the
+    roots live on the remote host (``session`` is then true). ``create``
+    describes the project creation options.
     """
     counts: dict[str, int] = {}
+    sessions: dict[str, int] = {}
+    shown: dict[str, str] = {}  # key -> workdir as first seen
     for task in models.list_all():
-        if not task.workdir:
-            continue
-        counts[task.workdir] = counts.get(task.workdir, 0) + 1
+        if task.workdir:
+            key = _norm_dir(task.workdir)
+            shown.setdefault(key, task.workdir)
+            counts[key] = counts.get(key, 0) + 1
+    for item in _all_sessions():
+        if item.workdir:
+            key = _norm_dir(item.workdir)
+            shown.setdefault(key, item.workdir)
+            sessions[key] = sessions.get(key, 0) + 1
     session = remotesession.active()
     roots: list[workspaces_module.Root] = []
     found: dict[str, workspaces_module.Project] = {}
     if not session:
         try:
-            entries = workspaces_module.effective_entries(
-                config_module.load().workspaces, Path.cwd()
-            )
-            roots = workspaces_module.roots(entries)
+            roots = _workspace_roots()
             existing = [Path(root.path) for root in roots if root.exists]
             for project in workspaces_module.projects(existing):
-                found[str(project.path)] = project
+                found[_norm_dir(str(project.path))] = project
         except Exception:  # noqa: BLE001 - workspaces discovery is best effort
             roots, found = [], {}
     items: list[dict] = []
-    for workdir, count in sorted(counts.items()):
-        items.append(_project_item(workdir, count, found.pop(workdir, None)))
-    for workdir in sorted(found):
-        items.append(_project_item(workdir, 0, found[workdir]))
+    for key in sorted(shown, key=lambda k: shown[k]):
+        items.append(
+            _project_item(shown[key], counts.get(key, 0), found.pop(key, None), sessions.get(key, 0))
+        )
+    for key in sorted(found, key=lambda k: str(found[k].path)):
+        project = found[key]
+        items.append(_project_item(str(project.path), 0, project, 0))
     return {
         "projects": items,
         "workspaces": [
@@ -482,16 +525,18 @@ def list_projects(service: "ServerService") -> dict:
             for root in roots
         ],
         "session": session,
+        "create": _create_options(roots, session),
     }
 
 
 def _project_item(
-    workdir: str, count: int, project: workspaces_module.Project | None
+    workdir: str, count: int, project: workspaces_module.Project | None, sessions: int = 0
 ) -> dict:
     """One ``list_projects`` item; ``project`` is the discovered folder, if any."""
     return {
         "workdir": workdir,
         "count": count,
+        "sessions": sessions,
         "name": project.name if project is not None else Path(workdir).name,
         "workspace": str(project.workspace) if project is not None else "",
     }
