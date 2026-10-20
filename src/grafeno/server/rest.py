@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
-from . import actions, clisessions, projectcreate, projectdocs, settings
+from . import actions, clisessions, projectcreate, projectdocs, reviews, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -116,6 +116,14 @@ async def _project_doc(service: "ServerService", request: Request, params: dict[
         name=query.get("name") or "",
         offset=_query_int(request, "offset", 0),
         max_chars=_query_int(request, "max_chars", None),
+    )
+
+
+@route("GET", "/api/v1/projects/repos")
+async def _project_repos(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    query = request.query
+    return await reviews.list_repos(
+        service, workdir=query.get("workdir") or "", project=query.get("project") or ""
     )
 
 
@@ -378,6 +386,104 @@ async def _session_reopen(service: "ServerService", request: Request, params: di
 
 
 # ---------------------------------------------------------------------- #
+# Assisted reviews
+# ---------------------------------------------------------------------- #
+@route("GET", "/api/v1/reviews")
+async def _reviews_list(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    query = request.query
+    return reviews.list_reviews(
+        service, workdir=query.get("workdir") or "", state=query.get("state") or ""
+    )
+
+
+@route("POST", "/api/v1/reviews")
+async def _reviews_start(service: "ServerService", request: Request, params: dict[str, str]) -> Response:
+    status, body = await reviews.start_review(service, parse_json_body(request))
+    return Response.json(status, body)
+
+
+@route("GET", "/api/v1/reviews/{review_id}")
+async def _review_get(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await reviews.get_review(service, params["review_id"])
+
+
+@route("DELETE", "/api/v1/reviews/{review_id}")
+async def _review_delete(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return reviews.delete_review(service, params["review_id"])
+
+
+@route("POST", "/api/v1/reviews/{review_id}/close")
+async def _review_close(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await reviews.close_review(service, params["review_id"])
+
+
+@route("POST", "/api/v1/reviews/{review_id}/reopen")
+async def _review_reopen(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await reviews.reopen_review(service, params["review_id"])
+
+
+@route("GET", "/api/v1/reviews/{review_id}/files")
+async def _review_files(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    query = request.query
+    return await reviews.list_files(
+        service, params["review_id"], repo=query.get("repo") or "",
+        decision=query.get("decision") or "",
+    )
+
+
+@route("GET", "/api/v1/reviews/{review_id}/diff")
+async def _review_diff(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await reviews.get_diff(service, params["review_id"], dict(request.query))
+
+
+@route("POST", "/api/v1/reviews/{review_id}/navigate")
+async def _review_navigate(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await reviews.navigate(service, params["review_id"], parse_json_body(request))
+
+
+@route("POST", "/api/v1/reviews/{review_id}/decision")
+async def _review_decision(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await reviews.decide(service, params["review_id"], parse_json_body(request))
+
+
+@route("POST", "/api/v1/reviews/{review_id}/discuss")
+async def _review_discuss(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await reviews.discuss(service, params["review_id"], parse_json_body(request))
+
+
+@route("POST", "/api/v1/reviews/{review_id}/request-changes")
+async def _review_request_changes(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await reviews.request_changes(service, params["review_id"], parse_json_body(request))
+
+
+@route("GET", "/api/v1/reviews/{review_id}/transcript")
+async def _review_transcript(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    after = _query_int(request, "after", 0)
+    limit = _query_int(request, "limit", 0)
+    return reviews.review_transcript(service, params["review_id"], after=after, limit=limit)
+
+
+@route("POST", "/api/v1/reviews/{review_id}/cancel")
+async def _review_cancel(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return reviews.cancel_review_turn(service, params["review_id"])
+
+
+@route("POST", "/api/v1/reviews/{review_id}/commit-message")
+async def _review_commit_message(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await reviews.commit_message(service, params["review_id"], parse_json_body(request))
+
+
+@route("POST", "/api/v1/reviews/{review_id}/commit")
+async def _review_commit(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await reviews.commit(service, params["review_id"], parse_json_body(request))
+
+
+@route("GET", "/api/v1/reviews/{review_id}/commits")
+async def _review_commits(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return reviews.list_commits(service, params["review_id"])
+
+
+# ---------------------------------------------------------------------- #
 # Helpers
 # ---------------------------------------------------------------------- #
 def _query_int(request: Request, name: str, default: int | None) -> int | None:
@@ -417,7 +523,10 @@ async def dispatch_rest(
     try:
         result = await handler(service, request, params)
     except actions.ApiError as exc:
-        return Response.json(exc.status, {"error": exc.message}), None
+        body = {"error": exc.message}
+        if exc.code:
+            body["code"] = exc.code
+        return Response.json(exc.status, body), None
     except Exception as exc:  # noqa: BLE001
         service._log(f"unhandled error: {exc}")
         return Response.json(500, {"error": "internal error"}), None

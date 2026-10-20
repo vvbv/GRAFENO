@@ -331,3 +331,15 @@ def test_server_no_auth_accepts_requests_and_warns(monkeypatch):
         assert not any("?token=" in call.args[0] for call in calls)
 
     asyncio.run(scenario())
+
+
+def test_schedule_column_and_text_helpers_present():
+    """The panel renders the derived schedule instead of the raw scheduled_at."""
+    from importlib import resources
+
+    script = resources.files("grafeno.server").joinpath("static/app.js").read_text(encoding="utf-8")
+    assert "function scheduleText(" in script
+    assert 'tr("tasks.col.scheduled")' in script
+    assert "when(task.scheduled_at)" not in script
+    css = resources.files("grafeno.server").joinpath("static/app.css").read_text(encoding="utf-8")
+    assert "#task-table td.sched.overdue" in css  # must out-rank "#task-table td.when"

@@ -75,6 +75,45 @@ function formatDuration(seconds) {
   return secs + "s";
 }
 function when(iso) { return (iso || "").replace("T", " "); }
+function formatCountdown(seconds) {
+  const total = Math.floor(Math.max(0, Math.floor(seconds || 0)) / 60);
+  const days = Math.floor(total / 1440), hours = Math.floor((total % 1440) / 60), minutes = total % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  if (days) return days + "d " + pad(hours) + "h";
+  if (hours) return hours + "h " + pad(minutes) + "m";
+  return minutes + "m";
+}
+// Pending start of a task (server payload "schedule"), in the server's
+// calendar: "today"/"tomorrow" use the UTC offset carried by at_iso.
+function scheduleText(s, compact) {
+  if (!s || !s.status) return "";
+  const now = Date.now();
+  const target = s.at_iso ? Date.parse(s.at_iso) : NaN;
+  const known = !Number.isNaN(target);
+  let stamp = "";
+  if (known) {
+    const m = /([+-])(\d\d):(\d\d)$/.exec(s.at_iso);
+    const offset = m ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) : 0;
+    const dayOf = (ms) => Math.floor((ms + offset * 60000) / 86400000);
+    const delta = dayOf(target) - dayOf(now);
+    const day = delta === 0 ? tr("det.sched.today") : delta === 1 ? tr("det.sched.tomorrow") : delta === -1 ? tr("det.sched.yesterday") : "";
+    if (compact) stamp = when(s.at) + (day ? " (" + day + ")" : "");
+    else {
+      const secs = (target - now) / 1000;
+      const rel = secs > 0 ? tr("det.sched.in", { d: formatCountdown(secs) }) : tr("det.sched.ago", { d: formatCountdown(-secs) });
+      stamp = when(s.at) + " " + s.utc_offset + " (" + [day, rel].filter(Boolean).join(", ") + ")";
+    }
+  }
+  if (s.status === "waiting_parent") {
+    if (!s.parent_name) return tr("det.sched.parent_missing");
+    if (known && target > now) return tr("det.sched.waiting_parent_at", { name: s.parent_name, at: stamp });
+    return tr("det.sched.waiting_parent", { name: s.parent_name });
+  }
+  if (!known) return "";
+  // Recomputed client side: a "future" payload turns overdue without a reload.
+  if (target <= now) return tr("det.sched.overdue", { at: stamp });
+  return compact ? stamp : tr("det.scheduled", { at: stamp });
+}
 function debounce(fn, ms) {
   let timer = null;
   return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
@@ -951,6 +990,7 @@ const tasksView = {
     const table = h("table", { id: "task-table" },
       h("thead", null, h("tr", null,
         taskHead, h("th", { text: tr("tasks.col.state") }),
+        h("th", { class: "col-opt", text: tr("tasks.col.scheduled") }),
         h("th", { class: "num col-opt", text: tr("tasks.col.iter") }), h("th", { class: "num col-opt", text: tr("tasks.col.tokens") }),
         h("th", { class: "num col-opt", text: tr("tasks.col.duration") }), h("th", { class: "col-opt", text: tr("tasks.col.updated") }),
         h("th", { class: "col-opt", text: tr("tasks.col.workdir") }))),
@@ -1021,6 +1061,7 @@ const tasksView = {
       const tokens = task.tokens && (task.tokens.input || task.tokens.output) ? tokenPair(task.tokens.input, task.tokens.output) : "";
       const row = h("tr", { class: task.id === this.selected ? "active" : "" },
         name, h("td", null, stateBadge(task)),
+        h("td", { class: "when col-opt sched " + ((task.schedule && task.schedule.status) || ""), text: scheduleText(task.schedule, true), title: scheduleText(task.schedule, false) }),
         h("td", { class: "num col-opt", text: String(task.iteration || 0) }),
         h("td", { class: "num col-opt", text: tokens }),
         h("td", { class: "num col-opt", text: task.duration_seconds ? formatDuration(task.duration_seconds) : "" }),
@@ -1092,7 +1133,8 @@ const tasksView = {
     if (task.cycle > 1) meta.push(tr("det.cycle", { n: task.cycle }));
     meta.push(task.workdir);
     if (d.remote_target) meta.push(tr("det.remote", { target: d.remote_target + (task.remote_os ? " (" + task.remote_os + ")" : "") }));
-    if (task.scheduled_at) meta.push(tr("det.scheduled", { at: when(task.scheduled_at) }));
+    const schedule = scheduleText(d.schedule, false);
+    if (schedule) meta.push(schedule);
     if (task.repeat_mode) meta.push(tr("det.repeat." + task.repeat_mode, { n: task.repeat_count, minutes: task.repeat_interval_minutes }));
     if (task.branch) meta.push("⎇ " + task.branch);
     const back = h("button", { class: "link back", text: "← " + tr("common.back"), onclick: () => { location.hash = "#/tasks"; } });
@@ -1422,7 +1464,7 @@ const tasksView = {
       [tr("web.ui.field_iteration"), task.iteration + " / " + task.max_iterations],
       [tr("web.ui.field_branch"), task.branch],
       [tr("web.ui.field_tests"), task.test_command],
-      [tr("web.ui.field_scheduled"), when(task.scheduled_at)],
+      [tr("web.ui.field_scheduled"), scheduleText(d.schedule, false)],
       [tr("web.ui.field_parent"), task.parent_id],
       [tr("nt.repeat"), task.repeat_mode ? tr("det.repeat." + task.repeat_mode, { n: task.repeat_count, minutes: task.repeat_interval_minutes }) : ""],
       [tr("nt.plan_reuse"), task.repeat_mode ? tr("nt.plan_reuse." + task.plan_reuse) : ""],

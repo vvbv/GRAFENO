@@ -25,9 +25,9 @@ src/grafeno/
 ├── media.py                # Imágenes del portapapeles: lectura (wl-paste/xclip/pngpaste/osascript), guardado en media/ de la tarea, listado y apertura con el visor del SO; preview inline opcional vía textual-image; adjuntos de referencia de cualquier tipo (Word, Excel, PDF, imágenes, vídeo, otros): grupos de sufijos (`ATTACHMENT_KINDS`, `SAFE_SUFFIXES`, el resto `.bin`), tope `MAX_ATTACHMENT_BYTES` (500 MiB), `save_attachment_file` (copia/mueve desde disco sin cargarlo en memoria, chequeo de espacio libre `has_free_space`), `base64_length` y `LARGE_ATTACHMENT_BYTES` (50 MiB: los prompts avisan de leerlo por partes), manifiesto `attachments.toml` en la carpeta de la tarea (dataclass `Attachment`: nombre original, tipo, tamaño, origen, ciclo) con `list_attachments`/`delete_attachment`
 ├── modelcheck.py           # Verificación de modelos retirados: compara los pares cli+modelo configurados (config general + parser de Telegram, perfiles y tareas) con la lista que reporta cada CLI; lógica pura (collect_*/used_clis/find_missing/format_issues)
 ├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
-├── timefmt.py              # Formateo de duraciones (42s, 3m 05s, 1h 02m 03s)
+├── timefmt.py              # Formateo de duraciones (42s, 3m 05s, 1h 02m 03s); `format_countdown` (distancia gruesa: 45m, 6h 05m, 2d 03h)
 ├── ratelimit.py            # Detección de usage agotado en CLIs: patrones de error, pista de espera (retry-after, duración relativa u hora absoluta de reseteo con zona horaria) y constantes de sondeo/reintento (PROBE_SECONDS, MAX_ATTEMPTS, PASSIVE_WAIT_SECONDS); además fallos transitorios (red, 5xx del proveedor, apagado del servicio del CLI: looks_like_transient_failure, TRANSIENT_MAX_ATTEMPTS, TRANSIENT_WAITS)
-├── scheduler.py            # Lógica pura: programación horaria, encadenamiento padre/hija y repetición de tareas
+├── scheduler.py            # Lógica pura: programación horaria, encadenamiento padre/hija y repetición de tareas; además `next_start` (próximo arranque efectivo: `scheduled_at` o `last_completed_at` + intervalo), `schedule_info`/`format_schedule` (estado derivado de solo lectura future/overdue/waiting_parent y texto con fecha completa, hoy/mañana, offset UTC y cuenta atrás)
 ├── usage.py                # Ledger de uso con fecha (~/.grafeno/usage.toml, [[record]] append-only): registro de tokens/tiempo desde el orquestador, backfill único desde las tareas existentes (fechado por updated_at), períodos (día/semana/mes) y agregación para la pantalla de reportes
 ├── updater.py              # Auto-actualización best-effort de los CLIs de agentes (comando nativo de cada uno) al arrancar la TUI si auto_update está activado en el config
 ├── selfupdate.py           # Auto-actualización de GRAFENO desde las releases de GitHub: chequeo de versión (API releases/latest) con motivo del fallo y fallback a la redirección web de releases/latest; instala el wheel de la release si existe (si no, el tag git), comparación semver y comando pipx/pip; comando CLI `grafeno update`
@@ -41,6 +41,8 @@ src/grafeno/
 ├── consoles.py             # Consolas del proyecto: ConsoleSpec (nombre/comando/color), paleta CONSOLE_COLORS y persistencia por proyecto bajo ~/.grafeno/consoles/<slug>-<hash8>.toml (migra el [[consoles]] legacy del .grafeno.toml)
 ├── clisessions.py          # Sesiones CLI directas (conversaciones con Claude Code u OpenCode en la carpeta de un proyecto, sin tarea): `CliSession`, `SESSION_CLIS` (único punto para ampliar los CLIs), almacén en `~/.grafeno/cli-sessions/<id>/` (`session.toml`, `transcript.jsonl` best effort, `logs/turn-NNN.jsonl`), ids validados contra path traversal y transcript incremental con `seq` global
 ├── clisession_runtime.py   # `CliSessionManager` (vive en `GrafenoApp.cli_sessions`): un turno a la vez por sesión, turnos como workers de la App, listeners (`changed`/`entry`/`deleted`), estado running solo en memoria; usa `CLIDriver.run(on_session=...)` para persistir pronto el id nativo
+├── gitrepos.py             # Núcleo git multirrepositorio para la revisión asistida: descubrimiento recursivo de repos anidados (`discover`), status porcelain v2 con repo propietario inequívoco, diff por archivo y commit explícito `git commit --only` con rutas literales (stage ajeno preservado, lock por repo); `GitReviewError(code, message)`
+├── reviews.py              # Sesiones de revisión asistida (`~/.grafeno/reviews/<id>/`: `review.toml`, `commits.jsonl`): decisiones por archivo, cursor y navegación, agente vía `CliSessionManager`, mensaje de commit one-shot y `commit_files` (único punto que comitea); el estado git se recalcula en cada `snapshot`
 ├── remote.py               # Proyectos remotos por SSH: parseo del spec, montaje sshfs bajo ~/.grafeno/mounts/ y espejo de datos de la tarea con rsync (best-effort), sondeo del SO destino (detect_os)
 ├── remotesession.py        # Modo sesión remota (`grafeno [user@]host[:port]`): bootstrap (sondeo de $HOME remoto, mkdir ~/.grafeno, montaje sshfs), activate() exporta GRAFENO_HOME al montaje; spec_for_task/describe_target para el fallback de sesión
 ├── triggers.py             # Tareas trigger: modelo, niveles global/proyecto, fire() y spawn() best-effort
@@ -60,6 +62,7 @@ src/grafeno/
 │   ├── web.py              #   Panel web (`grafeno --web`): prepare() (copia en memoria de ApiConfig, loopback por defecto, token efímero si se expone sin tokens), URLs del panel y render de la página con las cadenas i18n inyectadas
 │   ├── projectdocs.py      #   Documentos de proyecto de solo lectura (README.md, AGENTS.md, GRAFENO.md): lista blanca, proyecto resuelto contra list_projects, symlinks fuera del proyecto bloqueados, tope 1 MiB, paginación por caracteres sobre el texto normalizado y esquema de encabezados (mdnorm.markdown_outline)
 │   ├── projectcreate.py    #   POST /api/v1/projects y WS projects.create: mapea ProjectError.code a status (400/409/422/500/503); 409 en modo sesión remota
+│   ├── reviews.py          #   Operaciones REST/WS de la revisión asistida y mapa `code` -> status (`GitReviewError`); `ApiError` lleva `code` opcional
 │   ├── settings.py         #   Operaciones REST/WS de catálogo, reportes y ajustes: opciones del formulario, modelos+variantes (caché 10 min), autocompletado de directorios, issues de gh, reporte de uso y ajustes globales (secretos de solo escritura)
 │   ├── static/             #   Panel web (paquete de datos en pyproject): index.html (shell + JSON de arranque no ejecutable), app.css, app.js (SPA vanilla sin dependencias ni CDN: lista, detalle, nueva tarea, reportes, ajustes)
 │   └── ws.py               #   RFC 6455: handshake (accept key), frames enmascarados de cliente, comandos JSON-RPC {"id","method","params"} y eventos {"event":...,...} con suscripción por topic
@@ -92,7 +95,7 @@ install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), v
 ```
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
-`task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `attachments.toml`, `logs/live.jsonl`, `logs/*.jsonl`; `cli-sessions/<id>/` con `session.toml`, `transcript.jsonl` y `logs/turn-NNN.jsonl`;
+`task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `attachments.toml`, `logs/live.jsonl`, `logs/*.jsonl`; `cli-sessions/<id>/` con `session.toml`, `transcript.jsonl` y `logs/turn-NNN.jsonl`; `reviews/<id>/` con `review.toml` y `commits.jsonl`;
 además `config.toml`, `references.toml`, `triggers.toml`, `profiles.toml` (con backup rotativo `profiles.toml.bak` best-effort en cada guardado), `consoles/`,
 `mounts/`, `telegram-state.toml`, `api.log`); no
 en el repo.
@@ -239,7 +242,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `/{id}/media?name=`, `/{id}/attachments` (GET lista con metadatos, POST JSON
   base64 o cuerpo binario con `?name=` y `?cycle=` opcional, sin arrancar ciclo; DELETE `?file=`,
   409 si corre; WS `tasks.attachments`/`tasks.attach`/`tasks.detach`), projects, options, models, fs/dirs, issues,
-  `POST /projects` (crear proyecto; guía en `docs/api/project-create.md`; `GET /projects` devuelve además `sessions` por item y `create` con las opciones de creación), projects/docs y projects/doc (documentos README.md/AGENTS.md/GRAFENO.md de un proyecto; guía en `docs/api/project-docs.md`; métodos WS `projects.docs`/`projects.doc`; 409 en proyectos remotos y modo sesión remota), reports, settings (GET/POST) y `/audio/speech` (síntesis
+  `POST /projects` (crear proyecto; guía en `docs/api/project-create.md`; `GET /projects` devuelve además `sessions` por item y `create` con las opciones de creación), projects/docs y projects/doc (documentos README.md/AGENTS.md/GRAFENO.md de un proyecto; guía en `docs/api/project-docs.md`; métodos WS `projects.docs`/`projects.doc`; 409 en proyectos remotos y modo sesión remota), `GET /projects/repos` y `/api/v1/reviews...` (revisión asistida multirrepositorio; guía en `docs/api/reviews.md`; topic WS `reviews` con `review.changed`/`review.deleted`; los errores pueden llevar un campo `code` opcional), reports, settings (GET/POST) y `/audio/speech` (síntesis
   TTS bajo demanda con el proveedor configurado: WAV por defecto u OGG/OPUS
   cuando `format=ogg` y hay `ffmpeg` instalado en el host). WebSocket en `/api/v1/ws` con
   handshake RFC 6455 (cliente enmascarado obligatorio; servidor sin
@@ -470,7 +473,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   manuales (PAUSED) nunca se auto-arrancan. La reencadenación (cambio de
   `parent_id` desde la pantalla de edición, sin tocar el estado) valida en
   `scheduler.rechain_error` que la posición no tenga tareas completadas
-  (padre e hijas del padre fuera de DONE/DISCARDED) y que no haya ciclos.
+  (padre e hijas del padre fuera de DONE/DISCARDED) y que no haya ciclos. La UI (lista y detalle de TUI y panel web, y `schedule` en la API) muestra el arranque pendiente solo para tareas DRAFT que no corren: fecha y hora completas con offset UTC del host, hoy/mañana/ayer por fecha de calendario, cuenta atrás, vencida o en espera de la tarea padre; en cualquier otro estado o tras `reset_to_draft` no se muestra fecha (el `scheduled_at` crudo se conserva en la API por compatibilidad).
 - **Remoto (SSH/sshfs)**: una tarea puede apuntar a un proyecto remoto
   (`Task.remote`, spec canónico `user@host:/ruta`; `workdir` guarda entonces la
   ruta EN el host remoto). Todo acceso al proyecto usa
@@ -544,6 +547,22 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   sobre bugs o revisiones, qué lo estaba causando y cuál fue la solución;
   si el agente no lo genera, el orquestador escribe un fallback mínimo
   (best effort, con cabeceras en español como changes.md).
+- **Revisión asistida (multirrepositorio)**: revisa los cambios Git pendientes
+  (sin commit) de un proyecto, con repos anidados, y comitea archivos de forma
+  explícita (`reviews.py`, `gitrepos.py`, `server/reviews.py`). Nada se comitea
+  automáticamente: el pipeline de tareas no comitea y solo
+  `POST /reviews/{id}/commit` (`reviews.commit_files`) crea commits. Cada archivo
+  se identifica por `repo` (id del repo: ruta posix relativa a la raíz, `.` =
+  raíz) + `path` (relativo a ESE repo); un archivo de `modules/modulo1` se
+  comitea en su propio repo, nunca en el padre. El commit usa
+  `git commit --only` con rutas literales (`GIT_LITERAL_PATHSPECS`), preserva el
+  stage de otras rutas, respeta hooks y autor del sistema y prevalida todos los
+  repos antes del primer commit. Se rechazan conflictos, archivos parcialmente
+  en stage (salvo `include_unstaged`), huella (`fingerprint`) obsoleta y repos
+  con merge/rebase en curso. Discutir y pedir cambios son turnos de una sesión
+  CLI directa enlazada a la revisión (`CliSessionManager`, visible en
+  `/sessions`); el mensaje de commit asistido es un one-shot que no comitea.
+  Deshabilitado en modo sesión remota y para proyectos SSH.
 - **Sesiones CLI directas**: conversaciones con Claude Code u OpenCode abiertas
   en la carpeta de un proyecto, SIN crear una tarea del pipeline (`clisessions.py`
   + `clisession_runtime.py`). No usan PTY: cada turno ejecuta el CLI en modo no

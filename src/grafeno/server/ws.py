@@ -17,7 +17,7 @@ import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Optional
 
-from . import actions, clisessions, projectcreate, projectdocs, settings
+from . import actions, clisessions, projectcreate, projectdocs, reviews, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -260,7 +260,10 @@ async def _dispatch_text(service: "ServerService", conn: "WsConnection", payload
     try:
         result = await handler(service, params, conn)
     except actions_module.ApiError as exc:
-        return {"id": rpc_id, "error": {"message": exc.message, "status": exc.status}}
+        error = {"message": exc.message, "status": exc.status}
+        if exc.code:
+            error["code"] = exc.code
+        return {"id": rpc_id, "error": error}
     except Exception as exc:  # noqa: BLE001
         service._log(f"rpc error in {method}: {exc}")
         return {"id": rpc_id, "error": {"message": "internal error"}}
@@ -569,6 +572,107 @@ async def _unsubscribe(service: "ServerService", params: dict, conn: "WsConnecti
     return {"topics": []}
 
 
+def _required_review_id(params: dict) -> str:
+    """Extract a non-empty ``review_id`` string from the call params."""
+    review_id = params.get("review_id")
+    if not review_id or not isinstance(review_id, str):
+        raise actions.ApiError(400, "review_id is required")
+    return review_id
+
+
+def _text_param(params: dict, field: str) -> str:
+    value = params.get(field)
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise actions.ApiError(400, f"{field} must be a string")
+    return value
+
+
+async def _projects_repos(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await reviews.list_repos(
+        service, workdir=_text_param(params, "workdir"), project=_text_param(params, "project")
+    )
+
+
+async def _reviews_list(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return reviews.list_reviews(
+        service, workdir=_text_param(params, "workdir"), state=_text_param(params, "state")
+    )
+
+
+async def _reviews_start(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    status, body = await reviews.start_review(service, params)
+    return body
+
+
+async def _reviews_get(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await reviews.get_review(service, _required_review_id(params))
+
+
+async def _reviews_delete(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return reviews.delete_review(service, _required_review_id(params))
+
+
+async def _reviews_close(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await reviews.close_review(service, _required_review_id(params))
+
+
+async def _reviews_reopen(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await reviews.reopen_review(service, _required_review_id(params))
+
+
+async def _reviews_files(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await reviews.list_files(
+        service, _required_review_id(params), repo=_text_param(params, "repo"),
+        decision=_text_param(params, "decision"),
+    )
+
+
+async def _reviews_diff(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await reviews.get_diff(service, _required_review_id(params), params)
+
+
+async def _reviews_navigate(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await reviews.navigate(service, _required_review_id(params), params)
+
+
+async def _reviews_decide(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await reviews.decide(service, _required_review_id(params), params)
+
+
+async def _reviews_discuss(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await reviews.discuss(service, _required_review_id(params), params)
+
+
+async def _reviews_request_changes(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await reviews.request_changes(service, _required_review_id(params), params)
+
+
+async def _reviews_transcript(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return reviews.review_transcript(
+        service, _required_review_id(params),
+        after=_parse_int(params.get("after"), 0, field="after"),
+        limit=_parse_int(params.get("limit"), 0, field="limit"),
+    )
+
+
+async def _reviews_cancel(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return reviews.cancel_review_turn(service, _required_review_id(params))
+
+
+async def _reviews_commit_message(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await reviews.commit_message(service, _required_review_id(params), params)
+
+
+async def _reviews_commit(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await reviews.commit(service, _required_review_id(params), params)
+
+
+async def _reviews_commits(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return reviews.list_commits(service, _required_review_id(params))
+
+
 METHODS: dict[str, Callable] = {
     "status": _status_method,
     "tasks.list": _tasks_list,
@@ -608,6 +712,24 @@ METHODS: dict[str, Callable] = {
     "sessions.close": _sessions_close,
     "sessions.reopen": _sessions_reopen,
     "sessions.delete": _sessions_delete,
+    "projects.repos": _projects_repos,
+    "reviews.list": _reviews_list,
+    "reviews.start": _reviews_start,
+    "reviews.get": _reviews_get,
+    "reviews.delete": _reviews_delete,
+    "reviews.close": _reviews_close,
+    "reviews.reopen": _reviews_reopen,
+    "reviews.files": _reviews_files,
+    "reviews.diff": _reviews_diff,
+    "reviews.navigate": _reviews_navigate,
+    "reviews.decide": _reviews_decide,
+    "reviews.discuss": _reviews_discuss,
+    "reviews.request_changes": _reviews_request_changes,
+    "reviews.transcript": _reviews_transcript,
+    "reviews.cancel": _reviews_cancel,
+    "reviews.commit_message": _reviews_commit_message,
+    "reviews.commit": _reviews_commit,
+    "reviews.commits": _reviews_commits,
     "options.get": _options_get,
     "models.list": _models_list,
     "fs.dirs": _fs_dirs,

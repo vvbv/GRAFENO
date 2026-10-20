@@ -13,3 +13,15 @@ def format_duration(seconds: float) -> str:
     if minutes:
         return f"{minutes}m {secs:02d}s"
     return f"{secs}s"
+
+
+def format_countdown(seconds: float) -> str:
+    """Coarse distance for schedules: ``45m``, ``6h 05m``, ``2d 03h``."""
+    total = max(0, int(seconds)) // 60
+    days, rem = divmod(total, 1440)
+    hours, minutes = divmod(rem, 60)
+    if days:
+        return f"{days}d {hours:02d}h"
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    return f"{minutes}m"

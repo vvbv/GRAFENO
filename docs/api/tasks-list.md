@@ -23,6 +23,7 @@ Response fields added to `tasks` and `done_hidden_ids`:
 - `offset`: offset applied.
 - `limit`: limit applied or `null`.
 - `has_more`: `offset + len(tasks) < total`.
+- `schedule` (per task): derived pending start (`status` of `future`, `overdue`, `waiting_parent` or empty, plus `at`, `at_iso`, `utc_offset`, `parent_id`, `parent_name`). Empty for tasks that are not DRAFT or are running; `scheduled_at` stays the raw stored value and may be stale.
 - `completed_at` (per task): `last_completed_at`, else `updated_at` for DONE tasks, else empty. With `sort=completed`, tasks without it go last.
 
 ## Recipes

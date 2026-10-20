@@ -33,10 +33,11 @@ AUDIO_TRANSCRIPTION_HEADER = "Transcription of audio attachment"  # description 
 class ApiError(Exception):
     """Domain error raised by action handlers; mapped to an HTTP status."""
 
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str, code: str = ""):
         super().__init__(message)
         self.status = status
         self.message = message
+        self.code = code  # stable machine-readable code (empty for most errors)
 
 
 ROLE_NAMES = ("first", "planner", "implementer", "reviewer", "final")
@@ -90,7 +91,29 @@ def task_completed_at(task: Task) -> str:
     return task.updated_at if task.state is TaskState.DONE else ""
 
 
-def task_summary(task: Task, running: bool = False) -> dict:
+def schedule_payload(task: Task, by_id: dict[str, Task] | None = None, running: bool = False) -> dict:
+    """Pending unattended start of a task, ready for the web panel.
+
+    ``at`` is the effective next start in server local time; ``at_iso``
+    carries the UTC offset so clients compute countdowns and
+    today/tomorrow in the server's calendar. ``status == ""`` means
+    nothing is pending (the raw ``scheduled_at`` may be stale).
+    """
+    if by_id is None:
+        by_id = {item.id: item for item in models.list_all()} if task.parent_id else {}
+    info = scheduler.schedule_info(task, by_id, datetime.now(), running=running)
+    at = info.at
+    return {
+        "status": info.status,
+        "at": at.isoformat(timespec="minutes") if at else "",
+        "at_iso": at.astimezone().isoformat(timespec="seconds") if at else "",
+        "utc_offset": scheduler.utc_offset_label(at) if at else "",
+        "parent_id": info.parent_id,
+        "parent_name": info.parent_name,
+    }
+
+
+def task_summary(task: Task, running: bool = False, by_id: dict[str, Task] | None = None) -> dict:
     """Slim task payload for list endpoints and WS events."""
     total_in, total_out = task.token_totals()
     return {
@@ -104,6 +127,7 @@ def task_summary(task: Task, running: bool = False) -> dict:
         "origin": task.origin,
         "profile": task.profile,
         "scheduled_at": task.scheduled_at,
+        "schedule": schedule_payload(task, by_id, running),
         "parent_id": task.parent_id,
         "iteration": task.iteration,
         "cycle": task.cycle,
@@ -243,8 +267,9 @@ def list_tasks(
     total = len(ordered)
     page = ordered[offset:] if limit is None else ordered[offset:offset + limit]
     items = []
+    by_id = {task.id: task for task in all_tasks}
     for task, depth in page:
-        item = task_summary(task, running=_is_running(service, task.id))
+        item = task_summary(task, running=_is_running(service, task.id), by_id=by_id)
         item["depth"] = depth
         items.append(item)
     return {
@@ -418,6 +443,7 @@ def _detail_extras(service: "ServerService", task: Task) -> dict:
             for key, label_key in _phase_order(has_first)
         ],
         "usage_waiting": task.usage_waiting,
+        "schedule": schedule_payload(task, {item.id: item for item in all_tasks}, _is_running(service, task.id)),
         "agents": _agents(task),
         "tokens_by_phase": [
             {"phase": phase, "label": t(f"phase.{phase}"), "input": pair_in, "output": pair_out}

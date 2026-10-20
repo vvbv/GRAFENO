@@ -164,3 +164,36 @@ def test_invalid_params(many_tasks, kwargs) -> None:
     with pytest.raises(ApiError) as info:
         _list(**kwargs)
     assert info.value.status == 400
+
+
+def test_schedule_payload_future_paused_and_waiting(monkeypatch):
+    future = _task(1, "/work/A", TaskState.DRAFT)
+    future.scheduled_at = "2999-01-02T10:00"
+    paused = _task(2, "/work/A", TaskState.PAUSED)
+    paused.scheduled_at = "2999-01-02T10:00"
+    parent = _task(3, "/work/A", TaskState.DRAFT)
+    parent.name = "Parent"
+    child = _task(4, "/work/A", TaskState.DRAFT)
+    child.parent_id = parent.id
+    _patch(monkeypatch, [future, paused, parent, child])
+    items = {item["id"]: item for item in _list()["tasks"]}
+    sched = items[future.id]["schedule"]
+    assert sched["status"] == "future"
+    assert sched["at"] == "2999-01-02T10:00"
+    assert sched["at_iso"][-6] in "+-" and sched["at_iso"][-3] == ":"
+    assert sched["utc_offset"].startswith("UTC")
+    stale = items[paused.id]
+    assert stale["schedule"]["status"] == ""
+    assert stale["scheduled_at"] == "2999-01-02T10:00"
+    waiting = items[child.id]["schedule"]
+    assert waiting["status"] == "waiting_parent"
+    assert waiting["parent_name"] == "Parent"
+
+
+def test_task_detail_includes_schedule(monkeypatch):
+    task = _task(1, "/work/A", TaskState.DRAFT)
+    task.scheduled_at = "2999-01-02T10:00"
+    _patch(monkeypatch, [task])
+    monkeypatch.setattr(actions.models, "load", lambda task_id: task)
+    detail = actions.get_task(_Service(), task.id)["task"]
+    assert detail["schedule"]["status"] == "future"

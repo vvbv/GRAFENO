@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GRAFENO Remote API
-  version: 1.6.0
+  version: 1.7.0
   summary: REST API of the GRAFENO remote server (optional token authentication).
   description: |
     REST control API exposed by the GRAFENO TUI while it is running
@@ -31,6 +31,8 @@ tags:
     description: Task lifecycle, logs and artifacts.
   - name: sessions
     description: Direct CLI sessions - conversations with an agent CLI in a project folder, outside the task pipeline.
+  - name: reviews
+    description: Assisted review of pending git changes across nested repositories; explicit commits only.
   - name: projects
     description: Projects - task workdirs and folders of the working directories, with task counts.
   - name: audio
@@ -1357,6 +1359,545 @@ paths:
         "503":
           $ref: "#/components/responses/Unavailable"
 
+  /api/v1/projects/repos:
+    get:
+      tags: [projects]
+      summary: Git repositories of a project (root, nested and submodules) with their branch and pending file count.
+      operationId: listProjectRepos
+      description: |
+        The project must be listed by `GET /api/v1/projects`. Remote projects and remote session mode answer 409.
+      parameters:
+        - name: workdir
+          in: query
+          required: false
+          description: Absolute folder of a catalogued project.
+          schema:
+            type: string
+        - name: project
+          in: query
+          required: false
+          description: Project folder name.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Repositories found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewReposResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/reviews:
+    get:
+      tags: [reviews]
+      summary: List review sessions.
+      operationId: listReviews
+      parameters:
+        - name: workdir
+          in: query
+          required: false
+          description: Only reviews of this project folder.
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          description: Filter by state.
+          schema:
+            type: string
+            enum: [active, closed]
+      responses:
+        "200":
+          description: Reviews, most recently updated first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [reviews]
+      summary: Start (or resume) a review of the pending changes of a project.
+      operationId: startReview
+      description: |
+        With `resume` (default true) the latest active review of the same folder (and `task_id`) is returned with 200 and `resumed: true`; otherwise a new one is created (201).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewStartRequest"
+      responses:
+        "201":
+          description: Review created (200 when resumed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/reviews/{review_id}:
+    get:
+      tags: [reviews]
+      summary: "Review detail: repositories, pending files with decisions, counts and cursor."
+      operationId: getReview
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      responses:
+        "200":
+          description: Review detail (git state recomputed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    delete:
+      tags: [reviews]
+      summary: Delete a review (the agent CLI session is kept).
+      operationId: deleteReview
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/reviews/{review_id}/close:
+    post:
+      tags: [reviews]
+      summary: Close a review.
+      operationId: closeReview
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      responses:
+        "200":
+          description: Closed review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewSummaryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/reviews/{review_id}/reopen:
+    post:
+      tags: [reviews]
+      summary: Reopen a closed review.
+      operationId: reopenReview
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      responses:
+        "200":
+          description: Reopened review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewSummaryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/reviews/{review_id}/files:
+    get:
+      tags: [reviews]
+      summary: Pending files, optionally filtered.
+      operationId: listReviewFiles
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+        - name: repo
+          in: query
+          required: false
+          description: Only files of this repository id.
+          schema:
+            type: string
+        - name: decision
+          in: query
+          required: false
+          description: Only files with this decision.
+          schema:
+            type: string
+            enum: [pending, accepted, changes_requested, skipped]
+      responses:
+        "200":
+          description: Files and counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewFilesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/reviews/{review_id}/diff:
+    get:
+      tags: [reviews]
+      summary: Diff of one pending file.
+      operationId: getReviewDiff
+      description: |
+        The file is identified by `repo` + `path` (path relative to the owning repository) or by `key`.
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+        - name: repo
+          in: query
+          required: false
+          description: Repository id (posix path relative to the project root, `.` = root). Use with `path`.
+          schema:
+            type: string
+        - name: path
+          in: query
+          required: false
+          description: File path relative to that repository.
+          schema:
+            type: string
+        - name: key
+          in: query
+          required: false
+          description: Opaque file key (alternative to `repo` + `path`).
+          schema:
+            type: string
+        - name: max_bytes
+          in: query
+          required: false
+          description: Clip the diff (1024 to 4 MiB).
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: File entry and diff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDiffResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/reviews/{review_id}/navigate:
+    post:
+      tags: [reviews]
+      summary: Move the cursor and return the file under it with its diff.
+      operationId: navigateReview
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewNavigateRequest"
+      responses:
+        "200":
+          description: Current entry (null at the end of the list) and counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewNavigateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/reviews/{review_id}/decision:
+    post:
+      tags: [reviews]
+      summary: Record the decision for a file (optionally advancing the cursor).
+      operationId: decideReviewFile
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewDecisionRequest"
+      responses:
+        "200":
+          description: Updated file, counts and optional next file.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDecisionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/reviews/{review_id}/discuss:
+    post:
+      tags: [reviews]
+      summary: Ask the review agent about the review or one file (asynchronous turn).
+      operationId: discussReview
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewDiscussRequest"
+      responses:
+        "200":
+          description: Agent session summary; follow the turn through the transcript.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewAgentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/reviews/{review_id}/request-changes:
+    post:
+      tags: [reviews]
+      summary: Mark a file as changes requested and ask the agent to apply them.
+      operationId: requestReviewChanges
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewRequestChangesRequest"
+      responses:
+        "200":
+          description: Agent session summary and the updated file decision.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewAgentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/reviews/{review_id}/transcript:
+    get:
+      tags: [reviews]
+      summary: Transcript of the review agent conversation.
+      operationId: getReviewTranscript
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+        - name: after
+          in: query
+          required: false
+          description: Return entries with `seq` greater than this value.
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          required: false
+          description: Keep only the last N entries (0 = all).
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Entries (empty when the agent was not started).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliSessionTranscriptResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/reviews/{review_id}/cancel:
+    post:
+      tags: [reviews]
+      summary: Cancel the running agent turn.
+      operationId: cancelReviewTurn
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      responses:
+        "200":
+          description: Agent session summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewCancelResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /api/v1/reviews/{review_id}/commit-message:
+    post:
+      tags: [reviews]
+      summary: Suggest a commit message with an agent (never commits).
+      operationId: suggestCommitMessage
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewCommitMessageRequest"
+      responses:
+        "200":
+          description: Suggested message.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewCommitMessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "502":
+          description: The agent failed or returned nothing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: Generation timed out.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/reviews/{review_id}/commit:
+    post:
+      tags: [reviews]
+      summary: Commit explicit files, each in its owning repository.
+      operationId: commitReviewFiles
+      description: |
+        Only the listed paths are committed (`git commit --only`, literal pathspecs); the
+        staging area of other paths is preserved, the author is the system git identity,
+        hooks are respected, and neither `-a` nor `add -A` is ever used. Every repository
+        group is validated before the first commit. Conflicted files, partially staged
+        files (unless `include_unstaged`), stale fingerprints and repositories with a
+        merge, rebase or cherry-pick in progress are rejected. Files of several
+        repositories require `allow_multi_repo`; a failure after a first commit returns
+        `partial: true`.
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewCommitRequest"
+      responses:
+        "200":
+          description: Commits made and errors.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewCommitResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "422":
+          description: A git hook or git itself rejected the commit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Unexpected git failure.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: Git timed out.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/reviews/{review_id}/commits:
+    get:
+      tags: [reviews]
+      summary: History of commits made from the review.
+      operationId: listReviewCommits
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      responses:
+        "200":
+          description: Commit records.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewCommitsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 components:
   responses:
     BadRequest:
@@ -1400,6 +1941,13 @@ components:
       name: token
       description: Same optional token passed as a query parameter (browser/websocket friendly); only enforced when tokens are configured.
   parameters:
+    ReviewId:
+      name: review_id
+      in: path
+      required: true
+      description: Review identifier, e.g. `20261019-105613-a1b2c3`.
+      schema:
+        type: string
     DocsWorkdirQuery:
       name: workdir
       in: query
@@ -1625,11 +2173,326 @@ components:
         session:
           $ref: "#/components/schemas/CliSessionSummary"
       required: [entries, total, running, session]
+    ReviewSummary:
+      type: object
+      properties:
+        id: {type: string}
+        name: {type: string}
+        workdir: {type: string}
+        project_name: {type: string}
+        task_id: {type: string}
+        state: {type: string, enum: [active, closed]}
+        cli: {type: string}
+        model: {type: string}
+        effort: {type: string}
+        agent_session_id: {type: string, description: Direct CLI session of the agent ("" = not started).}
+        agent_running: {type: boolean}
+        cursor:
+          nullable: true
+          type: object
+          properties:
+            repo: {type: string}
+            path: {type: string}
+        commits: {type: integer}
+        created_at: {type: string}
+        updated_at: {type: string}
+    ReviewSummaryResponse:
+      type: object
+      properties:
+        review:
+          $ref: "#/components/schemas/ReviewSummary"
+    ReviewListResponse:
+      type: object
+      properties:
+        reviews:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewSummary"
+    ReviewRepo:
+      type: object
+      properties:
+        id: {type: string, description: Posix path relative to the project root; `.` is the root (or enclosing) repository.}
+        path: {type: string, description: Absolute top level of the repository.}
+        kind: {type: string, enum: [root, outer, nested, submodule]}
+        scope: {type: string, description: For `outer` repositories, the project root relative to the top level.}
+        parent: {type: string}
+        branch: {type: string}
+        head: {type: string}
+        operation: {type: string, description: "merge, cherry-pick, revert, rebase or empty."}
+        files: {type: integer}
+        truncated: {type: boolean}
+        hidden:
+          type: array
+          items: {type: string}
+          description: Nested repositories that were not discovered (depth limit or ignored folders).
+        error: {type: string}
+    ReviewReposResponse:
+      type: object
+      properties:
+        project: {type: object}
+        repos:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewRepo"
+        errors: {type: object, additionalProperties: {type: string}}
+    ReviewFileEntry:
+      type: object
+      description: A pending file. `repo` + `path` is its identity; `path` is relative to the OWNING repository, never to the project root.
+      properties:
+        key: {type: string, description: Opaque stable hash of `repo` + `path`.}
+        repo: {type: string}
+        repo_path: {type: string}
+        path: {type: string}
+        project_path: {type: string}
+        abs_path: {type: string}
+        orig_path: {type: string}
+        kind: {type: string, enum: [modified, added, deleted, renamed, copied, untracked, conflicted, typechange, submodule]}
+        index: {type: string}
+        worktree: {type: string}
+        staged: {type: boolean}
+        unstaged: {type: boolean}
+        partially_staged: {type: boolean}
+        committable: {type: boolean}
+        fingerprint: {type: string, description: Detects edits after the file was reviewed.}
+        decision: {type: string, enum: [pending, accepted, changes_requested, skipped]}
+        note: {type: string}
+        discussions: {type: integer}
+        outdated: {type: boolean, description: The file changed after the decision was recorded.}
+        position: {type: integer}
+    ReviewCounts:
+      type: object
+      properties:
+        total: {type: integer}
+        pending: {type: integer}
+        accepted: {type: integer}
+        changes_requested: {type: integer}
+        skipped: {type: integer}
+        outdated: {type: integer}
+        repos: {type: integer}
+        repos_with_changes: {type: integer}
+    ReviewDetail:
+      type: object
+      properties:
+        review:
+          $ref: "#/components/schemas/ReviewSummary"
+        repos:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewRepo"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewFileEntry"
+        counts:
+          $ref: "#/components/schemas/ReviewCounts"
+        current:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ReviewFileEntry"
+        resumed: {type: boolean, description: Present on POST /reviews.}
+    ReviewFilesResponse:
+      type: object
+      properties:
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewFileEntry"
+        counts:
+          $ref: "#/components/schemas/ReviewCounts"
+    ReviewFileDiff:
+      type: object
+      properties:
+        text: {type: string}
+        binary: {type: boolean}
+        truncated: {type: boolean}
+        size: {type: integer}
+        staged_text: {type: string}
+        unstaged_text: {type: string}
+    ReviewDiffResponse:
+      type: object
+      properties:
+        file:
+          $ref: "#/components/schemas/ReviewFileEntry"
+        diff:
+          $ref: "#/components/schemas/ReviewFileDiff"
+    ReviewFileRef:
+      description: Identifies a file by `repo` + `path` or by `key`.
+      anyOf:
+        - type: object
+          required: [repo, path]
+          properties:
+            repo: {type: string}
+            path: {type: string}
+            fingerprint: {type: string}
+        - type: object
+          required: [key]
+          properties:
+            key: {type: string}
+            fingerprint: {type: string}
+    ReviewStartRequest:
+      type: object
+      properties:
+        workdir: {type: string}
+        project: {type: string}
+        task_id: {type: string}
+        name: {type: string}
+        cli: {type: string, enum: [claude, opencode]}
+        model: {type: string}
+        effort: {type: string}
+        resume: {type: boolean, default: true}
+    ReviewNavigateRequest:
+      type: object
+      required: [action]
+      properties:
+        action: {type: string, enum: [first, next, prev, goto, current]}
+        repo: {type: string}
+        path: {type: string}
+        key: {type: string}
+        skip_decided: {type: boolean, default: false}
+        diff: {type: boolean, default: true}
+        max_bytes: {type: integer}
+    ReviewNavigateResponse:
+      type: object
+      properties:
+        current:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ReviewFileEntry"
+        end: {type: boolean, description: True when `next`/`prev` ran past the end of the list (the cursor stays).}
+        diff:
+          $ref: "#/components/schemas/ReviewFileDiff"
+        counts:
+          $ref: "#/components/schemas/ReviewCounts"
+    ReviewDecisionRequest:
+      type: object
+      required: [decision]
+      properties:
+        repo: {type: string}
+        path: {type: string}
+        key: {type: string}
+        decision: {type: string, enum: [pending, accepted, changes_requested, skipped]}
+        note: {type: string}
+        advance: {type: boolean, default: false}
+        skip_decided: {type: boolean, default: false}
+        diff: {type: boolean, default: true}
+    ReviewDecisionResponse:
+      type: object
+      properties:
+        file:
+          $ref: "#/components/schemas/ReviewFileEntry"
+        counts:
+          $ref: "#/components/schemas/ReviewCounts"
+        current:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ReviewFileEntry"
+        end: {type: boolean}
+        diff:
+          $ref: "#/components/schemas/ReviewFileDiff"
+    ReviewDiscussRequest:
+      type: object
+      required: [message]
+      properties:
+        message: {type: string}
+        repo: {type: string}
+        path: {type: string}
+        key: {type: string}
+    ReviewRequestChangesRequest:
+      type: object
+      required: [instructions]
+      properties:
+        instructions: {type: string}
+        repo: {type: string}
+        path: {type: string}
+        key: {type: string}
+    ReviewAgentResponse:
+      type: object
+      properties:
+        session:
+          $ref: "#/components/schemas/CliSessionSummary"
+        review:
+          $ref: "#/components/schemas/ReviewSummary"
+        file:
+          type: object
+          description: Present on request-changes.
+    ReviewCancelResponse:
+      type: object
+      properties:
+        session:
+          $ref: "#/components/schemas/CliSessionSummary"
+    ReviewCommitMessageRequest:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewFileRef"
+        hint: {type: string}
+        cli: {type: string}
+        model: {type: string}
+        effort: {type: string}
+    ReviewCommitMessageResponse:
+      type: object
+      properties:
+        message: {type: string}
+        repo: {type: string}
+        files:
+          type: array
+          items: {type: string}
+        cli: {type: string}
+        model: {type: string}
+    ReviewCommitRequest:
+      type: object
+      required: [files, message]
+      properties:
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewFileRef"
+        message: {type: string}
+        include_unstaged: {type: boolean, default: false}
+        allow_multi_repo: {type: boolean, default: false}
+    ReviewCommitResponse:
+      type: object
+      properties:
+        commits:
+          type: array
+          items:
+            type: object
+            properties:
+              repo: {type: string}
+              hash: {type: string}
+              files:
+                type: array
+                items: {type: string}
+              message: {type: string}
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              repo: {type: string}
+              code: {type: string}
+              message: {type: string}
+              path: {type: string}
+        partial: {type: boolean}
+        review:
+          $ref: "#/components/schemas/ReviewDetail"
+    ReviewCommitsResponse:
+      type: object
+      properties:
+        commits:
+          type: array
+          items: {type: object}
     Error:
       type: object
       properties:
         error:
           type: string
+        code:
+          type: string
+          description: "Stable machine-readable code (reviews endpoints): invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed."
       required: [error]
     TaskState:
       type: string
@@ -1643,6 +2506,19 @@ components:
           type: string
         effort:
           type: string
+    TaskSchedule:
+      type: object
+      description: Derived, read-only pending unattended start of a task.
+      properties:
+        status:
+          type: string
+          enum: ["", future, overdue, waiting_parent]
+          description: Empty when nothing is pending (task started, paused, failed, done, discarded or running).
+        at: {type: string, description: Effective next start, server local time (YYYY-MM-DDTHH:MM).}
+        at_iso: {type: string, description: Same instant with the server UTC offset.}
+        utc_offset: {type: string, description: Server UTC offset such as UTC-05:00.}
+        parent_id: {type: string}
+        parent_name: {type: string}
     TaskSummary:
       type: object
       description: Slim task payload used by list endpoints and WS events.
@@ -1667,6 +2543,9 @@ components:
           type: string
         scheduled_at:
           type: string
+          description: Raw stored value; may be stale. Use `schedule` for the pending start.
+        schedule:
+          $ref: '#/components/schemas/TaskSchedule'
         parent_id:
           type: string
         iteration: {type: integer}
@@ -1722,7 +2601,8 @@ components:
         base_commit: {type: string}
         iteration: {type: integer}
         cycle: {type: integer}
-        scheduled_at: {type: string}
+        scheduled_at: {type: string, description: Raw stored value; may be stale. Use `schedule` for the pending start.}
+        schedule: {$ref: '#/components/schemas/TaskSchedule'}
         parent_id: {type: string}
         repeat_mode: {type: string}
         repeat_interval_minutes: {type: integer}

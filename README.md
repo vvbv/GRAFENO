@@ -156,7 +156,8 @@ WS   /api/v1/ws                                # JSON-RPC: {"id","method","param
 The endpoints are documented as machine-readable specs under `docs/api/`:
 [OpenAPI 3.1](docs/api/openapi.yaml) for REST and
 [AsyncAPI 3.0](docs/api/asyncapi.yaml) for the WebSocket JSON-RPC protocol;
-project documents are covered in [docs/api/project-docs.md](docs/api/project-docs.md).
+project documents are covered in [docs/api/project-docs.md](docs/api/project-docs.md)
+and assisted multi-repository review in [docs/api/reviews.md](docs/api/reviews.md).
 Browse them with Swagger UI/Redoc or AsyncAPI Studio; coverage of every
 registered route/method is enforced by `tests/test_api_specs.py`.
 

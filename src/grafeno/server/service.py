@@ -10,7 +10,9 @@ WebSocket clients connected to the service receive a stream of
 hooks involved); the poll loop is started by :meth:`run` and cancelled
 on :meth:`stop`. Direct CLI sessions publish ``session.changed`` and
 ``session.deleted`` events to the ``sessions`` topic through the listener
-that :meth:`run` registers on ``App.cli_sessions``.
+that :meth:`run` registers on ``App.cli_sessions``. Assisted reviews publish
+``review.changed`` and ``review.deleted`` events to the ``reviews`` topic
+through :meth:`publish`.
 
 The same server also serves the web administration panel at ``/`` (see
 :mod:`server.web`); with ``web`` launch settings (``grafeno --web``) the
@@ -253,8 +255,14 @@ class ServerService:
             manager = getattr(self.app, "cli_sessions", None)
             running = bool(manager and manager.is_running(session.id))
             payload = {"event": "session.changed", "session": session_summary(session, running)}
+        self.publish("sessions", payload)
+
+    def publish(self, topic: str, payload: dict) -> None:
+        """Schedule a broadcast of ``payload`` to ``topic`` subscribers (best effort)."""
+        if not self._connections:
+            return
         try:
-            task = asyncio.get_running_loop().create_task(self._broadcast_event("sessions", payload))
+            task = asyncio.get_running_loop().create_task(self._broadcast_event(topic, payload))
         except RuntimeError:
             return  # no running loop (tests without the server)
         self._pending_broadcasts.add(task)

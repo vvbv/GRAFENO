@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tomllib
 from datetime import datetime, timedelta
 
@@ -502,3 +503,141 @@ def test_rechain_candidates_excludes_invalid(tmp_path):
     assert free.id not in candidate_ids
     # leaf is non-terminal: it must appear.
     assert leaf.id in candidate_ids
+
+
+# --- derived schedule state and formatting ---------------------------------
+
+def test_next_start_uses_scheduled_at(tmp_path):
+    task = _task(tmp_path, scheduled_at="2026-01-01T10:00")
+    assert scheduler.next_start(task) == datetime(2026, 1, 1, 10, 0)
+
+
+def test_next_start_empty_or_invalid_is_none(tmp_path):
+    assert scheduler.next_start(_task(tmp_path)) is None
+    assert scheduler.next_start(_task(tmp_path, scheduled_at="ayer")) is None
+
+
+def test_next_start_interval_after_completion(tmp_path):
+    task = _task(tmp_path, scheduled_at="2025-12-01T09:00")
+    task.repeat_mode = "interval"
+    task.repeat_interval_minutes = 30
+    task.last_completed_at = "2026-01-01T10:00:00"
+    assert scheduler.next_start(task) == datetime(2026, 1, 1, 10, 30)
+
+
+NOW = datetime(2026, 10, 19, 8, 0)
+
+
+def test_schedule_info_future_and_overdue(tmp_path):
+    future = _task(tmp_path, scheduled_at="2026-10-20T14:30")
+    info = scheduler.schedule_info(future, {}, NOW)
+    assert info.status == scheduler.SCHEDULE_FUTURE
+    assert info.at == datetime(2026, 10, 20, 14, 30)
+    past = _task(tmp_path, scheduled_at="2026-10-19T07:00")
+    assert scheduler.schedule_info(past, {}, NOW).status == scheduler.SCHEDULE_OVERDUE
+
+
+@pytest.mark.parametrize("state", [
+    TaskState.IMPLEMENTING, TaskState.PAUSED, TaskState.FAILED,
+    TaskState.DONE, TaskState.DISCARDED,
+])
+def test_schedule_info_hidden_when_not_draft(tmp_path, state):
+    task = _task(tmp_path, scheduled_at="2026-10-20T14:30")
+    task.state = state
+    assert scheduler.schedule_info(task, {}, NOW).status == ""
+
+
+def test_schedule_info_hidden_when_running(tmp_path):
+    task = _task(tmp_path, scheduled_at="2026-10-20T14:30")
+    assert scheduler.schedule_info(task, {}, NOW, running=True).status == ""
+
+
+def test_schedule_info_hidden_after_reset(tmp_path):
+    task = _task(tmp_path, scheduled_at="2026-10-20T14:30")
+    models.save(task)
+    models.reset_to_draft(task)
+    assert scheduler.schedule_info(task, {}, NOW).status == ""
+
+
+def test_schedule_info_waiting_parent(tmp_path):
+    parent = _task(tmp_path)
+    parent.name = "Parent"
+    plain = _task(tmp_path, parent_id=parent.id)
+    timed = _task(tmp_path, parent_id=parent.id, scheduled_at="2026-10-20T14:30")
+    by_id = {parent.id: parent}
+    info = scheduler.schedule_info(plain, by_id, NOW)
+    assert info.status == scheduler.SCHEDULE_WAITING
+    assert info.parent_name == "Parent"
+    assert info.at is None
+    info = scheduler.schedule_info(timed, by_id, NOW)
+    assert info.status == scheduler.SCHEDULE_WAITING
+    assert info.at == datetime(2026, 10, 20, 14, 30)
+
+
+def test_schedule_info_parent_missing(tmp_path):
+    task = _task(tmp_path, parent_id="ghost")
+    info = scheduler.schedule_info(task, {}, NOW)
+    assert info.status == scheduler.SCHEDULE_WAITING
+    assert info.parent_name == ""
+
+
+def test_schedule_info_parent_done_falls_back_to_time(tmp_path):
+    parent = _task(tmp_path)
+    parent.state = TaskState.DONE
+    child = _task(tmp_path, parent_id=parent.id, scheduled_at="2026-10-20T14:30")
+    assert scheduler.schedule_info(child, {parent.id: parent}, NOW).status == scheduler.SCHEDULE_FUTURE
+    late = _task(tmp_path, parent_id=parent.id, scheduled_at="2026-10-19T07:00")
+    assert scheduler.schedule_info(late, {parent.id: parent}, NOW).status == scheduler.SCHEDULE_OVERDUE
+
+
+def test_format_schedule_full_future_has_date_offset_and_tomorrow():
+    info = scheduler.ScheduleInfo(scheduler.SCHEDULE_FUTURE, datetime(2026, 10, 20, 14, 30))
+    text = scheduler.format_schedule(info, NOW)
+    assert text.startswith("starts ")
+    assert "2026-10-20 14:30" in text
+    assert "tomorrow" in text
+    assert "in 1d 06h" in text
+    assert re.search(r"UTC[+-]\d\d:\d\d", text)
+
+
+def test_format_schedule_today_vs_tomorrow_near_midnight():
+    now = datetime(2026, 10, 19, 23, 50)
+    after = scheduler.ScheduleInfo(scheduler.SCHEDULE_FUTURE, datetime(2026, 10, 20, 0, 10))
+    text = scheduler.format_schedule(after, now)
+    assert "tomorrow" in text and "today" not in text
+    assert "in 20m" in text
+    before = scheduler.ScheduleInfo(scheduler.SCHEDULE_FUTURE, datetime(2026, 10, 19, 23, 55))
+    assert "today" in scheduler.format_schedule(before, now)
+
+
+def test_format_schedule_overdue():
+    info = scheduler.ScheduleInfo(scheduler.SCHEDULE_OVERDUE, datetime(2026, 10, 19, 7, 0))
+    text = scheduler.format_schedule(info, NOW)
+    assert text.startswith("start overdue since 2026-10-19 07:00")
+    assert "1h 00m ago" in text
+
+
+def test_format_schedule_compact_has_no_offset():
+    info = scheduler.ScheduleInfo(scheduler.SCHEDULE_FUTURE, datetime(2026, 10, 20, 14, 30))
+    text = scheduler.format_schedule(info, NOW, compact=True)
+    assert text == "2026-10-20 14:30 (tomorrow)"
+    assert "UTC" not in text
+
+
+def test_format_schedule_waiting_texts():
+    plain = scheduler.ScheduleInfo(scheduler.SCHEDULE_WAITING, None, "p", "Parent")
+    assert scheduler.format_schedule(plain, NOW) == 'waiting for "Parent"'
+    timed = scheduler.ScheduleInfo(
+        scheduler.SCHEDULE_WAITING, datetime(2026, 10, 20, 14, 30), "p", "Parent"
+    )
+    assert "not before" in scheduler.format_schedule(timed, NOW)
+    missing = scheduler.ScheduleInfo(scheduler.SCHEDULE_WAITING, None, "p", "")
+    assert "no longer exists" in scheduler.format_schedule(missing, NOW)
+
+
+def test_format_schedule_empty_status_is_empty():
+    assert scheduler.format_schedule(scheduler.NO_SCHEDULE, NOW) == ""
+
+
+def test_utc_offset_label_format():
+    assert re.match(r"^UTC[+-]\d\d:\d\d$", scheduler.utc_offset_label(datetime(2026, 1, 1, 12, 0)))

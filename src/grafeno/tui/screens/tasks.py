@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -349,6 +350,7 @@ class TaskListScreen(Screen[None]):
         self._date: date | None = None  # creation-day filter; None = any day
         self._all_tasks: list[Task] = []
         self._tasks: list[Task] = []
+        self._minute = ""  # minute of the last reload: refreshes today/tomorrow text
         self._signature: tuple[tuple[str, int, int], ...] = ()  # last seen disk snapshot
 
     def compose(self) -> ComposeResult:
@@ -373,6 +375,7 @@ class TaskListScreen(Screen[None]):
         table.add_columns(
             t("tasks.col.task"),
             t("tasks.col.state"),
+            f"{t('tasks.col.scheduled')} ({scheduler.utc_offset_label(datetime.now())})",
             t("tasks.col.iter"),
             t("tasks.col.tokens"),
             t("tasks.col.duration"),
@@ -390,7 +393,8 @@ class TaskListScreen(Screen[None]):
     def _tick_refresh(self) -> None:
         runtimes = getattr(self.app, "runtimes", {})
         signature = models.tasks_signature()
-        if signature != self._signature or any(
+        minute = datetime.now().strftime("%Y-%m-%dT%H:%M")
+        if signature != self._signature or minute != self._minute or any(
             runtime.running for runtime in runtimes.values()
         ):
             self._reload(preserve_cursor=True)
@@ -469,6 +473,7 @@ class TaskListScreen(Screen[None]):
         # Snapshot the signature BEFORE list_all: a save landing mid-load is
         # still caught by the next tick (stored signature is the pre-load one).
         self._signature = models.tasks_signature()
+        self._minute = datetime.now().strftime("%Y-%m-%dT%H:%M")
         table = self.query_one(DataTable)
         selected = self._selected_task_id() if preserve_cursor else None
         scroll_x, scroll_y = table.scroll_x, table.scroll_y  # clear() zeroes both
@@ -503,6 +508,8 @@ class TaskListScreen(Screen[None]):
             ]
         runtimes = getattr(self.app, "runtimes", {})
         ordered = scheduler.tree_order(self._tasks)
+        by_id = {item.id: item for item in self._all_tasks}
+        now = datetime.now()
         for index, (task, depth) in enumerate(ordered):
             runtime = runtimes.get(task.id)
             running = runtime is not None and runtime.running
@@ -513,6 +520,7 @@ class TaskListScreen(Screen[None]):
             table.add_row(
                 name,
                 task_state_label(task),
+                self._format_task_schedule(task, by_id, running, now),
                 str(task.iteration),
                 self._format_task_tokens(task),
                 self._format_task_duration(task, running),
@@ -530,6 +538,17 @@ class TaskListScreen(Screen[None]):
         hint = self.query_one("#empty-hint", Static)
         hint.update("" if self._tasks else t("tasks.empty_hint"))
         self._render_summary()
+
+    @staticmethod
+    def _format_task_schedule(task: Task, by_id: dict[str, Task], running: bool, now: datetime) -> Text | str:
+        """Compact schedule cell: date, today/tomorrow, overdue or chain wait."""
+        info = scheduler.schedule_info(task, by_id, now, running=running)
+        text = scheduler.format_schedule(info, now, compact=True)
+        if info.status == scheduler.SCHEDULE_OVERDUE:
+            return Text(text, style="yellow")
+        if info.status == scheduler.SCHEDULE_WAITING:
+            return Text(text, style="dim")
+        return text
 
     @staticmethod
     def _format_task_tokens(task: Task) -> str:

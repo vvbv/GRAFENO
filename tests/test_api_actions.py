@@ -424,6 +424,7 @@ def test_list_projects_skips_discovery_in_session_mode(tmp_path) -> None:
     assert data["session"] is True
     assert data["create"]["available"] is False
 
+
 def _ws_config(tmp_path, monkeypatch):
     from grafeno import config as config_module
 

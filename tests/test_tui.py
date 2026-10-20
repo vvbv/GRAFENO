@@ -2192,3 +2192,108 @@ def test_new_task_screen_presets_the_workdir(tmp_path):
             assert app.screen.query_one("#nt-workdir", Input).value == str(tmp_path)
 
     asyncio.run(scenario())
+
+
+def _tomorrow_iso() -> tuple[str, str]:
+    from datetime import datetime, timedelta
+
+    moment = (datetime.now() + timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
+    return moment.isoformat(timespec="minutes"), moment.strftime("%Y-%m-%d 10:00")
+
+
+def _list_rows(app) -> list[list[str]]:
+    table = app.screen.query_one(DataTable)
+    return [[str(cell) for cell in table.get_row_at(i)] for i in range(table.row_count)]
+
+
+def test_task_list_shows_scheduled_column_with_date_and_tomorrow():
+    """A pending scheduled task shows date and tomorrow; the header carries the offset."""
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task
+
+    iso, stamp = _tomorrow_iso()
+    models.save(Task.create("Futura", "d", os.getcwd(), Config(), scheduled_at=iso))
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(200, 50)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            labels = [str(column.label) for column in table.ordered_columns]
+            assert any(label.startswith("Scheduled (UTC") for label in labels)
+            row = _list_rows(app)[0]
+            assert any(stamp in cell and "tomorrow" in cell for cell in row)
+
+    asyncio.run(scenario())
+
+
+def test_task_list_hides_schedule_when_not_draft():
+    """A paused task never shows its (stale) scheduled date."""
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task, TaskState
+
+    iso, stamp = _tomorrow_iso()
+    task = Task.create("Pausada", "d", os.getcwd(), Config(), scheduled_at=iso)
+    task.state = TaskState.PAUSED
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(200, 50)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            assert not any(stamp in cell for row in _list_rows(app) for cell in row)
+
+    asyncio.run(scenario())
+
+
+def test_task_list_shows_waiting_parent():
+    """A chained DRAFT child shows that it waits for its parent."""
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task
+
+    parent = Task.create("Padre", "d", os.getcwd(), Config())
+    models.save(parent)
+    child = Task.create("Hija", "d", os.getcwd(), Config(), parent_id=parent.id)
+    models.save(child)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(200, 50)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            rows = [row for row in _list_rows(app) if "Hija" in row[0]]
+            assert rows and any('waiting for "Padre"' in cell for cell in rows[0])
+
+    asyncio.run(scenario())
+
+
+def test_detail_title_shows_full_schedule_with_offset():
+    """The detail title carries date, UTC offset and tomorrow."""
+    from grafeno import models
+    from grafeno.config import Config
+    from grafeno.models import Task
+    from grafeno.tui.screens.detail import TaskDetailScreen
+    from textual.widgets import Static as StaticWidget
+
+    iso, stamp = _tomorrow_iso()
+    task = Task.create("Detalle", "d", os.getcwd(), Config(), scheduled_at=iso)
+    models.save(task)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(200, 50)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, TaskDetailScreen)
+            rendered = app.screen.query_one("#task-title", StaticWidget).render()
+            text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
+            assert stamp in text and "UTC" in text and "tomorrow" in text
+
+    asyncio.run(scenario())

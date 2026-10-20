@@ -6,9 +6,12 @@ and how to order them in a tree. Used by the App tick and by the task list.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from .i18n import t
 from .models import Task, TaskState
+from .timefmt import format_countdown
 
 SCHEDULE_FORMAT = "%Y-%m-%d %H:%M"  # format accepted in the form
 
@@ -42,6 +45,24 @@ def _parse_completed_at(value: str) -> datetime | None:
         return None
 
 
+def next_start(task: Task) -> datetime | None:
+    """Effective next unattended start time (local, naive), or ``None``.
+
+    Interval repetitions that already completed once restart at
+    ``last_completed_at + repeat_interval_minutes``; otherwise the
+    ``scheduled_at`` field rules. Ignores the task state.
+    """
+    if task.repeat_mode == "interval":
+        last = _parse_completed_at(task.last_completed_at)
+        if last is not None:
+            return last + timedelta(minutes=task.repeat_interval_minutes)
+    scheduled = _parse_completed_at(task.scheduled_at)
+    if scheduled is not None and scheduled.tzinfo is not None:
+        # Hand-edited task.toml with an offset: convert to naive local time.
+        scheduled = scheduled.astimezone().replace(tzinfo=None)
+    return scheduled
+
+
 def is_due(task: Task, now: datetime) -> bool:
     """True if the task should start unattended RIGHT NOW.
 
@@ -55,31 +76,8 @@ def is_due(task: Task, now: datetime) -> bool:
     """
     if task.state is not TaskState.DRAFT:
         return False
-
-    # Interval repetition: the reference is last_completed_at + interval.
-    if task.repeat_mode == "interval":
-        last = _parse_completed_at(task.last_completed_at)
-        if last is None:
-            # Never completed: falls back to scheduled_at. If absent, not due
-            # (avoids looping right after creation).
-            if not task.scheduled_at:
-                return False
-            try:
-                target = datetime.fromisoformat(task.scheduled_at)
-            except ValueError:
-                return False
-            return target <= now
-        target = last + timedelta(minutes=task.repeat_interval_minutes)
-        return target <= now
-
-    # Infinite mode or no repetition: the scheduled time rules.
-    if not task.scheduled_at:
-        return False
-    try:
-        target = datetime.fromisoformat(task.scheduled_at)
-    except ValueError:
-        return False
-    return target <= now
+    target = next_start(task)
+    return target is not None and target <= now
 
 
 def parent_done(task: Task, by_id: dict[str, Task]) -> bool:
@@ -264,3 +262,95 @@ def rechain_candidates(task: Task, tasks: list[Task]) -> list[Task]:
         for item in tasks
         if item.id != task.id and not rechain_error(task, item.id, by_id)
     ]
+
+
+SCHEDULE_FUTURE = "future"          # pending, start time ahead
+SCHEDULE_OVERDUE = "overdue"        # pending, start time already passed
+SCHEDULE_WAITING = "waiting_parent" # pending, chained after an unfinished parent
+
+
+@dataclass(frozen=True)
+class ScheduleInfo:
+    """Display-only view of a task's pending unattended start."""
+
+    status: str = ""             # "" = nothing pending to show
+    at: datetime | None = None   # effective next start (local, naive)
+    parent_id: str = ""
+    parent_name: str = ""        # "" when the parent no longer exists
+
+
+NO_SCHEDULE = ScheduleInfo()
+
+
+def schedule_info(
+    task: Task, by_id: dict[str, Task], now: datetime, *, running: bool = False,
+) -> ScheduleInfo:
+    """Pending-start status of ``task`` for the UI (never mutates it).
+
+    Only DRAFT tasks that are not running can still start unattended:
+    any other state (started, failed, paused, done, discarded) hides
+    the schedule so a stale date is never shown. A DRAFT child whose
+    parent is not DONE waits for the chain, with or without its own
+    time; otherwise the effective ``next_start`` decides between
+    future and overdue.
+    """
+    if running or task.state is not TaskState.DRAFT:
+        return NO_SCHEDULE
+    target = next_start(task)
+    if task.parent_id and not parent_done(task, by_id):
+        parent = by_id.get(task.parent_id)
+        return ScheduleInfo(
+            SCHEDULE_WAITING, target, task.parent_id, parent.name if parent else "",
+        )
+    if target is None:
+        return NO_SCHEDULE
+    return ScheduleInfo(SCHEDULE_FUTURE if target > now else SCHEDULE_OVERDUE, target)
+
+
+def utc_offset_label(moment: datetime) -> str:
+    """Local UTC offset of a naive local datetime, as ``UTC-05:00``."""
+    raw = moment.astimezone().strftime("%z")  # "-0500"; naive = local time
+    return f"UTC{raw[:3]}:{raw[3:]}" if raw else "UTC"
+
+
+def _day_word(moment: datetime, now: datetime) -> str:
+    """``today``/``tomorrow``/``yesterday`` by calendar date, else ``""``."""
+    delta = (moment.date() - now.date()).days
+    words = {0: "det.sched.today", 1: "det.sched.tomorrow", -1: "det.sched.yesterday"}
+    return t(words[delta]) if delta in words else ""
+
+
+def _when(moment: datetime, now: datetime, compact: bool) -> str:
+    stamp = moment.strftime(SCHEDULE_FORMAT)
+    day = _day_word(moment, now)
+    if compact:
+        return f"{stamp} ({day})" if day else stamp
+    seconds = (moment - now).total_seconds()
+    relative = (
+        t("det.sched.in", d=format_countdown(seconds)) if seconds > 0
+        else t("det.sched.ago", d=format_countdown(-seconds))
+    )
+    parts = ", ".join(part for part in (day, relative) if part)
+    return f"{stamp} {utc_offset_label(moment)} ({parts})"
+
+
+def format_schedule(info: ScheduleInfo, now: datetime, *, compact: bool = False) -> str:
+    """Human text of a ``ScheduleInfo``; ``""`` when nothing is pending.
+
+    ``compact`` (list cells) drops the UTC offset and the countdown: the
+    list header carries the offset once.
+    """
+    if not info.status:
+        return ""
+    if info.status == SCHEDULE_WAITING:
+        if not info.parent_name:
+            return t("det.sched.parent_missing")
+        if info.at is not None and info.at > now:
+            return t("det.sched.waiting_parent_at", name=info.parent_name, at=_when(info.at, now, compact))
+        return t("det.sched.waiting_parent", name=info.parent_name)
+    if info.at is None:
+        return ""
+    when = _when(info.at, now, compact)
+    if info.status == SCHEDULE_OVERDUE:
+        return t("det.sched.overdue", at=when)
+    return when if compact else t("det.scheduled", at=when)

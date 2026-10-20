@@ -30,9 +30,11 @@ response carries `create` with `available`, `git`, `modes`, `default_mode`,
 - URLs: `https://`, `http://`, `ssh://` and scp-like `user@host:path`; `file://`, `git://`, `ext::`, local paths, spaces and a leading `-` are rejected.
 - git runs without a shell, with `--` before the URL, `GIT_TERMINAL_PROMPT=0` and `GIT_ALLOW_PROTOCOL=http:https:ssh`.
 - SSH runs in `BatchMode`: keys must be loaded and the host must be in `known_hosts`.
+- git never prompts: `GIT_ASKPASS` is forced empty (this also overrides `core.askPass` and `SSH_ASKPASS`). Non-interactive credential helpers (store, libsecret) keep working.
 - Credentials in the URL are redacted in responses and in the log.
 - If git fails, the folder created by that call is removed; an existing folder is never touched.
 - Timeouts: `git init` 30 s, `git clone` 600 s.
+- Cloning `https://user:token@host/...` makes git store that URL, token included, as `origin` in `.git/config` of the cloned project; prefer credential helpers or SSH keys.
 - Not available in remote session mode (409).
 
 ## Endpoint
@@ -49,7 +51,7 @@ response carries `create` with `available`, `git`, `modes`, `default_mode`,
 | Status | Cause |
 | --- | --- |
 | 201 | Created: `{project, mode, git, url}` |
-| 400 | `invalid project name: ...`, `unsupported url: ...`, `mode must be one of: init, clone, plain`, `url is only allowed with mode clone`, `url is required for mode clone`, `workspace is required: several working directories are configured`, `workspace is not a configured working directory`, `<field> must be a string` |
+| 400 | `invalid project name: ...`, `unsupported url: ...`, `mode must be one of: init, clone, plain`, `url is only allowed with mode clone`, `url is required for mode clone`, `workspace is required: several working directories are configured`, `workspace is not a configured working directory`, `<field> must be a string`, `invalid json`; URL messages: `url is required`, `url is too long`, `invalid url`, `invalid url host`, `url has no repository path`, `url must not contain spaces or control characters`, `unsupported url transport`; name messages: `name is required` and `invalid project name: <reason>` (includes names too long in UTF-8 bytes) |
 | 409 | `project already exists: NAME`, `no working directory configured`, remote session mode |
 | 422 | `git clone failed: ...` |
 | 500 | `git init failed: ...`, `cannot create folder: ...` |

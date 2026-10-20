@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from rich.markup import escape
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -347,6 +349,7 @@ class TaskDetailScreen(Screen[None]):
         self._spinner_index = 0
         self._asking_plan = False
         self._models_warning_shown = ""  # last rendered warning (dedup)
+        self._title_minute = ""  # minute of the last title render (schedule countdown)
 
     @property
     def runtime(self):
@@ -488,6 +491,10 @@ class TaskDetailScreen(Screen[None]):
             self._render_tokens()
             self._render_agents_bar()
         self._render_models_warning()  # picks up the late startup check
+        minute = datetime.now().strftime("%Y-%m-%dT%H:%M")
+        if minute != self._title_minute:
+            self._title_minute = minute
+            self._render_title()
 
     def _total_seconds(self) -> float:
         total = float(self.current_task.total_duration_seconds())
@@ -640,6 +647,13 @@ class TaskDetailScreen(Screen[None]):
         self._render_tokens()
         self._render_agents_bar()
 
+    def _schedule_text(self, task: Task) -> str:
+        """Pending-start text for the title; empty once nothing is pending."""
+        by_id = {item.id: item for item in models.list_all()} if task.parent_id else {}
+        now = datetime.now()
+        info = scheduler.schedule_info(task, by_id, now, running=self.runtime.running)
+        return escape(scheduler.format_schedule(info, now))
+
     def _render_title(self) -> None:
         cycle = f"  [b]·[/b]  {t('det.cycle', n=self.current_task.cycle)}" if self.current_task.cycle > 1 else ""
         extra = ""
@@ -654,8 +668,9 @@ class TaskDetailScreen(Screen[None]):
             if task.remote_os:
                 target = f"{target} ({task.remote_os})"
             extra += f"  [b]·[/b]  {t('det.remote', target=target)}"
-        if task.scheduled_at:
-            extra += f"  [b]·[/b]  {t('det.scheduled', at=task.scheduled_at.replace('T', ' '))}"
+        schedule = self._schedule_text(task)
+        if schedule:
+            extra += f"  [b]·[/b]  {schedule}"
         if task.repeat_mode:
             extra += f"  [b]·[/b]  {t(f'det.repeat.{task.repeat_mode}', n=task.repeat_count, minutes=task.repeat_interval_minutes)}"
         self.query_one("#task-title", Static).update(

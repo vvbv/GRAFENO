@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: GRAFENO Remote WebSocket API
-  version: 1.5.0
+  version: 1.6.0
   description: |
     Bidirectional JSON-RPC channel exposed on `/api/v1/ws` (implemented by
     hand on RFC 6455, see `src/grafeno/server/ws.py`). The HTTP GET upgrade
@@ -15,7 +15,7 @@ info:
 
     Commands are JSON-RPC style requests `{"id","method","params"}` and
     each gets exactly one response: `{"id","result":...}` on success or
-    `{"id","error":{"message","status?"}}` on failure (`id` echoes the
+    `{"id","error":{"message","status?","code?"}}` on failure (`id` echoes the
     request id, `null` when the input was not valid JSON). The available
     methods mirror the REST endpoints one to one:
     | Method              | Params                                           | REST equivalent                    |
@@ -23,7 +23,7 @@ info:
     | tasks.list          | `state?`, `workdir?`, `project?`, `sort?`, ...    | GET /api/v1/tasks                  |
     | tasks.get           | `task_id`                                        | GET /api/v1/tasks/{id}             |
     | projects.list       | -                                                | GET /api/v1/projects               |
-    | projects.create     | `name?`, `url?`, `mode?` (init/clone/plain), `workspace?` | POST /api/v1/projects |
+    | projects.create     | `name?`, `url?`, `mode?`, `workspace?`           | POST /api/v1/projects              |
     | projects.docs       | `workdir?`, `project?`                           | GET /api/v1/projects/docs          |
     | projects.doc        | `workdir?`, `project?`, `name`, `offset?`, `max_chars?` | GET /api/v1/projects/doc    |
     | tasks.logs          | `task_id`, `limit?` (1..1000, default 200)      | GET /api/v1/tasks/{id}/logs        |
@@ -57,6 +57,24 @@ info:
     | sessions.close      | `session_id`                                     | POST /api/v1/sessions/{id}/close   |
     | sessions.reopen     | `session_id`                                     | POST /api/v1/sessions/{id}/reopen  |
     | sessions.delete     | `session_id`                                     | DELETE /api/v1/sessions/{id}       |
+    | projects.repos      | `workdir?`, `project?` | GET /api/v1/projects/repos |
+    | reviews.list        | `workdir?`, `state?` | GET /api/v1/reviews |
+    | reviews.start       | `workdir?`, `project?`, `task_id?`, `name?`, `cli?`, `model?`, `effort?`, `resume?` | POST /api/v1/reviews |
+    | reviews.get         | `review_id` | GET /api/v1/reviews/{id} |
+    | reviews.delete      | `review_id` | DELETE /api/v1/reviews/{id} |
+    | reviews.close       | `review_id` | POST /api/v1/reviews/{id}/close |
+    | reviews.reopen      | `review_id` | POST /api/v1/reviews/{id}/reopen |
+    | reviews.files       | `review_id`, `repo?`, `decision?` | GET /api/v1/reviews/{id}/files |
+    | reviews.diff        | `review_id`, `repo`+`path` or `key`, `max_bytes?` | GET /api/v1/reviews/{id}/diff |
+    | reviews.navigate    | `review_id`, `action`, `repo?`, `path?`, `key?`, `skip_decided?`, `diff?` | POST /api/v1/reviews/{id}/navigate |
+    | reviews.decide      | `review_id`, file, `decision`, `note?`, `advance?` | POST /api/v1/reviews/{id}/decision |
+    | reviews.discuss     | `review_id`, `message`, file? | POST /api/v1/reviews/{id}/discuss |
+    | reviews.request_changes | `review_id`, file, `instructions` | POST /api/v1/reviews/{id}/request-changes |
+    | reviews.transcript  | `review_id`, `after?`, `limit?` | GET /api/v1/reviews/{id}/transcript |
+    | reviews.cancel      | `review_id` | POST /api/v1/reviews/{id}/cancel |
+    | reviews.commit_message | `review_id`, `files`, `hint?`, `cli?`, `model?`, `effort?` | POST /api/v1/reviews/{id}/commit-message |
+    | reviews.commit      | `review_id`, `files`, `message`, `include_unstaged?`, `allow_multi_repo?` | POST /api/v1/reviews/{id}/commit |
+    | reviews.commits     | `review_id` | GET /api/v1/reviews/{id}/commits |
     | options.get         | -                                                | GET /api/v1/options                |
     | models.list         | `refresh?`                                       | GET /api/v1/models                 |
     | fs.dirs             | `path?`                                          | GET /api/v1/fs/dirs                |
@@ -64,7 +82,7 @@ info:
     | reports.get         | `period?`, `from?`, `to?`                        | GET /api/v1/reports                |
     | settings.get        | -                                                | GET /api/v1/settings               |
     | settings.update     | settings sections                                | POST /api/v1/settings              |
-    | subscribe           | `topics` (list of strings, `tasks` and `sessions` supported)    | -                                  |
+    | subscribe           | `topics` (list of strings, `tasks`, `sessions` and `reviews` supported)    | -                                  |
     | unsubscribe         | -                                                | -                                  |
 
     After `subscribe {"topics":["tasks"]}`, every task whose `state`
@@ -78,6 +96,11 @@ info:
     are pushed as `session.changed` (carrying the `CliSessionSummary`) and
     `session.deleted` (carrying `session_id`) events. Transcript entries
     are not pushed: poll `sessions.transcript` with `after`.
+
+    After `subscribe {"topics":["reviews"]}`, review changes are pushed as
+    `review.changed` (carrying the `ReviewSummary`) and `review.deleted`
+    (carrying `review_id`) events. Review errors carry a stable `code` in
+    the `error` object (e.g. `not_pending`, `stale`, `multi_repo`, `busy`).
 servers:
   local:
     host: 127.0.0.1:8735
@@ -103,6 +126,10 @@ channels:
         $ref: "#/components/messages/SessionChanged"
       sessionDeleted:
         $ref: "#/components/messages/SessionDeleted"
+      reviewChanged:
+        $ref: "#/components/messages/ReviewChanged"
+      reviewDeleted:
+        $ref: "#/components/messages/ReviewDeleted"
 operations:
   sendCommand:
     action: send
@@ -134,6 +161,14 @@ operations:
     messages:
       - $ref: "#/channels/control/messages/sessionChanged"
       - $ref: "#/channels/control/messages/sessionDeleted"
+  receiveReviewEvents:
+    action: receive
+    title: Server pushes review changes to `reviews` subscribers
+    channel:
+      $ref: "#/channels/control"
+    messages:
+      - $ref: "#/channels/control/messages/reviewChanged"
+      - $ref: "#/channels/control/messages/reviewDeleted"
 components:
   securitySchemes:
     BearerAuth:
@@ -185,6 +220,24 @@ components:
         - sessions.close
         - sessions.reopen
         - sessions.delete
+        - projects.repos
+        - reviews.list
+        - reviews.start
+        - reviews.get
+        - reviews.delete
+        - reviews.close
+        - reviews.reopen
+        - reviews.files
+        - reviews.diff
+        - reviews.navigate
+        - reviews.decide
+        - reviews.discuss
+        - reviews.request_changes
+        - reviews.transcript
+        - reviews.cancel
+        - reviews.commit_message
+        - reviews.commit
+        - reviews.commits
         - options.get
         - models.list
         - fs.dirs
@@ -194,6 +247,25 @@ components:
         - settings.update
         - subscribe
         - unsubscribe
+    ReviewSummary:
+      type: object
+      description: Same shape as the REST `ReviewSummary`.
+      properties:
+        id: {type: string}
+        name: {type: string}
+        workdir: {type: string}
+        project_name: {type: string}
+        task_id: {type: string}
+        state: {type: string, enum: [active, closed]}
+        cli: {type: string}
+        model: {type: string}
+        effort: {type: string}
+        agent_session_id: {type: string}
+        agent_running: {type: boolean}
+        cursor: {type: [object, "null"]}
+        commits: {type: integer}
+        created_at: {type: string}
+        updated_at: {type: string}
     TaskSummary:
       type: object
       description: Same slim payload as the REST list endpoint and the `task.changed` event.
@@ -210,6 +282,16 @@ components:
         origin: {type: string}
         profile: {type: string}
         scheduled_at: {type: string}
+        schedule:
+          type: object
+          description: Derived pending start; status is empty when nothing is pending.
+          properties:
+            status: {type: string, enum: ["", future, overdue, waiting_parent]}
+            at: {type: string}
+            at_iso: {type: string}
+            utc_offset: {type: string}
+            parent_id: {type: string}
+            parent_name: {type: string}
         parent_id: {type: string}
       required: [id, name, workdir, state, automode]
     CliSessionSummary:
@@ -350,6 +432,7 @@ components:
               automode: true
               origin: api
               scheduled_at: ""
+              schedule: {status: "", at: "", at_iso: "", utc_offset: "", parent_id: "", parent_name: ""}
               parent_id: ""
     SessionChanged:
       name: SessionChanged
@@ -374,3 +457,26 @@ components:
             const: session.deleted
           session_id: {type: string}
         required: [event, session_id]
+    ReviewChanged:
+      name: ReviewChanged
+      title: Push event delivered to `reviews` subscribers
+      payload:
+        type: object
+        properties:
+          event:
+            type: string
+            const: review.changed
+          review:
+            $ref: "#/components/schemas/ReviewSummary"
+        required: [event, review]
+    ReviewDeleted:
+      name: ReviewDeleted
+      title: Push event delivered when a review is deleted
+      payload:
+        type: object
+        properties:
+          event:
+            type: string
+            const: review.deleted
+          review_id: {type: string}
+        required: [event, review_id]

@@ -179,5 +179,11 @@ def test_git_env(monkeypatch):
     assert env["GIT_TERMINAL_PROMPT"] == "0"
     assert env["GIT_ALLOW_PROTOCOL"] == "http:https:ssh"
     assert "BatchMode" in env["GIT_SSH_COMMAND"]
+    monkeypatch.setenv("GIT_ASKPASS", "/x")
+    assert projectsetup._git_env()["GIT_ASKPASS"] == ""
     monkeypatch.setenv("GIT_SSH_COMMAND", "custom")
     assert projectsetup._git_env()["GIT_SSH_COMMAND"] == "custom"
+
+
+def test_validate_name_rejects_long_utf8():
+    assert _code(projectsetup.validate_name, "\U0001F600" * 70) == "invalid_name"

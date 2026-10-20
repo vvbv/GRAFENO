@@ -6,7 +6,7 @@ import string
 
 import pytest
 
-from grafeno import i18n, paths
+from grafeno import i18n, paths, reviews
 from grafeno.config import Config
 from grafeno.drivers import base as drivers_base
 from grafeno.models import Task
@@ -484,7 +484,7 @@ def test_task_data_with_braces_is_not_reformatted(tmp_path):
 
 def _template_dicts():
     """Every per-language prompt template dict of the internal prompts."""
-    modules = (prompts, intents, telegram_service, drivers_base)
+    modules = (prompts, intents, telegram_service, drivers_base, reviews)
     for module in modules:
         for name, value in vars(module).items():
             if (
@@ -506,6 +506,7 @@ def test_prompt_templates_exist_in_every_language_with_same_placeholders():
     assert "grafeno.telegram.intents._PARSER_PROMPT" in found
     assert "grafeno.telegram.service._ASK_PROMPT" in found
     assert "grafeno.drivers.base._AGENTS_MD_PROMPT" in found
+    assert "grafeno.reviews._COMMIT_MESSAGE_PROMPT" in found
     for name, templates in found.items():
         variants = {lang: _placeholders(text) for lang, text in templates.items()}
         assert len({frozenset(fields) for fields in variants.values()}) == 1, name

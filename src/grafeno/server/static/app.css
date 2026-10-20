@@ -79,6 +79,7 @@ body.show-detail #list-pane { display: none; }
 body.show-detail #detail-pane { display: flex; }
 .empty { padding: 28px; color: var(--muted); text-align: center; }
 .muted { color: var(--muted); }
+#task-table td.sched.overdue { color: var(--warn); }
 .small-text { font-size: 12.5px; }
 .mono { font-family: var(--mono); }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }

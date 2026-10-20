@@ -12,6 +12,7 @@ stable ``code`` that the API maps to an HTTP status.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import re
 import shutil
@@ -25,6 +26,7 @@ MODES = ("init", "clone", "plain")  # init = folder + git init, clone = git clon
 DEFAULT_MODE = "init"
 URL_SCHEMES = ("https", "http", "ssh")  # plus scp-like "user@host:path"
 NAME_MAX_LENGTH = 100
+NAME_MAX_BYTES = 255  # typical file system limit (UTF-8 bytes)
 URL_MAX_LENGTH = 2048
 INIT_TIMEOUT = 30.0  # seconds
 CLONE_TIMEOUT = 600.0  # seconds
@@ -84,6 +86,8 @@ def validate_name(raw: str) -> str:
         raise bad("must not start with a dot")
     if name.startswith("-"):
         raise bad("must not start with a dash")
+    if len(name.encode("utf-8")) > NAME_MAX_BYTES:
+        raise bad("too long for the file system")
     if any(c in _FORBIDDEN_CHARS for c in name):
         raise bad("forbidden character")
     if _has_control(name):
@@ -214,6 +218,7 @@ def _git_env() -> dict[str, str]:
     env["GIT_TERMINAL_PROMPT"] = "0"
     env["GCM_INTERACTIVE"] = "never"
     env["GIT_ALLOW_PROTOCOL"] = ALLOWED_PROTOCOLS
+    env["GIT_ASKPASS"] = ""  # empty value also overrides core.askPass and SSH_ASKPASS: no GUI prompts
     if "GIT_SSH_COMMAND" not in env and "GIT_SSH" not in env:
         env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"  # no password / host key prompts
     return env
@@ -251,11 +256,14 @@ async def _run_git(args: list[str], cwd: Path, timeout: float) -> tuple[int, str
     try:
         output, _ = await asyncio.wait_for(process.communicate(), timeout)
     except asyncio.TimeoutError:
-        process.kill()
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
         await process.wait()
         return -1, f"timed out after {int(timeout)} s"
     except asyncio.CancelledError:
-        process.kill()
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+        await process.wait()  # so the caller's cleanup does not race a live git
         raise
     text = output.decode("utf-8", errors="replace").strip()
     return process.returncode or 0, _tail(text)

@@ -169,3 +169,15 @@ def cli_sessions_dir() -> Path:
 def cli_session_dir(session_id: str) -> Path:
     """Folder of one direct CLI session (created by ``clisessions.save``)."""
     return cli_sessions_dir() / session_id
+
+
+def review_sessions_dir() -> Path:
+    """Assisted review sessions of pending git changes: one folder per review."""
+    path = home() / "reviews"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def review_session_dir(review_id: str) -> Path:
+    """Folder of one review session (created by ``reviews.save``)."""
+    return review_sessions_dir() / review_id
