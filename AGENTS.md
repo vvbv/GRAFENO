@@ -62,6 +62,7 @@ src/grafeno/
 │   ├── web.py              #   Panel web (`grafeno --web`): prepare() (copia en memoria de ApiConfig, loopback por defecto, token efímero si se expone sin tokens), URLs del panel y render de la página con las cadenas i18n inyectadas
 │   ├── projectdocs.py      #   Documentos de proyecto de solo lectura (README.md, AGENTS.md, GRAFENO.md): lista blanca, proyecto resuelto contra list_projects, symlinks fuera del proyecto bloqueados, tope 1 MiB, paginación por caracteres sobre el texto normalizado y esquema de encabezados (mdnorm.markdown_outline)
 │   ├── projectcreate.py    #   POST /api/v1/projects y WS projects.create: mapea ProjectError.code a status (400/409/422/500/503); 409 en modo sesión remota
+│   ├── clock.py            #   Reloj del servidor para GET /api/v1/time y el método WS time: payload server_time() (ISO 8601 con offset, UTC con Z, epoch, fecha/hora/día locales, nombre IANA best effort vía TZ, /etc/localtime o /etc/timezone, vacío si no cuadra con el offset)
 │   ├── reviews.py          #   Operaciones REST/WS de la revisión asistida y mapa `code` -> status (`GitReviewError`); `ApiError` lleva `code` opcional
 │   ├── settings.py         #   Operaciones REST/WS de catálogo, reportes y ajustes: opciones del formulario, modelos+variantes (caché 10 min), autocompletado de directorios, issues de gh, reporte de uso y ajustes globales (secretos de solo escritura)
 │   ├── static/             #   Panel web (paquete de datos en pyproject): index.html (shell + JSON de arranque no ejecutable), app.css, app.js (SPA vanilla sin dependencias ni CDN: lista, detalle, nueva tarea, reportes, ajustes)
@@ -230,7 +231,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   separada que sigue funcionando como canal alternativo). Tokens también por
   env `GRAFENO_API_TOKEN` (prioridad al env). El router se compila al importar
   con `re.fullmatch` y soporta placeholders genéricos `{nombre}` (`{task_id}`, `{session_id}`). Acciones REST
-  bajo `/api/v1`: status, sessions (sesiones CLI directas, ver su viñeta), tasks (`GET` acepta filtros `state` (lista separada por comas), `workdir`, `project`, orden `sort` (tree/created/updated/completed) + `order` y paginación `limit`/`offset` con `total`/`has_more` en la respuesta; cada item lleva `completed_at` (de `last_completed_at`, que se sella al llegar a DONE); guía en `docs/api/tasks-list.md`; GET/POST con todas las opciones del
+  bajo `/api/v1`: status, time (hora actual del servidor con zona; guía en `docs/api/server-time.md`; método WS `time`), sessions (sesiones CLI directas, ver su viñeta), tasks (`GET` acepta filtros `state` (lista separada por comas), `workdir`, `project`, orden `sort` (tree/created/updated/completed) + `order` y paginación `limit`/`offset` con `total`/`has_more` en la respuesta; cada item lleva `completed_at` (de `last_completed_at`, que se sella al llegar a DONE); guía en `docs/api/tasks-list.md`; GET/POST con todas las opciones del
   formulario de la TUI y `attachments?` opcional base64
   máx. 10: los adjuntos de audio por nombre de archivo (`AUDIO_SUFFIXES`:
   ogg/oga/opus/mp3/wav/m4a/flac) se transcriben además con el proveedor STT

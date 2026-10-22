@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import tomllib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -641,3 +641,8 @@ def test_format_schedule_empty_status_is_empty():
 
 def test_utc_offset_label_format():
     assert re.match(r"^UTC[+-]\d\d:\d\d$", scheduler.utc_offset_label(datetime(2026, 1, 1, 12, 0)))
+
+
+def test_utc_offset_label_aware_keeps_its_offset() -> None:
+    moment = datetime(2026, 10, 21, 0, 51, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    assert scheduler.utc_offset_label(moment) == "UTC+05:30"

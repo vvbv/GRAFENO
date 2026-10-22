@@ -120,6 +120,7 @@ Project consoles (interactive shells) stay TUI-only; CLI sessions are available 
 
 ```
 GET  /api/v1/status                            # {version, uptime_seconds, pid, ws_path}
+GET  /api/v1/time                              # {iso, utc, epoch, date, time, weekday, timezone, utc_offset, ...}
 GET  /api/v1/tasks[?state=...]                 # list tasks (optional state filter)
 GET  /api/v1/tasks/{id}                        # full task detail (to_dict + derived)
 GET  /api/v1/projects                          # task workdirs + working-directory folders (name, workspace, count, sessions) + roots + create options
@@ -156,8 +157,10 @@ WS   /api/v1/ws                                # JSON-RPC: {"id","method","param
 The endpoints are documented as machine-readable specs under `docs/api/`:
 [OpenAPI 3.1](docs/api/openapi.yaml) for REST and
 [AsyncAPI 3.0](docs/api/asyncapi.yaml) for the WebSocket JSON-RPC protocol;
-project documents are covered in [docs/api/project-docs.md](docs/api/project-docs.md)
-and assisted multi-repository review in [docs/api/reviews.md](docs/api/reviews.md).
+project documents are covered in [docs/api/project-docs.md](docs/api/project-docs.md),
+assisted multi-repository review in [docs/api/reviews.md](docs/api/reviews.md)
+and the server clock (date, time and timezone) in
+[docs/api/server-time.md](docs/api/server-time.md).
 Browse them with Swagger UI/Redoc or AsyncAPI Studio; coverage of every
 registered route/method is enforced by `tests/test_api_specs.py`.
 

@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
-from . import actions, clisessions, projectcreate, projectdocs, reviews, settings
+from . import actions, clisessions, clock, projectcreate, projectdocs, reviews, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -62,6 +62,11 @@ async def _status(service: "ServerService", request: Request, params: dict[str, 
         "pid": service.pid,
         "ws_path": "/api/v1/ws",
     }
+
+
+@route("GET", "/api/v1/time")
+async def _time(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return clock.server_time()
 
 
 # ---------------------------------------------------------------------- #

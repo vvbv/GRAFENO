@@ -308,8 +308,9 @@ def schedule_info(
 
 
 def utc_offset_label(moment: datetime) -> str:
-    """Local UTC offset of a naive local datetime, as ``UTC-05:00``."""
-    raw = moment.astimezone().strftime("%z")  # "-0500"; naive = local time
+    """UTC offset of ``moment`` as ``UTC-05:00``; naive means host local time."""
+    aware = moment if moment.tzinfo is not None else moment.astimezone()
+    raw = aware.strftime("%z")  # "-0500"
     return f"UTC{raw[:3]}:{raw[3:]}" if raw else "UTC"
 
 

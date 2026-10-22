@@ -540,3 +540,28 @@ def test_tasks_list_filters_and_pagination(tmp_path) -> None:
             _stop(service, srv_task)
 
     _run(scenario())
+
+
+TIME_KEYS = {
+    "iso", "utc", "epoch", "epoch_ms", "date", "time", "weekday", "iso_weekday",
+    "timezone", "tz_abbreviation", "utc_offset", "utc_offset_minutes",
+}
+
+
+def test_time_method_returns_server_clock() -> None:
+    async def scenario():
+        service, srv_task = await _start_service()
+        try:
+            reader, writer = await _ws_handshake(service.port)
+            try:
+                reply = await _rpc(reader, writer, {"id": 7, "method": "time", "params": {}})
+                assert reply["id"] == 7
+                assert set(reply["result"]) == TIME_KEYS
+                assert reply["result"]["utc"].endswith("Z")
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())

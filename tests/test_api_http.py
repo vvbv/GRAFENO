@@ -430,3 +430,21 @@ def test_json_upload_buffer_grows_with_data() -> None:
         assert bytes(body) == b"hello world" and path is None
 
     _run(scenario())
+
+
+def test_time_without_token_returns_401() -> None:
+    async def scenario():
+        service, task = await _start_service()
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", service.port)
+            try:
+                status, _, body = await _exchange(reader, writer, _build_request("GET", "/api/v1/time"))
+                assert status == 401
+                assert json.loads(body)["error"] == "unauthorized"
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        finally:
+            _stop(service, task)
+
+    _run(scenario())

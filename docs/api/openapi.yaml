@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GRAFENO Remote API
-  version: 1.7.0
+  version: 1.8.0
   summary: REST API of the GRAFENO remote server (optional token authentication).
   description: |
     REST control API exposed by the GRAFENO TUI while it is running
@@ -56,6 +56,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatusResponse"
+        "401":
+          description: Missing or invalid token (only enforced when tokens are configured).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/time:
+    get:
+      tags: [status]
+      summary: Current server date and time with timezone (ISO 8601, UTC, epoch, IANA zone).
+      description: |
+        Clock of the host running GRAFENO, so a client (for example a voice
+        assistant) answers "what date and time is it" with the server time
+        instead of its own clock. `iso` always carries an explicit UTC offset
+        and `utc` ends in `Z`; both denote the same instant as `epoch`.
+        `timezone` is the IANA name of the host zone, or an empty string when
+        it cannot be determined reliably. Weekday names are fixed English
+        names (locale independent). Also available as the WebSocket method
+        `time`.
+      operationId: getServerTime
+      responses:
+        "200":
+          description: Current server time.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerTimeResponse"
         "401":
           description: Missing or invalid token (only enforced when tokens are configured).
           content:
@@ -3001,6 +3028,63 @@ components:
         ws_path:
           type: string
           example: /api/v1/ws
+    ServerTimeResponse:
+      type: object
+      required: [iso, utc, epoch, epoch_ms, date, time, weekday, iso_weekday, timezone, tz_abbreviation, utc_offset, utc_offset_minutes]
+      properties:
+        iso:
+          type: string
+          format: date-time
+          description: Server local time, ISO 8601 with seconds and explicit offset.
+          example: "2026-10-21T00:51:06-05:00"
+        utc:
+          type: string
+          format: date-time
+          description: Same instant in UTC with the `Z` suffix.
+          example: "2026-10-21T05:51:06Z"
+        epoch:
+          type: integer
+          description: Unix time in seconds.
+          example: 1792561866
+        epoch_ms:
+          type: integer
+          description: Unix time in milliseconds.
+          example: 1792561866000
+        date:
+          type: string
+          format: date
+          description: Server local calendar date (YYYY-MM-DD).
+          example: "2026-10-21"
+        time:
+          type: string
+          description: Server local wall-clock time (HH:MM:SS, 24 h).
+          example: "00:51:06"
+        weekday:
+          type: string
+          enum: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday]
+          description: English weekday name of the local date (locale independent).
+        iso_weekday:
+          type: integer
+          minimum: 1
+          maximum: 7
+          description: ISO weekday, 1 = Monday ... 7 = Sunday.
+          example: 3
+        timezone:
+          type: string
+          description: IANA name of the host timezone; empty when it cannot be determined reliably.
+          example: America/Bogota
+        tz_abbreviation:
+          type: string
+          description: Zone abbreviation reported by the host (`-05`, `CEST`); informative only.
+          example: "-05"
+        utc_offset:
+          type: string
+          description: Offset label in the format used by the task schedule (`UTC-05:00`).
+          example: UTC-05:00
+        utc_offset_minutes:
+          type: integer
+          description: Offset from UTC in minutes (east positive).
+          example: -300
     OkResponse:
       type: object
       properties:

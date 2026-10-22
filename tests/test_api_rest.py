@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import socket
+from datetime import datetime
 
 from grafeno import paths
 from grafeno.config import ApiConfig
@@ -386,5 +387,26 @@ def test_list_tasks_paginated_query_over_http(tmp_path) -> None:
             assert status == 400
         finally:
             _stop(service, srv_task)
+
+    _run(scenario())
+
+
+TIME_KEYS = {
+    "iso", "utc", "epoch", "epoch_ms", "date", "time", "weekday", "iso_weekday",
+    "timezone", "tz_abbreviation", "utc_offset", "utc_offset_minutes",
+}
+
+
+def test_time_endpoint_returns_server_clock() -> None:
+    async def scenario():
+        service, task = await _start_service()
+        try:
+            status, payload = await _request(service, "GET", "/api/v1/time")
+            assert status == 200
+            assert set(payload) == TIME_KEYS
+            assert datetime.fromisoformat(payload["iso"]).tzinfo is not None
+            assert payload["utc"].endswith("Z")
+        finally:
+            _stop(service, task)
 
     _run(scenario())

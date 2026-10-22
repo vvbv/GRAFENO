@@ -17,7 +17,7 @@ import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Optional
 
-from . import actions, clisessions, projectcreate, projectdocs, reviews, settings
+from . import actions, clisessions, clock, projectcreate, projectdocs, reviews, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -302,6 +302,10 @@ async def _status_method(service: "ServerService", params: dict, conn: "WsConnec
         "pid": service.pid,
         "ws_path": "/api/v1/ws",
     }
+
+
+async def _time_method(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return clock.server_time()
 
 
 async def _tasks_list(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
@@ -675,6 +679,7 @@ async def _reviews_commits(service: "ServerService", params: dict, conn: "WsConn
 
 METHODS: dict[str, Callable] = {
     "status": _status_method,
+    "time": _time_method,
     "tasks.list": _tasks_list,
     "tasks.get": _tasks_get,
     "projects.list": _projects_list,
