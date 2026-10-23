@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: GRAFENO Remote WebSocket API
-  version: 1.7.0
+  version: 1.8.0
   description: |
     Bidirectional JSON-RPC channel exposed on `/api/v1/ws` (implemented by
     hand on RFC 6455, see `src/grafeno/server/ws.py`). The HTTP GET upgrade
@@ -59,6 +59,12 @@ info:
     | sessions.reopen     | `session_id`                                     | POST /api/v1/sessions/{id}/reopen  |
     | sessions.delete     | `session_id`                                     | DELETE /api/v1/sessions/{id}       |
     | projects.repos      | `workdir?`, `project?` | GET /api/v1/projects/repos |
+    | projects.changes    | `workdir?`, `project?`, `refresh?` | GET /api/v1/projects/changes |
+    | projects.branches   | `workdir?`, `project?`, `repo?` | GET /api/v1/projects/branches |
+    | projects.push       | `workdir?`, `project?`, `repo?`, `set_upstream?`, `remote?` | POST /api/v1/projects/push |
+    | projects.pull       | `workdir?`, `project?`, `repo?`, `mode?` | POST /api/v1/projects/pull |
+    | projects.checkout   | `workdir?`, `project?`, `repo?`, `branch` | POST /api/v1/projects/checkout |
+    | projects.abort      | `workdir?`, `project?`, `repo?` | POST /api/v1/projects/abort |
     | reviews.list        | `workdir?`, `state?` | GET /api/v1/reviews |
     | reviews.start       | `workdir?`, `project?`, `task_id?`, `name?`, `cli?`, `model?`, `effort?`, `resume?` | POST /api/v1/reviews |
     | reviews.get         | `review_id` | GET /api/v1/reviews/{id} |
@@ -223,6 +229,12 @@ components:
         - sessions.reopen
         - sessions.delete
         - projects.repos
+        - projects.changes
+        - projects.branches
+        - projects.push
+        - projects.pull
+        - projects.checkout
+        - projects.abort
         - reviews.list
         - reviews.start
         - reviews.get

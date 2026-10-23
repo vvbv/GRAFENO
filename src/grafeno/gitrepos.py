@@ -20,14 +20,15 @@ from .projectsetup import _git_env, _tail, git_available
 
 __all__ = [
     "GitReviewError", "Repo", "FileChange", "RepoStatus", "FileDiff", "CommitResult",
-    "run_git", "discover", "status", "parse_status_v2", "project_path", "file_key",
+    "run_git", "discover", "discover_all", "status", "parse_status_v2", "project_path", "file_key",
     "fingerprint", "validate_rel_path", "diff", "commit", "select_changes", "normalize_message",
     "repo_lock", "git_available",
 ]
 
 GIT_TIMEOUT = 30.0          # seconds per read command
 COMMIT_TIMEOUT = 120.0      # seconds (commit hooks may run)
-MAX_DEPTH = 8               # directory levels scanned below the project root
+MAX_DEPTH: int | None = None  # directory levels scanned below the project root (None = unlimited)
+MAX_SCAN_DIRS = 20000       # directories visited per discovery (guards huge trees)
 MAX_REPOS = 200
 MAX_FILES_PER_REPO = 2000
 DIFF_DEFAULT_BYTES = _MAX_DIFF_BYTES
@@ -107,6 +108,10 @@ class RepoStatus:
     truncated: bool = False  # more than MAX_FILES_PER_REPO entries
     hidden: list[str] = field(default_factory=list)  # untracked dirs that are repos not discovered
     operation: str = ""     # "merge" | "cherry-pick" | "revert" | "rebase" | ""
+    upstream: str = ""      # "origin/main" ("" without upstream)
+    ahead: int = 0          # commits not pushed to the upstream
+    behind: int = 0         # upstream commits not pulled yet
+    upstream_gone: bool = False  # upstream configured but its ref no longer exists
 
 
 @dataclass(frozen=True)
@@ -179,19 +184,23 @@ def _toplevel(path: Path) -> Path | None:
     return Path(result.stdout.strip()).resolve()
 
 
-def _scan(root: Path) -> list[Path]:
-    """Directories at or below ``root`` that contain a ``.git`` entry (breadth bounded)."""
+def _scan(root: Path) -> tuple[list[Path], bool]:
+    """Directories at or below ``root`` with a ``.git`` entry; the flag is False when a budget cut the scan."""
     found: list[Path] = []
     stack: list[tuple[Path, int]] = [(root, 0)]
-    while stack and len(found) < MAX_REPOS:
+    visited = 0
+    while stack:
+        if len(found) >= MAX_REPOS or visited >= MAX_SCAN_DIRS:
+            return found, False
         current, depth = stack.pop()
+        visited += 1
         try:
             entries = list(os.scandir(current))
         except OSError:
             continue
         if any(e.name == ".git" for e in entries):
             found.append(current)
-        if depth >= MAX_DEPTH:
+        if MAX_DEPTH is not None and depth >= MAX_DEPTH:
             continue
         for entry in entries:
             if entry.name in SKIP_DIRS:
@@ -201,11 +210,16 @@ def _scan(root: Path) -> list[Path]:
                     stack.append((Path(entry.path), depth + 1))
             except OSError:
                 continue
-    return found
+    return found, True
 
 
 def discover(root: Path) -> list[Repo]:
     """Git repositories at or below ``root`` (plus the one enclosing it), outermost first."""
+    return discover_all(root)[0]
+
+
+def discover_all(root: Path) -> tuple[list[Repo], bool]:
+    """Like ``discover`` but also reports whether the scan finished within its budgets."""
     root = root.resolve()
     entries: list[tuple[str, Path, str, str]] = []  # (id, path, kind, scope)
     if (root / ".git").exists():
@@ -214,7 +228,8 @@ def discover(root: Path) -> list[Repo]:
         top = _toplevel(root)
         if top is not None and (top == root or top in root.parents):
             entries.append((".", top, "outer", root.relative_to(top).as_posix()))
-    for directory in _scan(root):
+    scanned, complete = _scan(root)
+    for directory in scanned:
         if directory == root:
             continue
         kind = "submodule" if (directory / ".git").is_file() else "nested"
@@ -238,7 +253,7 @@ def discover(root: Path) -> list[Repo]:
                 excluded.append(cpath.relative_to(path).as_posix())
         repos.append(Repo(rid, path, kind, scope, parents[rid], tuple(sorted(excluded))))
     repos.sort(key=lambda r: (r.id != ".", r.id.casefold()))
-    return repos
+    return repos, complete
 
 
 # --- status ------------------------------------------------------------------
@@ -262,6 +277,7 @@ def parse_status_v2(raw: bytes, repo: Repo) -> RepoStatus:
     tokens = raw.decode("utf-8", "surrogateescape").split("\0")
     status = RepoStatus(branch="", head="")
     files: list[FileChange] = []
+    saw_ab = False
     i = 0
     while i < len(tokens):
         rec = tokens[i]
@@ -275,6 +291,17 @@ def parse_status_v2(raw: bytes, repo: Repo) -> RepoStatus:
         if rec.startswith("# branch.head "):
             value = rec[len("# branch.head "):]
             status.branch = "" if value == "(detached)" else value
+            continue
+        if rec.startswith("# branch.upstream "):
+            status.upstream = rec[len("# branch.upstream "):]
+            continue
+        if rec.startswith("# branch.ab "):
+            try:
+                plus, minus = rec[len("# branch.ab "):].split()
+                status.ahead, status.behind = int(plus), abs(int(minus))
+                saw_ab = True
+            except ValueError:
+                pass
             continue
         if rec.startswith("# "):
             continue
@@ -311,6 +338,7 @@ def parse_status_v2(raw: bytes, repo: Repo) -> RepoStatus:
         if _outside_limits(repo, change):
             continue
         files.append(change)
+    status.upstream_gone = bool(status.upstream) and not saw_ab  # git omits branch.ab then
     if len(files) > MAX_FILES_PER_REPO:
         status.truncated = True
         files = files[:MAX_FILES_PER_REPO]

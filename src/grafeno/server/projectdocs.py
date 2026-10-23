@@ -33,6 +33,20 @@ def canonical_name(raw: str) -> str:
     raise ApiError(400, "unknown document; allowed: " + ", ".join(DOC_NAMES))
 
 
+def task_dirs() -> tuple[set[str], set[str]]:
+    """Normalized workdirs of local tasks and of remote (SSH) tasks."""
+    tasks = models.list_all()
+    local_dirs = {_norm_dir(t.workdir) for t in tasks if t.workdir and not t.is_remote}
+    remote_dirs = {_norm_dir(t.workdir) for t in tasks if t.workdir and t.is_remote}
+    return local_dirs, remote_dirs
+
+
+def is_remote_only(item: dict, local_dirs: set[str], remote_dirs: set[str]) -> bool:
+    """True for catalogue items that only exist as remote task folders."""
+    key = _norm_dir(item["workdir"])
+    return key in remote_dirs and key not in local_dirs and not item.get("workspace")
+
+
 def resolve_project(
     service: "ServerService", workdir: str = "", project: str = ""
 ) -> tuple[dict, Path]:
@@ -45,9 +59,7 @@ def resolve_project(
     if remotesession.active():
         raise ApiError(409, "project documents are not available in remote session mode")
     items = list_projects(service)["projects"]
-    tasks = models.list_all()
-    local_dirs = {_norm_dir(t.workdir) for t in tasks if t.workdir and not t.is_remote}
-    remote_dirs = {_norm_dir(t.workdir) for t in tasks if t.workdir and t.is_remote}
+    local_dirs, remote_dirs = task_dirs()
     if workdir.strip():
         target = _norm_dir(workdir)
         matches = [item for item in items if _norm_dir(item["workdir"]) == target]
@@ -69,8 +81,7 @@ def resolve_project(
     if len(matches) > 1:
         raise ApiError(409, "ambiguous project: " + ", ".join(i["workdir"] for i in matches[:5]))
     item = matches[0]
-    key = _norm_dir(item["workdir"])
-    if key in remote_dirs and key not in local_dirs and not item.get("workspace"):
+    if is_remote_only(item, local_dirs, remote_dirs):
         raise ApiError(409, "remote projects are not supported")
     try:
         root = Path(item["workdir"]).expanduser().resolve()

@@ -295,3 +295,37 @@ def test_partial_diff_parts_are_clipped(project):
     assert len(result.staged_text.encode()) <= 1024 and len(result.unstaged_text.encode()) <= 1024
     plain = asyncio.run(gitrepos.diff(repo, change, True, max_bytes=1024, split=False))
     assert plain.staged_text == "" and plain.unstaged_text == ""
+
+
+def test_discover_any_depth(tmp_path):
+    root = tmp_path / "proj"
+    _init_repo(root)
+    deep = root / "a/b/c/d/e/f/g/h/i/j/deep"
+    _init_repo(deep)
+    _init_repo(root / "x" / "y")
+    repos, complete = gitrepos.discover_all(root)
+    ids = [r.id for r in repos]
+    assert "a/b/c/d/e/f/g/h/i/j/deep" in ids and "x/y" in ids
+    assert complete is True
+    assert [r.id for r in gitrepos.discover(root)] == ids
+
+
+def test_discover_budget_marks_incomplete(tmp_path, monkeypatch):
+    root = tmp_path / "proj"
+    _init_repo(root)
+    for name in "abcde":
+        (root / name).mkdir()
+    monkeypatch.setattr(gitrepos, "MAX_SCAN_DIRS", 2)
+    assert gitrepos.discover_all(root)[1] is False
+
+
+def test_parse_status_upstream_ahead_behind():
+    repo = gitrepos.Repo(".", Path("/x"), "root")
+    head = [b"# branch.oid " + b"a" * 40, b"# branch.head main"]
+    raw = b"\0".join([*head, b"# branch.upstream origin/main", b"# branch.ab +2 -1", b""])
+    st = gitrepos.parse_status_v2(raw, repo)
+    assert (st.upstream, st.ahead, st.behind, st.upstream_gone) == ("origin/main", 2, 1, False)
+    raw = b"\0".join([*head, b"# branch.upstream origin/main", b""])
+    assert gitrepos.parse_status_v2(raw, repo).upstream_gone is True
+    st = gitrepos.parse_status_v2(b"\0".join([*head, b""]), repo)
+    assert st.upstream == "" and st.upstream_gone is False

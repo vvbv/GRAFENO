@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .. import gitrepos, remotesession
+from .. import gitrepos, gitsync, remotesession
 from .. import reviews as reviews_module
 from ..clisession_runtime import SessionBusy, SessionClosed
 from ..i18n import t
@@ -129,6 +129,10 @@ def repo_payload(repo: gitrepos.Repo, status: gitrepos.RepoStatus | None, error:
         "files": len(status.files) if status else 0,
         "truncated": status.truncated if status else False,
         "hidden": list(status.hidden) if status else [],
+        "upstream": status.upstream if status else "",
+        "ahead": status.ahead if status else 0,
+        "behind": status.behind if status else 0,
+        "upstream_gone": status.upstream_gone if status else False,
         "error": error,
     }
 
@@ -522,6 +526,8 @@ async def commit(service: "ServerService", review_id: str, payload: dict) -> dic
         raise ApiError(_STATUS.get(first_error["code"], 400),
                        first_error["message"] + (f": {first_error['path']}" if first_error["path"] else ""),
                        code=first_error["code"])
+    if result["commits"]:
+        gitsync.invalidate(Path(review.workdir))
     log = getattr(service, "_log", None)
     for record in result["commits"]:
         if log is not None:

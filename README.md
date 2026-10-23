@@ -158,7 +158,8 @@ The endpoints are documented as machine-readable specs under `docs/api/`:
 [OpenAPI 3.1](docs/api/openapi.yaml) for REST and
 [AsyncAPI 3.0](docs/api/asyncapi.yaml) for the WebSocket JSON-RPC protocol;
 project documents are covered in [docs/api/project-docs.md](docs/api/project-docs.md),
-assisted multi-repository review in [docs/api/reviews.md](docs/api/reviews.md)
+assisted multi-repository review in [docs/api/reviews.md](docs/api/reviews.md),
+branch operations and the pending-changes indicator in [docs/api/project-git.md](docs/api/project-git.md)
 and the server clock (date, time and timezone) in
 [docs/api/server-time.md](docs/api/server-time.md).
 Browse them with Swagger UI/Redoc or AsyncAPI Studio; coverage of every

@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
-from . import actions, clisessions, clock, projectcreate, projectdocs, reviews, settings
+from . import actions, clisessions, clock, projectcreate, projectdocs, projectgit, reviews, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -130,6 +130,40 @@ async def _project_repos(service: "ServerService", request: Request, params: dic
     return await reviews.list_repos(
         service, workdir=query.get("workdir") or "", project=query.get("project") or ""
     )
+
+
+@route("GET", "/api/v1/projects/changes")
+async def _project_changes(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    query = request.query
+    return await projectgit.list_changes(
+        service, workdir=query.get("workdir") or "", project=query.get("project") or "",
+        refresh=actions._coerce_bool(query.get("refresh"), False),
+    )
+
+
+@route("GET", "/api/v1/projects/branches")
+async def _project_branches(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await projectgit.list_branches(service, dict(request.query))
+
+
+@route("POST", "/api/v1/projects/push")
+async def _project_push(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await projectgit.push(service, parse_json_body(request))
+
+
+@route("POST", "/api/v1/projects/pull")
+async def _project_pull(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await projectgit.pull(service, parse_json_body(request))
+
+
+@route("POST", "/api/v1/projects/checkout")
+async def _project_checkout(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await projectgit.checkout(service, parse_json_body(request))
+
+
+@route("POST", "/api/v1/projects/abort")
+async def _project_abort(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return await projectgit.abort(service, parse_json_body(request))
 
 
 @route("GET", "/api/v1/tasks/{task_id}/logs")

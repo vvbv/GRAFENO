@@ -17,7 +17,7 @@ import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Optional
 
-from . import actions, clisessions, clock, projectcreate, projectdocs, reviews, settings
+from . import actions, clisessions, clock, projectcreate, projectdocs, projectgit, reviews, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -599,6 +599,33 @@ async def _projects_repos(service: "ServerService", params: dict, conn: "WsConne
     )
 
 
+async def _projects_changes(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await projectgit.list_changes(
+        service, workdir=_text_param(params, "workdir"), project=_text_param(params, "project"),
+        refresh=actions._coerce_bool(params.get("refresh"), False),
+    )
+
+
+async def _projects_branches(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await projectgit.list_branches(service, params)
+
+
+async def _projects_push(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await projectgit.push(service, params)
+
+
+async def _projects_pull(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await projectgit.pull(service, params)
+
+
+async def _projects_checkout(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await projectgit.checkout(service, params)
+
+
+async def _projects_abort(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await projectgit.abort(service, params)
+
+
 async def _reviews_list(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
     return reviews.list_reviews(
         service, workdir=_text_param(params, "workdir"), state=_text_param(params, "state")
@@ -718,6 +745,12 @@ METHODS: dict[str, Callable] = {
     "sessions.reopen": _sessions_reopen,
     "sessions.delete": _sessions_delete,
     "projects.repos": _projects_repos,
+    "projects.changes": _projects_changes,
+    "projects.branches": _projects_branches,
+    "projects.push": _projects_push,
+    "projects.pull": _projects_pull,
+    "projects.checkout": _projects_checkout,
+    "projects.abort": _projects_abort,
     "reviews.list": _reviews_list,
     "reviews.start": _reviews_start,
     "reviews.get": _reviews_get,

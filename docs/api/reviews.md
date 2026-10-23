@@ -17,18 +17,19 @@ pipeline does not commit and the only call that creates commits is
 - Cursor: the file the client is looking at; `navigate` moves it (`first`, `next`, `prev`, `goto`, `current`) and never wraps around (`end: true`, also when `first` with `skip_decided` finds nothing open). When the file under the cursor disappears (for example it was just committed) the entry that took its place is returned by `current` and by the next `next`, so no file is skipped. `decision` with `advance` moves on from the file just decided.
 - `outdated`: the file changed after its decision was recorded (compared through `fingerprint`); it counts as pending again.
 - Agent session: one direct CLI session per review (visible in `GET /api/v1/sessions`), created on the first `discuss` or `request-changes` and reused on later turns. Poll `transcript` for the answer.
+- Repository entries also carry `upstream`, `ahead`, `behind` and `upstream_gone`; branch operations are documented in [project-git.md](project-git.md).
 
 ## Nested repositories
 
-Repositories nested at any depth below the project root are discovered (depth
-limit 8, up to 200 repositories; `.git`, `node_modules`, `.venv`, `dist` and
+Repositories nested at any depth below the project root are discovered (any depth,
+up to 200 repositories and 20000 scanned folders; `.git`, `node_modules`, `.venv`, `dist` and
 similar folders are skipped). A change in `modules/modulo1/algo.py` is reported
 as `repo: "modules/modulo1"`, `path: "algo.py"`; the root repository does not
 list it and committing it records the commit in the nested repository only.
 Submodules (`.git` file) are repositories of kind `submodule`; the pointer
 change shows up in the parent only when the submodule commit moved. Nested
-repositories that were not discovered (depth limit or ignored folders) are
-listed in the `hidden` field of their parent repository. When the project folder
+repositories inside ignored folders are listed in the `hidden` field of their
+parent repository. When the project folder
 is inside a larger repository, that repository is returned as kind `outer`
 limited to the project folder.
 

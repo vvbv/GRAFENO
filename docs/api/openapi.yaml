@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GRAFENO Remote API
-  version: 1.8.0
+  version: 1.9.0
   summary: REST API of the GRAFENO remote server (optional token authentication).
   description: |
     REST control API exposed by the GRAFENO TUI while it is running
@@ -1427,6 +1427,270 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+  /api/v1/projects/changes:
+    get:
+      tags: [projects]
+      summary: Pending-change indicator per project (nested repositories at any depth).
+      operationId: listProjectChanges
+      description: |
+        Without filter returns every project of `GET /api/v1/projects`. Remote (SSH) projects and missing folders are reported with `git: false`. Results are cached 15 s per project; `refresh=true` bypasses the cache. Remote session mode answers 200 with `session: true` and no projects.
+      parameters:
+        - name: workdir
+          in: query
+          required: false
+          description: Absolute folder of a catalogued project.
+          schema:
+            type: string
+        - name: project
+          in: query
+          required: false
+          description: Project folder name.
+          schema:
+            type: string
+        - name: refresh
+          in: query
+          required: false
+          description: Ignore the 15 s cache.
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Summaries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectChangesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/projects/branches:
+    get:
+      tags: [projects]
+      summary: Local branches of a repository of the project.
+      operationId: listProjectBranches
+      parameters:
+        - name: workdir
+          in: query
+          required: false
+          description: Absolute folder of a catalogued project.
+          schema:
+            type: string
+        - name: project
+          in: query
+          required: false
+          description: Project folder name.
+          schema:
+            type: string
+        - name: repo
+          in: query
+          required: false
+          description: Repository id from `GET /api/v1/projects/repos` (`.` by default).
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Branches, current first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectBranchesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          description: git is not installed on the host.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: git timed out (code `timeout`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/projects/push:
+    post:
+      tags: [projects]
+      summary: Push the current branch.
+      operationId: pushProjectBranch
+      description: |
+        Never forces. A branch without upstream needs `set_upstream`. 4xx/5xx means the current branch did not move; after a `timeout` re-read the repository status.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectPushRequest"
+      responses:
+        "200":
+          description: Operation finished (inspect `result.outcome`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectGitResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "502":
+          description: Remote rejected the credentials (`auth_failed`) or is unreachable (`remote_unreachable`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: git is not installed on the host.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: git timed out (code `timeout`); the process tree was killed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/projects/pull:
+    post:
+      tags: [projects]
+      summary: Pull the upstream of the current branch.
+      operationId: pullProjectBranch
+      description: |
+        Default mode `ff-only`. A pull that leaves conflicts answers 200 with `result.outcome: conflict`; leave it with `abort`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectPullRequest"
+      responses:
+        "200":
+          description: Operation finished (inspect `result.outcome`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectGitResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "502":
+          description: Remote rejected the credentials (`auth_failed`) or is unreachable (`remote_unreachable`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: git is not installed on the host.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: git timed out (code `timeout`); the process tree was killed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/projects/checkout:
+    post:
+      tags: [projects]
+      summary: Switch to an existing local branch.
+      operationId: checkoutProjectBranch
+      description: |
+        Uses `git switch --no-guess`: branches are never created.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectCheckoutRequest"
+      responses:
+        "200":
+          description: Operation finished (inspect `result.outcome`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectGitResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          description: git is not installed on the host.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: git timed out (code `timeout`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/projects/abort:
+    post:
+      tags: [projects]
+      summary: Abort the merge, rebase, cherry-pick or revert in progress.
+      operationId: abortProjectGitOperation
+      description: |
+        Answers 409 `no_operation` when nothing is in progress.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectAbortRequest"
+      responses:
+        "200":
+          description: Operation finished (inspect `result.outcome`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectGitResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          description: git is not installed on the host.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: git timed out (code `timeout`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/reviews:
     get:
       tags: [reviews]
@@ -2257,8 +2521,121 @@ components:
         hidden:
           type: array
           items: {type: string}
-          description: Nested repositories that were not discovered (depth limit or ignored folders).
+          description: Nested repositories that were not scanned (ignored folders such as node_modules or build).
+        upstream: {type: string, description: "Upstream of the current branch (origin/main) or empty."}
+        ahead: {type: integer, description: Commits not pushed.}
+        behind: {type: integer, description: Upstream commits not pulled.}
+        upstream_gone: {type: boolean, description: The configured upstream no longer exists.}
         error: {type: string}
+    ProjectPendingSummary:
+      type: object
+      properties:
+        workdir: {type: string}
+        name: {type: string}
+        workspace: {type: string}
+        remote: {type: boolean}
+        exists: {type: boolean}
+        git: {type: boolean}
+        dirty: {type: boolean}
+        repos: {type: integer}
+        dirty_repos: {type: array, items: {type: string}}
+        files: {type: integer}
+        conflicts: {type: integer}
+        ahead: {type: integer}
+        behind: {type: integer}
+        operations: {type: object, additionalProperties: {type: string}}
+        errors: {type: object, additionalProperties: {type: string}}
+        hidden: {type: integer}
+        truncated: {type: boolean}
+        incomplete: {type: boolean}
+        checked_at: {type: string}
+    ProjectChangesResponse:
+      type: object
+      properties:
+        projects:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectPendingSummary"
+        session: {type: boolean}
+        git_available: {type: boolean}
+    ProjectBranch:
+      type: object
+      properties:
+        name: {type: string}
+        head: {type: string}
+        upstream: {type: string}
+        ahead: {type: integer}
+        behind: {type: integer}
+        gone: {type: boolean}
+        current: {type: boolean}
+        date: {type: string}
+        subject: {type: string}
+    ProjectBranchesResponse:
+      type: object
+      properties:
+        project: {type: object}
+        repo:
+          $ref: "#/components/schemas/ReviewRepo"
+        current: {type: string}
+        branches:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectBranch"
+    ProjectGitResult:
+      type: object
+      properties:
+        action: {type: string, enum: [push, pull, checkout, abort]}
+        outcome: {type: string, enum: [pushed, created, up_to_date, updated, conflict, switched, unchanged, aborted]}
+        branch: {type: string}
+        previous_branch: {type: string}
+        remote: {type: string}
+        upstream: {type: string}
+        head_before: {type: string}
+        head_after: {type: string}
+        commits: {type: integer}
+        conflicts: {type: array, items: {type: string}}
+        in_progress: {type: string}
+        output: {type: string}
+    ProjectGitResponse:
+      type: object
+      properties:
+        project: {type: object}
+        repo:
+          $ref: "#/components/schemas/ReviewRepo"
+        result:
+          $ref: "#/components/schemas/ProjectGitResult"
+        pending:
+          type: object
+          description: Fresh pending summary of the project (same fields as ProjectPendingSummary without the project identity).
+    ProjectPushRequest:
+      type: object
+      properties:
+        workdir: {type: string}
+        project: {type: string}
+        repo: {type: string}
+        set_upstream: {type: boolean, default: false}
+        remote: {type: string}
+    ProjectPullRequest:
+      type: object
+      properties:
+        workdir: {type: string}
+        project: {type: string}
+        repo: {type: string}
+        mode: {type: string, enum: [ff-only, merge, rebase], default: ff-only}
+    ProjectCheckoutRequest:
+      type: object
+      required: [branch]
+      properties:
+        workdir: {type: string}
+        project: {type: string}
+        repo: {type: string}
+        branch: {type: string}
+    ProjectAbortRequest:
+      type: object
+      properties:
+        workdir: {type: string}
+        project: {type: string}
+        repo: {type: string}
     ReviewReposResponse:
       type: object
       properties:
@@ -2525,7 +2902,7 @@ components:
           type: string
         code:
           type: string
-          description: "Stable machine-readable code (reviews and project creation endpoints): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed."
+          description: "Stable machine-readable code (reviews and project creation endpoints): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed, invalid_branch, invalid_mode, branch_not_found, detached, no_commits, no_upstream, upstream_gone, no_remote, ambiguous_remote, local_changes, diverged, push_rejected, no_operation, upstream_mismatch, auth_failed, remote_unreachable, not_a_repo."
       required: [error]
     TaskState:
       type: string
