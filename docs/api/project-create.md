@@ -29,11 +29,13 @@ response carries `create` with `available`, `git`, `modes`, `default_mode`,
 - Names: at most 100 characters; no `/ \ : * ? " < > |`, no control characters, no leading `.` or `-`, no trailing `.` or space, no Windows device names.
 - URLs: `https://`, `http://`, `ssh://` and scp-like `user@host:path`; `file://`, `git://`, `ext::`, local paths, spaces and a leading `-` are rejected.
 - git runs without a shell, with `--` before the URL, `GIT_TERMINAL_PROMPT=0` and `GIT_ALLOW_PROTOCOL=http:https:ssh`.
-- SSH runs in `BatchMode`: keys must be loaded and the host must be in `known_hosts`.
+- SSH runs in `BatchMode` with `ConnectTimeout=30`: keys must be loaded and the host must be in `known_hosts`. HTTP aborts transfers below 1000 B/s for 60 s (`GIT_HTTP_LOW_SPEED_LIMIT`/`GIT_HTTP_LOW_SPEED_TIME`, respected if the user defines them).
+- git runs without a controlling terminal (own session on Linux/macOS, own process group without console window on Windows): ssh or a credential helper can never wait for an invisible prompt; a custom GIT_SSH_COMMAND that would prompt fails fast instead.
 - git never prompts: `GIT_ASKPASS` is forced empty (this also overrides `core.askPass` and `SSH_ASKPASS`). Non-interactive credential helpers (store, libsecret) keep working.
 - Credentials in the URL are redacted in responses and in the log.
 - If git fails, the folder created by that call is removed; an existing folder is never touched.
-- Timeouts: `git init` 30 s, `git clone` 600 s.
+- Windows: the cleanup also removes the read-only files git leaves in .git, so a failed clone can be retried with the same name.
+- Timeouts: git init 30 s, git clone 600 s. On timeout or cancellation the whole git process tree (ssh, git-remote-https) is killed and the call returns within a few seconds (504, code timeout).
 - Cloning `https://user:token@host/...` makes git store that URL, token included, as `origin` in `.git/config` of the cloned project; prefer credential helpers or SSH keys.
 - Not available in remote session mode (409).
 
@@ -56,6 +58,9 @@ response carries `create` with `available`, `git`, `modes`, `default_mode`,
 | 422 | `git clone failed: ...` |
 | 500 | `git init failed: ...`, `cannot create folder: ...` |
 | 503 | `git is not installed` |
+| 504 | `git init timed out after 30 s`, `git clone timed out after 600 s` |
+
+Validation and git errors carry a stable `code` (the type errors `<field> must be a string`, `invalid json` and the remote session mode 409 do not): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, git_missing, clone_failed, init_failed, io_error, timeout (WS: `error.code`).
 
 ## Examples
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 from .. import projectsetup, remotesession
@@ -22,6 +23,7 @@ _STATUS = {
     "clone_failed": 422,
     "init_failed": 500,
     "io_error": 500,
+    "timeout": 504,
 }
 
 
@@ -34,26 +36,37 @@ def _text(payload: dict, key: str) -> str:
     return value
 
 
+def _loggable(value: str, limit: int = 200) -> str:
+    """Client text as a quoted, truncated repr: no forged log lines, bounded size."""
+    return repr(value[:limit] + ("..." if len(value) > limit else ""))
+
+
 async def create_project(service: "ServerService", payload: dict) -> tuple[int, dict]:
     """Create a project folder (git init, git clone or plain) in a working directory."""
     if remotesession.active():
         raise ApiError(409, "project creation is not available in remote session mode")
+    log = getattr(service, "_log", None) or (lambda _message: None)
+    name = _text(payload, "name")
+    workspace = _text(payload, "workspace")
+    url = _text(payload, "url")
+    mode = _text(payload, "mode")
+    log(
+        f"project create requested: name={_loggable(name)} mode={_loggable(mode) if mode else 'auto'} "
+        f"workspace={_loggable(workspace) if workspace else '-'} "
+        f"url={_loggable(projectsetup.redact_url(url)) if url else '-'}"
+    )
+    started = time.monotonic()
     try:
         created = await projectsetup.create_project(
-            _text(payload, "name"),
-            _workspace_roots(),
-            workspace=_text(payload, "workspace"),
-            url=_text(payload, "url"),
-            mode=_text(payload, "mode"),
+            name, _workspace_roots(), workspace=workspace, url=url, mode=mode
         )
     except projectsetup.ProjectError as exc:
-        raise ApiError(_STATUS.get(exc.code, 400), exc.message) from exc
+        log(f"project create failed: {exc.code}: {exc.message} ({time.monotonic() - started:.1f} s)")
+        raise ApiError(_STATUS.get(exc.code, 400), exc.message, code=exc.code) from exc
     project = workspaces_module.Project(
         name=created.name, path=created.path, workspace=created.workspace
     )
-    log = getattr(service, "_log", None)
-    if log is not None:
-        log(f"project created: {created.path} ({created.mode})")
+    log(f"project created: {created.path} ({created.mode}, {time.monotonic() - started:.1f} s)")
     return 201, {
         "project": _project_item(str(created.path), 0, project, 0),
         "mode": created.mode,

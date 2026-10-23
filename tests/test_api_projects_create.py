@@ -107,6 +107,8 @@ def test_rest_post_and_get(workspace):
             assert status == 201 and data["project"]["name"] == "demo"
             status, _ = await _request(service, "GET", "/api/v1/projects")
             assert status == 200
+            status, data = await _request(service, "POST", "/api/v1/projects", body)
+            assert status == 409 and data["code"] == "exists"
         finally:
             _stop(service, task)
 
@@ -118,3 +120,61 @@ def test_ws_method(workspace):
         ws.METHODS["projects.create"](_Service(), {"name": "demo2", "mode": "plain"}, None)
     )
     assert result["project"]["name"] == "demo2"
+
+
+def test_error_carries_code(workspace):
+    with pytest.raises(ApiError) as info:
+        _create({"name": "a/b"})
+    assert (info.value.status, info.value.code) == (400, "invalid_name")
+    _create({"name": "dup", "mode": "plain"})
+    with pytest.raises(ApiError) as info:
+        _create({"name": "dup", "mode": "plain"})
+    assert (info.value.status, info.value.code) == (409, "exists")
+
+
+def test_timeout_is_gateway_timeout(workspace, monkeypatch):
+    async def fake(args, cwd, timeout):
+        return projectsetup.TIMED_OUT, "timed out after 600 s"
+
+    monkeypatch.setattr(projectsetup, "git_available", lambda: True)
+    monkeypatch.setattr(projectsetup, "_run_git", fake)
+    with pytest.raises(ApiError) as info:
+        _create({"url": "https://host/o/r.git"})
+    assert (info.value.status, info.value.code) == (504, "timeout")
+
+
+def test_failures_are_logged_redacted(workspace, monkeypatch):
+    async def fake(args, cwd, timeout):
+        return 128, "fatal: could not read from https://u:tok@host/o/r.git"
+
+    class Logging(_Service):
+        def __init__(self):
+            self.logged: list[str] = []
+
+        def _log(self, message: str) -> None:
+            self.logged.append(message)
+
+    monkeypatch.setattr(projectsetup, "git_available", lambda: True)
+    monkeypatch.setattr(projectsetup, "_run_git", fake)
+    service = Logging()
+    with pytest.raises(ApiError):
+        asyncio.run(projectcreate.create_project(service, {"url": "https://u:tok@host/o/r.git"}))
+    assert any("project create requested" in m for m in service.logged)
+    assert any("project create failed: clone_failed" in m for m in service.logged)
+    assert not any("tok" in m for m in service.logged)
+
+
+def test_request_log_line_is_quoted_and_bounded(workspace):
+    class Logging(_Service):
+        def __init__(self):
+            self.logged: list[str] = []
+
+        def _log(self, message: str) -> None:
+            self.logged.append(message)
+
+    service = Logging()
+    payload = {"name": "x", "mode": "plain", "workspace": "w\nforged line" + "a" * 5000}
+    with pytest.raises(ApiError):
+        asyncio.run(projectcreate.create_project(service, payload))
+    first = service.logged[0]
+    assert "\n" not in first and len(first) < 600

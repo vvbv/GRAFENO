@@ -267,6 +267,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "504":
+          description: git init or git clone timed out (code `timeout`); the whole git process tree was killed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/projects/docs:
     get:
       tags: [projects]
@@ -2519,7 +2525,7 @@ components:
           type: string
         code:
           type: string
-          description: "Stable machine-readable code (reviews endpoints): invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed."
+          description: "Stable machine-readable code (reviews and project creation endpoints): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed."
       required: [error]
     TaskState:
       type: string
