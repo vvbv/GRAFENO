@@ -193,9 +193,12 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `supd.verify_failed`; sin metadata se confía en el código de salida). El
   comando `grafeno update` (interceptado en `main()` antes del argparse)
   actualiza manualmente y devuelve código de salida 0/1. Antes de instalar
-  imprime la versión destino (`supd.updating`) y durante la descarga dibuja
-  una barra de progreso ASCII con porcentaje en una sola línea (parseo de
-  los porcentajes de pip `--progress-bar=on`; vía `--pip-args` con pipx).
+  imprime la versión destino (`supd.updating`) y durante la instalación dibuja
+  una barra de progreso ASCII con porcentaje en una sola línea, solo con los
+  porcentajes que el instalador ya emite: no se inyectan opciones de progreso
+  específicas de `pip` (`--progress-bar=on`, ni vía `--pip-args` con pipx)
+  porque `pipx` puede delegar la instalación en `uv`, que las rechaza
+  (`unexpected argument '--progress-bar' found`); no reintroducirlas.
   `check_latest_release` devuelve `ReleaseInfo(version, wheel_url, error)`:
   si falla la API (rate limit de 60/h sin autenticar) cae a la redirección
   web de `releases/latest`; se instala el wheel de la release o el tag git si

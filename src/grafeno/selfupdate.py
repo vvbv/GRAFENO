@@ -260,11 +260,13 @@ def build_update_command(version: str, wheel_url: str = "") -> list[str]:
     false success), else the current interpreter's pip. pip gets
     ``--force-reinstall`` because ``--upgrade`` alone is not deterministic
     with git-URL requirements: it can leave the same version in place and
-    still exit 0. ``--progress-bar=on`` forces percentage output even when
-    stdout is piped, so the CLI can draw a live progress bar; with pipx the
-    flag reaches pip through ``--pip-args`` as a single ``--pip-args=<value>``
-    token, because argparse refuses a value starting with ``-`` passed as a
-    separate token (``error: argument --pip-args: expected one argument``).
+    still exit 0.
+
+    No installer-specific progress option is injected: pipx may delegate the
+    installation to its ``uv`` backend, which rejects options it does not
+    know (``error: unexpected argument '--progress-bar' found``). The
+    progress bar therefore stays best effort: the percentages already
+    present in the installer output are still rendered.
 
     The wheel published in the release is preferred because it needs neither
     ``git`` nor a build from source; releases without an asset use the git tag.
@@ -272,13 +274,10 @@ def build_update_command(version: str, wheel_url: str = "") -> list[str]:
     spec = wheel_url or f"git+{GIT_URL}@v{normalize_version(version)}"
     pipx = shutil.which("pipx") if installed_via_pipx() else None
     if pipx:
-        return [
-            pipx, "install", "--force",
-            "--pip-args=--progress-bar=on", spec,
-        ]
+        return [pipx, "install", "--force", spec]
     return [
         sys.executable, "-m", "pip", "install",
-        "--upgrade", "--force-reinstall", "--progress-bar=on", spec,
+        "--upgrade", "--force-reinstall", spec,
     ]
 
 
@@ -311,7 +310,7 @@ async def _run_command(
     """Run the update command; returns (returncode, relevant output line).
 
     Output is streamed chunk by chunk to ``on_chunk`` (when given) so the
-    caller can render a live progress bar while pip downloads.
+    caller can render a live progress bar while the installer runs.
     """
     process = await asyncio.create_subprocess_exec(
         *command,
