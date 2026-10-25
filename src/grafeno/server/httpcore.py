@@ -42,12 +42,16 @@ REASONS: dict[int, str] = {
     200: "OK",
     201: "Created",
     204: "No Content",
+    206: "Partial Content",
     400: "Bad Request",
     401: "Unauthorized",
+    403: "Forbidden",
     404: "Not Found",
     405: "Method Not Allowed",
     409: "Conflict",
     413: "Payload Too Large",
+    415: "Unsupported Media Type",
+    416: "Range Not Satisfiable",
     422: "Unprocessable Content",
     429: "Too Many Requests",
     500: "Internal Server Error",
@@ -84,6 +88,8 @@ class Response:
     headers: dict[str, str] = field(default_factory=dict)
     body: bytes = b""
     file: Optional[Path] = None  # streamed from disk after the head (body must be empty)
+    file_offset: int = 0                 # first byte of ``file`` to send (Range responses)
+    file_length: Optional[int] = None    # bytes of ``file`` to send; None = up to its end
     _file_length: int = field(default=0, init=False, repr=False)
 
     @classmethod
@@ -101,7 +107,10 @@ class Response:
         caller_headers = {key.lower(): value for key, value in self.headers.items()}
         merged: dict[str, str] = dict(self.headers)
         if self.file is not None:
-            self._file_length = self.file.stat().st_size
+            if self.file_length is not None:
+                self._file_length = self.file_length
+            else:
+                self._file_length = max(self.file.stat().st_size - self.file_offset, 0)
             merged["Content-Length"] = str(self._file_length)
         else:
             merged["Content-Length"] = str(len(self.body))
@@ -203,7 +212,7 @@ class HttpServer:
             )
             await _safe_write(writer, response.to_bytes(keep_alive=keep_alive))
             if response.file is not None:
-                if not await _stream_file(writer, response.file, response._file_length):
+                if not await _stream_file(writer, response.file, response._file_length, response.file_offset):
                     return
             if ws_handler is not None:
                 try:
@@ -223,10 +232,14 @@ async def _safe_write(writer: asyncio.StreamWriter, data: bytes) -> None:
         return
 
 
-async def _stream_file(writer: asyncio.StreamWriter, path: Path, length: int) -> bool:
-    """Send exactly ``length`` bytes of ``path`` in READ_CHUNK blocks (False if it shrank or failed)."""
+async def _stream_file(
+    writer: asyncio.StreamWriter, path: Path, length: int, offset: int = 0
+) -> bool:
+    """Send exactly ``length`` bytes of ``path`` starting at ``offset`` in READ_CHUNK blocks (False if it shrank or failed)."""
     try:
         with open(path, "rb") as handle:
+            if offset:
+                handle.seek(offset)
             remaining = length
             while remaining:
                 chunk = handle.read(min(READ_CHUNK, remaining))

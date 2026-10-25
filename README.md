@@ -127,6 +127,10 @@ GET  /api/v1/projects                          # task workdirs + working-directo
 POST /api/v1/projects                          # create a project in a working directory: git init (default), git clone (url) or plain folder (mode=plain)
 GET  /api/v1/projects/docs?project=|workdir=   # README.md / AGENTS.md / GRAFENO.md of a project: presence, size, outline
 GET  /api/v1/projects/doc?project=&name=&offset=&max_chars=   # one page of one of those documents
+GET  /api/v1/projects/files?project=|workdir=&path=&hidden=&limit=&offset=   # project file explorer: one directory (paginated)
+GET  /api/v1/projects/file?project=|workdir=&path=        # metadata of one file or folder (size, mime, preview, text, urls)
+GET  /api/v1/projects/file/text?project=|workdir=&path=&line=&max_lines=   # one page of lines of a text file
+GET  /api/v1/projects/file/raw?project=|workdir=&path=&download=   # raw bytes (streamed, Range/206 support)
 GET  /api/v1/sessions[?workdir=]               # direct CLI sessions (+ offered CLIs and availability)
 POST /api/v1/sessions                          # {workdir, cli?, model?, effort?, name?, prompt?} -> 201
 GET  /api/v1/sessions/{id}/transcript?after=N  # incremental transcript entries (seq, turn, kind, text)
@@ -158,6 +162,7 @@ The endpoints are documented as machine-readable specs under `docs/api/`:
 [OpenAPI 3.1](docs/api/openapi.yaml) for REST and
 [AsyncAPI 3.0](docs/api/asyncapi.yaml) for the WebSocket JSON-RPC protocol;
 project documents are covered in [docs/api/project-docs.md](docs/api/project-docs.md),
+the project file explorer in [docs/api/project-files.md](docs/api/project-files.md),
 assisted multi-repository review in [docs/api/reviews.md](docs/api/reviews.md),
 branch operations and the pending-changes indicator in [docs/api/project-git.md](docs/api/project-git.md)
 and the server clock (date, time and timezone) in

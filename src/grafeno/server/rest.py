@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
-from . import actions, clisessions, clock, projectcreate, projectdocs, projectgit, reviews, settings
+from . import actions, clisessions, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -121,6 +121,57 @@ async def _project_doc(service: "ServerService", request: Request, params: dict[
         name=query.get("name") or "",
         offset=_query_int(request, "offset", 0),
         max_chars=_query_int(request, "max_chars", None),
+    )
+
+
+@route("GET", "/api/v1/projects/files")
+async def _project_files(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    query = request.query
+    return projectfiles.list_dir(
+        service,
+        workdir=query.get("workdir") or "",
+        project=query.get("project") or "",
+        path=query.get("path") or "",
+        hidden=actions._coerce_bool(query.get("hidden"), False),
+        limit=_query_int(request, "limit", None),
+        offset=_query_int(request, "offset", 0),
+    )
+
+
+@route("GET", "/api/v1/projects/file")
+async def _project_file(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    query = request.query
+    return projectfiles.file_info(
+        service, workdir=query.get("workdir") or "", project=query.get("project") or "",
+        path=query.get("path") or "",
+    )
+
+
+@route("GET", "/api/v1/projects/file/text")
+async def _project_file_text(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    query = request.query
+    return projectfiles.read_text(
+        service,
+        workdir=query.get("workdir") or "",
+        project=query.get("project") or "",
+        path=query.get("path") or "",
+        line=_query_int(request, "line", 1),
+        max_lines=_query_int(request, "max_lines", None),
+    )
+
+
+@route("GET", "/api/v1/projects/file/raw")
+async def _project_file_raw(service: "ServerService", request: Request, params: dict[str, str]) -> Response:
+    query = request.query
+    target = projectfiles.open_file(
+        service, workdir=query.get("workdir") or "", project=query.get("project") or "",
+        path=query.get("path") or "",
+    )
+    return projectfiles.raw_response(  # streamed from disk, Range aware
+        target,
+        range_header=request.headers.get("range", ""),
+        if_range=request.headers.get("if-range", ""),
+        download=actions._coerce_bool(query.get("download"), False),
     )
 
 

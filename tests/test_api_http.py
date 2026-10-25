@@ -9,6 +9,7 @@ from typing import Optional
 
 from grafeno import __version__
 from grafeno.config import ApiConfig
+from grafeno.server import httpcore as httpcore_module
 from grafeno.server.service import ServerService
 
 
@@ -448,3 +449,27 @@ def test_time_without_token_returns_401() -> None:
             _stop(service, task)
 
     _run(scenario())
+
+
+def test_partial_file_response_and_stream(tmp_path) -> None:
+    path = tmp_path / "f.bin"
+    path.write_bytes(b"0123456789")
+    partial = httpcore_module.Response(206, file=path, file_offset=3, file_length=4).to_bytes(keep_alive=False)
+    assert b"Content-Length: 4" in partial and partial.startswith(b"HTTP/1.1 206 Partial Content")
+    tail = httpcore_module.Response(200, file=path, file_offset=3).to_bytes(keep_alive=False)
+    assert b"Content-Length: 7" in tail
+    assert httpcore_module.Response(403).to_bytes(keep_alive=False).startswith(b"HTTP/1.1 403 Forbidden")
+
+    class _Writer:
+        def __init__(self):
+            self.data = b""
+
+        def write(self, chunk):
+            self.data += chunk
+
+        async def drain(self):
+            return None
+
+    writer = _Writer()
+    assert asyncio.run(httpcore_module._stream_file(writer, path, 4, 3)) is True
+    assert writer.data == b"3456"

@@ -17,7 +17,7 @@ import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Optional
 
-from . import actions, clisessions, clock, projectcreate, projectdocs, projectgit, reviews, settings
+from . import actions, clisessions, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -362,6 +362,52 @@ async def _projects_doc(service: "ServerService", params: dict, conn: "WsConnect
         offset=_parse_int(params.get("offset"), 0, field="offset"),
         max_chars=None if max_chars in (None, "") else _parse_int(max_chars, 0, field="max_chars"),
     )
+
+
+async def _projects_files(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    limit = params.get("limit")
+    return projectfiles.list_dir(
+        service,
+        workdir=str(params.get("workdir") or ""),
+        project=str(params.get("project") or ""),
+        path=str(params.get("path") or ""),
+        hidden=actions._coerce_bool(params.get("hidden"), False),
+        limit=None if limit in (None, "") else _parse_int(limit, 0, field="limit"),
+        offset=_parse_int(params.get("offset"), 0, field="offset"),
+    )
+
+
+async def _projects_file(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return projectfiles.file_info(
+        service, workdir=str(params.get("workdir") or ""),
+        project=str(params.get("project") or ""), path=str(params.get("path") or ""),
+    )
+
+
+async def _projects_file_text(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    max_lines = params.get("max_lines")
+    return projectfiles.read_text(
+        service,
+        workdir=str(params.get("workdir") or ""),
+        project=str(params.get("project") or ""),
+        path=str(params.get("path") or ""),
+        line=_parse_int(params.get("line"), 1, field="line"),
+        max_lines=None if max_lines in (None, "") else _parse_int(max_lines, 0, field="max_lines"),
+    )
+
+
+async def _projects_file_raw(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    import base64
+
+    target, data = projectfiles.read_raw(
+        service, workdir=str(params.get("workdir") or ""),
+        project=str(params.get("project") or ""), path=str(params.get("path") or ""),
+        max_bytes=WS_MEDIA_MAX_BYTES,
+    )
+    return {
+        "path": target.rel, "name": target.name, "mime": target.mime, "size": target.size,
+        "etag": target.etag, "data": base64.b64encode(data).decode("ascii"),
+    }
 
 
 async def _tasks_logs(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
@@ -713,6 +759,10 @@ METHODS: dict[str, Callable] = {
     "projects.create": _projects_create,
     "projects.docs": _projects_docs,
     "projects.doc": _projects_doc,
+    "projects.files": _projects_files,
+    "projects.file": _projects_file,
+    "projects.file_text": _projects_file_text,
+    "projects.file_raw": _projects_file_raw,
     "tasks.logs": _tasks_logs,
     "tasks.artifacts": _tasks_artifacts,
     "tasks.create": _tasks_create,

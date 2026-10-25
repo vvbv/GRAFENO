@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GRAFENO Remote API
-  version: 1.9.0
+  version: 1.10.0
   summary: REST API of the GRAFENO remote server (optional token authentication).
   description: |
     REST control API exposed by the GRAFENO TUI while it is running
@@ -370,6 +370,243 @@ paths:
                 $ref: "#/components/schemas/Error"
         "409":
           description: Ambiguous project, remote project or remote session mode.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/projects/files:
+    get:
+      tags: [projects]
+      summary: One page of the entries of a project directory.
+      description: |
+        Read-only file explorer: only projects listed by `GET /api/v1/projects` are accepted; `path` is a POSIX path relative to the project root; `..`, absolute paths and `.git` are rejected; symlinks leaving the folder are blocked; remote projects and remote session mode answer 409. Folders come first, then names sorted
+        case-insensitively; dotfiles are hidden unless `hidden` is set.
+      operationId: listProjectFiles
+      parameters:
+        - $ref: "#/components/parameters/DocsWorkdirQuery"
+        - $ref: "#/components/parameters/DocsProjectQuery"
+        - $ref: "#/components/parameters/FilePathQuery"
+        - $ref: "#/components/parameters/FileHiddenQuery"
+        - $ref: "#/components/parameters/FileLimitQuery"
+        - $ref: "#/components/parameters/FileOffsetQuery"
+      responses:
+        "200":
+          description: A page of entries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectFilesResponse"
+        "400":
+          description: Invalid parameter, or the path is not of the expected kind.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token (only enforced when tokens are configured).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Path outside the project folder, `.git`, or permission denied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Project or path not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Ambiguous project, remote project or remote session mode.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/projects/file:
+    get:
+      tags: [projects]
+      summary: Metadata of one file or directory of a project.
+      description: |
+        Read-only access: only projects listed by `GET /api/v1/projects` are accepted; `path` is a POSIX path relative to the project root; `..`, absolute paths and `.git` are rejected; symlinks leaving the folder are blocked; remote projects and remote session mode answer 409. Files are sniffed to tell text from binary.
+      operationId: getProjectFileInfo
+      parameters:
+        - $ref: "#/components/parameters/DocsWorkdirQuery"
+        - $ref: "#/components/parameters/DocsProjectQuery"
+        - $ref: "#/components/parameters/FilePathQuery"
+      responses:
+        "200":
+          description: Metadata of the file or directory.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectFileInfo"
+        "400":
+          description: Invalid parameter, or the path is not of the expected kind.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token (only enforced when tokens are configured).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Path outside the project folder, `.git`, or permission denied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Project or path not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Ambiguous project, remote project or remote session mode.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/projects/file/text:
+    get:
+      tags: [projects]
+      summary: One page of lines of a text file.
+      description: |
+        Read-only access: only projects listed by `GET /api/v1/projects` are accepted; `path` is a POSIX path relative to the project root; `..`, absolute paths and `.git` are rejected; symlinks leaving the folder are blocked; remote projects and remote session mode answer 409. At most 2 MiB of the file is decoded (`clipped`); binary files answer 415 with `code: binary_file`.
+      operationId: getProjectFileText
+      parameters:
+        - $ref: "#/components/parameters/DocsWorkdirQuery"
+        - $ref: "#/components/parameters/DocsProjectQuery"
+        - $ref: "#/components/parameters/FilePathQuery"
+        - $ref: "#/components/parameters/FileLineQuery"
+        - $ref: "#/components/parameters/FileMaxLinesQuery"
+      responses:
+        "200":
+          description: A page of lines; continue with `next_line` while `has_more`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectFileText"
+        "400":
+          description: Invalid parameter, or the path is not of the expected kind.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token (only enforced when tokens are configured).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Path outside the project folder, `.git`, or permission denied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Project or path not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Ambiguous project, remote project or remote session mode.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          description: "Binary file (code binary_file); use the raw endpoint."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/projects/file/raw:
+    get:
+      tags: [projects]
+      summary: Raw bytes of a file, streamed, with single Range support.
+      description: |
+        Read-only access: only projects listed by `GET /api/v1/projects` are accepted; `path` is a POSIX path relative to the project root; `..`, absolute paths and `.git` are rejected; symlinks leaving the folder are blocked; remote projects and remote session mode answer 409. Never served as `text/html`, `image/svg+xml` or JavaScript
+        (text-like files are sent as `text/plain`). Single `Range` requests answer
+        206; multi-range requests are ignored; `If-Range` with a stale `ETag`
+        returns the whole file.
+      operationId: getProjectFileRaw
+      parameters:
+        - $ref: "#/components/parameters/DocsWorkdirQuery"
+        - $ref: "#/components/parameters/DocsProjectQuery"
+        - $ref: "#/components/parameters/FilePathQuery"
+        - $ref: "#/components/parameters/FileDownloadQuery"
+        - {name: Range, in: header, required: false, description: "Single byte range, e.g. `bytes=0-99`.", schema: {type: string}}
+        - {name: If-Range, in: header, required: false, description: "ETag or Last-Modified validator of the partial download.", schema: {type: string}}
+      responses:
+        "200":
+          description: The whole file.
+          headers:
+            Accept-Ranges: {schema: {type: string}}
+            ETag: {schema: {type: string}}
+            Last-Modified: {schema: {type: string}}
+            Content-Disposition: {schema: {type: string}}
+            X-Content-Type-Options: {schema: {type: string}}
+            Content-Security-Policy: {schema: {type: string}}
+          content:
+            "*/*":
+              schema: {type: string, format: binary}
+        "206":
+          description: The requested byte range.
+          headers:
+            Content-Range: {schema: {type: string}}
+            Accept-Ranges: {schema: {type: string}}
+            ETag: {schema: {type: string}}
+            Last-Modified: {schema: {type: string}}
+            Content-Disposition: {schema: {type: string}}
+            X-Content-Type-Options: {schema: {type: string}}
+            Content-Security-Policy: {schema: {type: string}}
+          content:
+            "*/*":
+              schema: {type: string, format: binary}
+        "400":
+          description: Invalid parameter, or the path is not of the expected kind.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token (only enforced when tokens are configured).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Path outside the project folder, `.git`, or permission denied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Project or path not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Ambiguous project, remote project or remote session mode.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "416":
+          description: "Range not satisfiable; the Content-Range header (bytes */size) carries the size."
+          headers:
+            Content-Range: {schema: {type: string}, description: "bytes */size"}
           content:
             application/json:
               schema:
@@ -2259,6 +2496,48 @@ components:
       description: Project folder name (case-insensitive, exact). Ambiguous names return 409.
       schema:
         type: string
+    FilePathQuery:
+      name: path
+      in: query
+      required: false
+      description: POSIX path relative to the project root; empty = root.
+      schema: {type: string, default: ""}
+    FileHiddenQuery:
+      name: hidden
+      in: query
+      required: false
+      description: Include dotfiles (`1`, `true`, `yes`, `on`). `.git` is never listed.
+      schema: {type: string}
+    FileLimitQuery:
+      name: limit
+      in: query
+      required: false
+      description: Entries per page (1 to 2000).
+      schema: {type: integer, minimum: 1, maximum: 2000, default: 500}
+    FileOffsetQuery:
+      name: offset
+      in: query
+      required: false
+      description: Entries to skip.
+      schema: {type: integer, minimum: 0, default: 0}
+    FileLineQuery:
+      name: line
+      in: query
+      required: false
+      description: First line of the page (1-based).
+      schema: {type: integer, minimum: 1, default: 1}
+    FileMaxLinesQuery:
+      name: max_lines
+      in: query
+      required: false
+      description: Lines per page (1 to 5000).
+      schema: {type: integer, minimum: 1, maximum: 5000, default: 400}
+    FileDownloadQuery:
+      name: download
+      in: query
+      required: false
+      description: "Send Content-Disposition attachment instead of inline (1, true, yes, on)."
+      schema: {type: string}
     DocNameQuery:
       name: name
       in: query
@@ -2902,7 +3181,7 @@ components:
           type: string
         code:
           type: string
-          description: "Stable machine-readable code (reviews and project creation endpoints): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed, invalid_branch, invalid_mode, branch_not_found, detached, no_commits, no_upstream, upstream_gone, no_remote, ambiguous_remote, local_changes, diverged, push_rejected, no_operation, upstream_mismatch, auth_failed, remote_unreachable, not_a_repo."
+          description: "Stable machine-readable code (reviews and project creation endpoints): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed, invalid_branch, invalid_mode, branch_not_found, detached, no_commits, no_upstream, upstream_gone, no_remote, ambiguous_remote, local_changes, diverged, push_rejected, no_operation, upstream_mismatch, auth_failed, remote_unreachable, not_a_repo, binary_file."
       required: [error]
     TaskState:
       type: string
@@ -3384,6 +3663,91 @@ components:
         next_offset: {type: [integer, "null"]}
         has_more: {type: boolean}
         clipped: {type: boolean}
+        content: {type: string}
+    ProjectFileEntry:
+      type: object
+      properties:
+        name: {type: string}
+        path: {type: string}
+        type: {type: string, enum: [dir, file, other, broken, blocked]}
+        size: {type: [integer, "null"]}
+        modified: {type: [string, "null"]}
+        hidden: {type: boolean}
+        symlink: {type: boolean}
+        readable: {type: boolean}
+        mime: {type: [string, "null"]}
+        kind: {type: [string, "null"]}
+        preview:
+          type: [string, "null"]
+          enum: [image, pdf, audio, video, text, download, unknown, null]
+          description: Hint from the suffix; `unknown` means ask `projects/file`.
+    ProjectFilesResponse:
+      type: object
+      required: [project, path, entries, total, has_more]
+      properties:
+        project:
+          $ref: "#/components/schemas/ProjectRef"
+        path: {type: string}
+        parent: {type: [string, "null"]}
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectFileEntry"
+        total: {type: integer}
+        offset: {type: integer}
+        limit: {type: integer}
+        has_more: {type: boolean}
+        truncated: {type: boolean, description: True when the directory has more entries than the scan cap.}
+        hidden: {type: boolean}
+    ProjectFileUrls:
+      type: object
+      properties:
+        raw: {type: string}
+        download: {type: string}
+        text: {type: [string, "null"]}
+    ProjectFileInfo:
+      type: object
+      required: [project, path, name, type]
+      properties:
+        project:
+          $ref: "#/components/schemas/ProjectRef"
+        path: {type: string}
+        name: {type: string}
+        type: {type: string, enum: [dir, file]}
+        parent: {type: [string, "null"]}
+        modified: {type: string}
+        readable: {type: boolean, description: Directories only.}
+        size: {type: integer, description: Files only.}
+        etag: {type: string, description: Files only.}
+        mime: {type: string, description: Files only.}
+        kind: {type: string, description: Files only.}
+        preview: {type: string, enum: [image, pdf, audio, video, text, download, unknown], description: Files only.}
+        text: {type: boolean, description: Files only.}
+        text_clipped: {type: boolean, description: Files only.}
+        text_max_bytes: {type: integer, description: Files only.}
+        symlink: {type: boolean, description: Files only.}
+        urls:
+          $ref: "#/components/schemas/ProjectFileUrls"
+    ProjectFileText:
+      type: object
+      required: [project, path, content, has_more]
+      properties:
+        project:
+          $ref: "#/components/schemas/ProjectRef"
+        path: {type: string}
+        name: {type: string}
+        size: {type: integer}
+        modified: {type: string}
+        etag: {type: string}
+        mime: {type: string}
+        line: {type: integer}
+        end_line: {type: integer}
+        total_lines: {type: integer}
+        next_line: {type: [integer, "null"]}
+        has_more: {type: boolean}
+        clipped: {type: boolean}
+        decode_errors: {type: boolean}
+        newline: {type: string, enum: [lf, crlf]}
         content: {type: string}
     ProjectListResponse:
       type: object

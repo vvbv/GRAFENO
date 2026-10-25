@@ -48,16 +48,18 @@ def is_remote_only(item: dict, local_dirs: set[str], remote_dirs: set[str]) -> b
 
 
 def resolve_project(
-    service: "ServerService", workdir: str = "", project: str = ""
+    service: "ServerService", workdir: str = "", project: str = "",
+    feature: str = "project documents",
 ) -> tuple[dict, Path]:
     """Catalogue item and resolved local folder of an existing project.
 
     Only projects listed by ``list_projects`` are accepted, never an
     arbitrary path. ``effective_workdir`` is deliberately not used: it
-    would mount sshfs as a side effect.
+    would mount sshfs as a side effect. ``feature`` names the caller in the
+    remote session error.
     """
     if remotesession.active():
-        raise ApiError(409, "project documents are not available in remote session mode")
+        raise ApiError(409, f"{feature} are not available in remote session mode")
     items = list_projects(service)["projects"]
     local_dirs, remote_dirs = task_dirs()
     if workdir.strip():

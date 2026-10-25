@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: GRAFENO Remote WebSocket API
-  version: 1.8.0
+  version: 1.9.0
   description: |
     Bidirectional JSON-RPC channel exposed on `/api/v1/ws` (implemented by
     hand on RFC 6455, see `src/grafeno/server/ws.py`). The HTTP GET upgrade
@@ -27,6 +27,10 @@ info:
     | projects.create     | `name?`, `url?`, `mode?`, `workspace?`           | POST /api/v1/projects              |
     | projects.docs       | `workdir?`, `project?`                           | GET /api/v1/projects/docs          |
     | projects.doc        | `workdir?`, `project?`, `name`, `offset?`, `max_chars?` | GET /api/v1/projects/doc    |
+    | projects.files      | `workdir?`, `project?`, `path?`, `hidden?`, `limit?`, `offset?` | GET /api/v1/projects/files |
+    | projects.file       | `workdir?`, `project?`, `path`                   | GET /api/v1/projects/file          |
+    | projects.file_text  | `workdir?`, `project?`, `path`, `line?`, `max_lines?` | GET /api/v1/projects/file/text |
+    | projects.file_raw   | `workdir?`, `project?`, `path` (result: `{path, name, mime, size, etag, data}` base64; files above 16 MiB return a 413 error: use GET /api/v1/projects/file/raw) | GET /api/v1/projects/file/raw |
     | tasks.logs          | `task_id`, `limit?` (1..1000, default 200)      | GET /api/v1/tasks/{id}/logs        |
     | tasks.artifacts     | `task_id`, `kind`, `cycle?` (default 1)         | GET /api/v1/tasks/{id}/artifacts   |
     | tasks.create        | `name`, `workdir`, `description?`, `automode?`, `parent_id?`, `scheduled_at?`, `origin?`, `profile?`, `attachments?` (optional list of {name, data-base64}, max 10; limited by the 1 MiB message cap) | POST /api/v1/tasks |
@@ -197,6 +201,10 @@ components:
         - projects.create
         - projects.docs
         - projects.doc
+        - projects.files
+        - projects.file
+        - projects.file_text
+        - projects.file_raw
         - tasks.logs
         - tasks.artifacts
         - tasks.create
