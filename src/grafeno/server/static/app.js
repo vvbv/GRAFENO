@@ -21,6 +21,7 @@ const TASK_COL_KEY = "grafeno.taskColWidth";
 const TASK_COL_MIN = 160;  // px: same floor as the task cells (app.css)
 const TASK_COL_MAX = 4000; // px: caps absurd stored values
 const TASK_COL_STEP = 20;  // px per ArrowLeft/ArrowRight on the resize handle
+const CS_ENTER_KEY = "grafeno.csEnterSends";  // CLI session composer: Enter sends
 
 // ---------------------------------------------------------------- helpers
 function tr(key, vars) {
@@ -1626,12 +1627,16 @@ const projectsView = {
     this.data = null;
     this.search = h("input", { type: "search", placeholder: tr("projects.filter.placeholder"), value: this.filter });
     this.search.addEventListener("input", () => { this.filter = this.search.value; this.render(); });
+    this.createButton = h("button", { type: "button", class: "primary small", text: tr("projects.create.button"),
+      onclick: () => this.createProject() });
+    this.createButton.hidden = true;  // shown by render() when the server allows creation
     this.body = h("div", null, h("div", { class: "empty", text: tr("web.ui.loading") }));
     $("main").replaceChildren(h("div", { class: "page" }, h("div", { class: "page-inner" },
       h("h2", { text: tr("tasks.bind.projects") }),
       h("p", { class: "subtitle", text: tr("projects.subtitle") }),
       h("div", { class: "toolbar" }, this.search,
         h("button", { type: "button", class: "small", text: tr("tasks.bind.reload"), onclick: () => this.load() }),
+        this.createButton,
         h("a", { class: "small-text", href: "#/settings/workspaces", text: tr("projects.edit_workspaces") })),
       this.body)));
     this.load();
@@ -1646,6 +1651,7 @@ const projectsView = {
   render() {
     const data = this.data;
     if (!data) return;
+    this.createButton.hidden = !!data.session || !(data.create && data.create.available);
     const notice = (key) => this.body.replaceChildren(h("div", { class: "empty", text: tr(key) }));
     if (data.session) { notice("projects.session"); return; }
     const roots = data.workspaces || [];
@@ -1699,7 +1705,87 @@ const projectsView = {
     if (choice === "new") location.hash = "#/new/" + enc(item.workdir);
     if (choice === "sessions") location.hash = "#/sessions/" + enc(item.workdir);
   },
+  async createProject() {
+    const create = (this.data && this.data.create) || {};
+    const created = await this.createDialog(create);
+    if (!created) return;
+    toast(tr("projects.create.done", { name: created.project.name }));
+    await this.load();
+    this.choose(created.project);  // next step: new task or CLI sessions in it
+  },
+  // Resolves with the POST /api/v1/projects response, or undefined when cancelled.
+  createDialog(create) {
+    const opts = { title: tr("projects.create.title") };
+    return modal(opts, (form, close) => {
+      const git = create.git !== false;
+      const modes = ["plain", "init", "clone"].filter((mode) => (create.modes || ["init", "clone", "plain"]).includes(mode));
+      const initial = git ? (create.default_mode || "init") : "plain";
+      const mode = h("select", null, modes.map((value) =>
+        option(tr("projects.create.mode." + value), value, value === initial)));
+      for (const item of mode.options) if (!git && item.value !== "plain") item.disabled = true;
+      const name = h("input", { type: "text", maxLength: create.name_max_length || 100 });
+      const url = h("input", { type: "text", class: "mono", placeholder: "https://github.com/user/repo.git" });
+      const roots = create.workspaces || [];
+      const workspace = h("select", { class: "mono" }, roots.map((path, index) => option(path, path, index === 0)));
+      const nameField = field(tr("projects.create.name"), name);
+      const urlField = field(tr("projects.create.url"), url, { help: tr("projects.create.url.help") });
+      const workspaceField = field(tr("projects.create.workspace"), workspace);
+      workspaceField.hidden = roots.length < 2;  // a single root needs no choice
+      const error = h("div", { class: "form-error" });
+      error.hidden = true;
+      const cancel = h("button", { type: "button", text: tr("common.cancel"), onclick: () => close(undefined) });
+      const submit = h("button", { type: "submit", class: "primary", text: tr("common.create") });
+      const sync = () => {
+        const clone = mode.value === "clone";
+        urlField.hidden = !clone;
+        name.placeholder = clone ? tr("projects.create.name_from_url") : "";
+      };
+      mode.addEventListener("change", () => { sync(); error.hidden = true; });
+      sync();
+      const busy = (on) => {
+        opts.sticky = on;  // modal() reads it on every Escape: no dismissal mid-request
+        submit.disabled = on; cancel.disabled = on; mode.disabled = on;
+        submit.textContent = on ? tr(mode.value === "clone" ? "projects.create.cloning" : "projects.create.creating") : tr("common.create");
+      };
+      submit.addEventListener("click", async () => {
+        if (submit.disabled) return;
+        const payload = { mode: mode.value, name: name.value.trim() };
+        if (mode.value === "clone") payload.url = url.value.trim();
+        if (roots.length) payload.workspace = workspace.value;
+        const missing = mode.value === "clone" ? (!payload.url && "projects.create.error.url") : (!payload.name && "projects.create.error.name");
+        if (missing) { error.textContent = tr(missing); error.hidden = false; return; }
+        error.hidden = true;
+        busy(true);
+        try {
+          const data = await api("POST", "/api/v1/projects", payload);
+          busy(false);
+          close(data);
+        } catch (err) {
+          busy(false);
+          if (err && err.status === 401) return;  // the token dialog takes over
+          error.textContent = (err && err.message) || String(err);
+          error.hidden = false;
+        }
+      });
+      form.append(
+        field(tr("projects.create.mode"), mode, git ? null : { help: tr("projects.create.no_git") }),
+        workspaceField, urlField, nameField, error,
+        h("div", { class: "buttons" }, cancel, submit));
+    });
+  },
 };
+
+// The "send with Enter" preference of the CLI session composer is kept per
+// browser; storage may be blocked (private mode), so failures are ignored.
+function loadEnterSends() {
+  try { return localStorage.getItem(CS_ENTER_KEY) === "1"; } catch (e) { return false; }
+}
+function saveEnterSends(on) {
+  try {
+    if (on) localStorage.setItem(CS_ENTER_KEY, "1");
+    else localStorage.removeItem(CS_ENTER_KEY);
+  } catch (e) { /* storage blocked */ }
+}
 
 // ---------------------------------------------------------------- CLI sessions view
 // #/sessions -> every session; #/sessions/<folder> -> the sessions of a project;
@@ -1707,10 +1793,11 @@ const projectsView = {
 const sessionsView = {
   workdir: "", sessionId: "", data: null, entries: [], total: 0, session: null,
   timers: [], polling: false, onLive: null, onKey: null, box: null, headNode: null, composer: null,
-  mountSeq: 0, deleting: false,
+  mountSeq: 0, deleting: false, enterSends: false, sending: false,
   mount(params) {
     this.mountSeq += 1;  // invalidates async work started by a previous mount
     this.deleting = false;
+    this.sending = false;
     this.workdir = (params && params[0]) || "";
     this.sessionId = (params && params[1]) || "";
     this.data = null; this.entries = []; this.total = 0; this.session = null;
@@ -1875,14 +1962,33 @@ const sessionsView = {
   },
   buildComposer() {
     // Created once per chat: later session changes only toggle `disabled`, so a draft survives.
-    const prompt = h("textarea", { placeholder: tr("cs.prompt.placeholder_web") });
+    this.enterSends = loadEnterSends();
+    const prompt = h("textarea");
     prompt.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); this.send(); }
+      if (event.key !== "Enter" || event.isComposing) return;  // IME composition confirms with Enter
+      const modifier = event.ctrlKey || event.metaKey;
+      const plainEnter = this.enterSends && !event.shiftKey && !event.altKey;
+      if (!modifier && !plainEnter) return;  // Shift+Enter (or Enter with the option off): new line
+      event.preventDefault();
+      if (this.sendButton.disabled) { toast(tr("cs.busy"), "warn"); return; }
+      this.send();
     });
     this.prompt = prompt;
     this.sendButton = h("button", { type: "button", class: "primary", text: tr("cs.send"), onclick: () => this.send() });
-    this.composer.replaceChildren(prompt, this.sendButton);
+    const enter = check(tr("cs.enter_sends"), this.enterSends);
+    enter.node.title = tr("cs.enter_sends.title");
+    enter.box.addEventListener("change", () => {
+      this.enterSends = enter.box.checked;
+      saveEnterSends(this.enterSends);
+      this.applyEnterMode();
+      this.prompt.focus();
+    });
+    this.composer.replaceChildren(prompt, h("div", { class: "cs-actions" }, this.sendButton, enter.node));
+    this.applyEnterMode();
     this.updateComposer();
+  },
+  applyEnterMode() {
+    this.prompt.placeholder = tr(this.enterSends ? "cs.prompt.placeholder_enter" : "cs.prompt.placeholder_web");
   },
   updateComposer() {
     const item = this.session;
@@ -1917,12 +2023,15 @@ const sessionsView = {
     finally { this.polling = false; }
   },
   async send() {
+    if (this.sending) return;
     const text = this.prompt.value.trim();
     if (!text) { toast(tr("cs.error.empty_prompt"), "error"); return; }
+    this.sending = true;
     try {
       await api("POST", sessionPath(this.sessionId, "/send"), { prompt: text });
       this.prompt.value = "";
     } catch (err) { if (err && err.status === 409) toast(err.message, "error"); else fail(err); return; }
+    finally { this.sending = false; }
     this.poll();
   },
   async action(name) {

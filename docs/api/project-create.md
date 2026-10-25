@@ -4,7 +4,7 @@
 
 A voice assistant (Grafoide) creates projects by voice and then opens tasks or
 CLI sessions in them. Projects are first-level folders of the configured
-working directories (workspaces).
+working directories (workspaces). The web panel (Projects tab, "New project") uses the same endpoint.
 
 ## Modes
 

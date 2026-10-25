@@ -16,6 +16,7 @@
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }  /* author display rules (.field) must not override hidden */
 html, body { margin: 0; height: 100%; }
 body {
   background: var(--bg); color: var(--text);
@@ -245,6 +246,7 @@ dl.info dd { margin: 0; word-break: break-word; white-space: pre-line; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
 .checks { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .help { font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
+.form-error { color: var(--danger); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .form-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; position: sticky; bottom: -40px; padding: 12px 0 52px; margin-bottom: -40px; background: var(--bg); border-top: 1px solid var(--border); z-index: 2; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 12.5px; background: var(--panel-2); }
@@ -337,4 +339,6 @@ dialog .detail { font-size: 13px; color: var(--muted); white-space: pre-line; }
 .cs-line.l-dim { color: var(--muted); }
 .cs-compose { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--panel); }
 .cs-compose textarea { flex: 1; min-height: 60px; }
+.cs-actions { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: 6px; }
+.cs-actions .check { font-size: 12.5px; color: var(--muted); white-space: nowrap; cursor: pointer; }
 .cs-hint { padding: 4px 16px; color: var(--muted); font-size: 12px; }

@@ -343,3 +343,37 @@ def test_schedule_column_and_text_helpers_present():
     assert "when(task.scheduled_at)" not in script
     css = resources.files("grafeno.server").joinpath("static/app.css").read_text(encoding="utf-8")
     assert "#task-table td.sched.overdue" in css  # must out-rank "#task-table td.when"
+
+
+def test_cli_session_composer_can_send_with_enter():
+    """The session composer has a remembered "send with Enter" option."""
+    from importlib import resources
+
+    static = resources.files("grafeno.server").joinpath("static")
+    script = static.joinpath("app.js").read_text(encoding="utf-8")
+    css = static.joinpath("app.css").read_text(encoding="utf-8")
+    assert 'CS_ENTER_KEY = "grafeno.csEnterSends"' in script
+    assert "localStorage.getItem(CS_ENTER_KEY)" in script
+    assert "localStorage.setItem(CS_ENTER_KEY" in script
+    assert 'tr("cs.enter_sends")' in script
+    assert "event.isComposing" in script  # IME composition never sends
+    assert "event.shiftKey" in script     # Shift+Enter keeps inserting a new line
+    assert ".cs-actions" in css
+
+
+def test_projects_tab_creates_projects():
+    """The Projects tab creates folders through POST /api/v1/projects in every mode."""
+    from importlib import resources
+
+    from grafeno import projectsetup
+
+    script = resources.files("grafeno.server").joinpath("static/app.js").read_text(encoding="utf-8")
+    assert 'api("POST", "/api/v1/projects", payload)' in script
+    assert 'tr("projects.create.button")' in script
+    assert "data.create && data.create.available" in script
+    css = resources.files("grafeno.server").joinpath("static/app.css").read_text(encoding="utf-8")
+    assert "[hidden] { display: none !important; }" in css  # hidden .field rows must really hide
+    for mode in projectsetup.MODES:
+        assert f'"{mode}"' in script
+        for lang in ("en", "es"):
+            assert f"projects.create.mode.{mode}" in i18n._MESSAGES[lang], (lang, mode)
