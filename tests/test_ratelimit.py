@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from grafeno.ratelimit import (
+    CRASH_MAX_FAILURES,
+    CRASH_WAITS,
     MAX_WAIT_SECONDS,
     TRANSIENT_WAITS,
+    crash_wait,
     detect_usage_wait,
     looks_like_transient_failure,
     looks_like_usage_limit,
@@ -162,3 +165,11 @@ def test_transient_wait_grows_and_saturates():
     assert transient_wait(2) == TRANSIENT_WAITS[1]
     assert transient_wait(len(TRANSIENT_WAITS) + 5) == TRANSIENT_WAITS[-1]
     assert transient_wait(0) == TRANSIENT_WAITS[0]
+
+
+def test_crash_wait_grows_and_saturates():
+    assert crash_wait(1) == CRASH_WAITS[0]
+    assert crash_wait(2) == CRASH_WAITS[1]
+    assert crash_wait(len(CRASH_WAITS) + 5) == CRASH_WAITS[-1]
+    assert crash_wait(0) == CRASH_WAITS[0]
+    assert CRASH_MAX_FAILURES == 3  # requirement: fail after 3 consecutive crashes

@@ -15,6 +15,7 @@ from grafeno.drivers.base import CLIDriver, RunResult, TokenUsage
 from grafeno.models import Task, TaskState
 from grafeno.pipeline import prompts
 from grafeno.pipeline.orchestrator import INTERRUPTED_PHASE, Orchestrator, PhaseError
+from grafeno.pipeline.verdict import Verdict
 
 
 class FakeDriver(CLIDriver):
@@ -1225,6 +1226,116 @@ def test_non_transient_failure_is_not_retried(tmp_path, monkeypatch):
         _run(orch.run_implement())
     assert len(impl.prompts) == 1
     assert task.state is TaskState.FAILED
+
+
+def _crash(session_id: str | None = None) -> RunResult:
+    return RunResult(ok=False, error="OpenCode CLI exited with code 1.",
+                     returncode=1, session_id=session_id)
+
+
+def _sleep_recorder(monkeypatch) -> list[float]:
+    waits: list[float] = []
+
+    async def fake_sleep(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    return waits
+
+
+def test_crash_relaunches_phase_with_resume_notice(tmp_path, monkeypatch):
+    waits = _sleep_recorder(monkeypatch)
+    infos: list[str] = []
+    task = _make_task(tmp_path)
+    impl = FakeDriver("fake-impl", [_crash(session_id="ses-1"), _ok("implementado")])
+    orch = Orchestrator(task, drivers={"fake-impl": impl}, on_info=infos.append)
+    _run(orch.run_implement())
+
+    assert task.state is TaskState.IMPLEMENTED
+    assert task.failed_phase == ""
+    assert waits == [ratelimit.CRASH_WAITS[0]]
+    assert impl.requests[1].session_id == "ses-1"
+    assert impl.prompts[1] == prompts.resumed_prompt(impl.prompts[0])
+    assert any("exited unexpectedly" in info for info in infos)
+    assert task.usage_waiting is False
+
+
+def test_crash_fails_phase_after_three_consecutive_failures(tmp_path, monkeypatch):
+    waits = _sleep_recorder(monkeypatch)
+    infos: list[str] = []
+    task = _make_task(tmp_path)
+    impl = FakeDriver("fake-impl", [_crash("ses-1"), _crash("ses-1"), _crash(), _ok("nunca")])
+    orch = Orchestrator(task, drivers={"fake-impl": impl}, on_info=infos.append)
+    with pytest.raises(PhaseError, match="exited with code 1"):
+        _run(orch.run_implement())
+
+    assert len(impl.prompts) == ratelimit.CRASH_MAX_FAILURES
+    assert waits == list(ratelimit.CRASH_WAITS[:2])
+    assert task.state is TaskState.FAILED
+    assert task.failed_phase == "implement"
+    assert any("3 times in a row" in info for info in infos)
+    assert impl.requests[1].session_id == "ses-1"
+    assert impl.requests[2].session_id is None  # last attempt starts a new session
+    assert any("new session" in info for info in infos)
+    assert all(prompt.count("RESUME NOTICE") + prompt.count("AVISO DE REANUDACI") == 1
+               for prompt in impl.prompts[1:])
+
+
+def test_crash_retry_covers_review_and_fix_switch(tmp_path, monkeypatch):
+    _sleep_recorder(monkeypatch)
+    task = _make_task(tmp_path)
+    task.sessions = {"reviewer": "rev-1", "implementer": "imp-1"}
+    rev = FakeDriver("fake-rev", [_crash("rev-1"), RunResult(ok=True, text="VERDICT: CHANGES_REQUESTED")])
+    impl = FakeDriver("fake-impl", [_crash("imp-1"), _ok("fixed")])
+    orch = Orchestrator(task, drivers={"fake-rev": rev, "fake-impl": impl})
+
+    assert _run(orch.run_review()) is Verdict.CHANGES_REQUESTED
+    _run(orch.run_fix())
+
+    assert task.state is TaskState.IMPLEMENTED
+    assert task.iteration == 1
+    assert len(rev.prompts) == 2
+    assert len(impl.prompts) == 2
+
+
+def test_exhausted_transient_does_not_add_crash_retries(tmp_path, monkeypatch):
+    _sleep_recorder(monkeypatch)
+    task = _make_task(tmp_path)
+    attempts = ratelimit.TRANSIENT_MAX_ATTEMPTS + 1
+    stuck = RunResult(ok=False, error="OpenCode CLI exited with code 1.\nECONNRESET",
+                      transient=True, returncode=1)
+    impl = FakeDriver("fake-impl", [stuck] * attempts + [_ok("nunca")])
+    orch = Orchestrator(task, drivers={"fake-impl": impl})
+    with pytest.raises(PhaseError):
+        _run(orch.run_implement())
+    assert len(impl.prompts) == attempts
+
+
+def test_usage_wait_with_exit_code_is_not_a_crash(tmp_path, monkeypatch):
+    waits = _sleep_recorder(monkeypatch)
+    infos: list[str] = []
+    task = _make_task(tmp_path)
+    impl = FakeDriver(
+        "fake-impl",
+        [RunResult(ok=False, error="429", usage_wait=5.0, returncode=1), _ok("ok")],
+    )
+    orch = Orchestrator(task, drivers={"fake-impl": impl}, on_info=infos.append)
+    _run(orch.run_implement())
+    assert waits == [5.0]
+    assert not any("exited unexpectedly" in info for info in infos)
+
+
+def test_spawn_error_without_exit_code_is_not_retried(tmp_path, monkeypatch):
+    async def fake_sleep(seconds):
+        raise AssertionError("no retry expected")
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    task = _make_task(tmp_path)
+    impl = FakeDriver("fake-impl", [RunResult(ok=False, error="Could not run opencode", returncode=None)])
+    orch = Orchestrator(task, drivers={"fake-impl": impl})
+    with pytest.raises(PhaseError):
+        _run(orch.run_implement())
+    assert len(impl.prompts) == 1
 
 
 # ---------------------------------------------------------------------- #

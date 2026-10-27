@@ -11,6 +11,10 @@ Failures that are not quota but look transient (dropped connection, provider
 ``looks_like_transient_failure``: the orchestrator retries them up to
 ``TRANSIENT_MAX_ATTEMPTS`` times with the growing waits of
 ``TRANSIENT_WAITS`` before failing the phase.
+
+Failures that are neither quota nor transient but end with a non-zero exit
+code (an unclassified CLI crash) are relaunched by the orchestrator until
+``CRASH_MAX_FAILURES`` consecutive failed runs, waiting ``CRASH_WAITS``.
 """
 
 from __future__ import annotations
@@ -33,6 +37,12 @@ MAX_WAIT_SECONDS = 3600.0
 TRANSIENT_MAX_ATTEMPTS = 3
 # Wait before each transient retry (the last value repeats past the tuple).
 TRANSIENT_WAITS = (15.0, 60.0, 180.0)
+# Consecutive failed runs with an unclassified non-zero exit (the CLI died
+# without a recognizable cause, e.g. a bare "exited with code 1") before the
+# phase fails: one run plus CRASH_MAX_FAILURES - 1 relaunches.
+CRASH_MAX_FAILURES = 3
+# Wait before each crash relaunch (the last value repeats past the tuple).
+CRASH_WAITS = (10.0, 30.0)
 
 # Substrings (lowercased) that signal an exhausted usage/quota limit.
 _USAGE_PATTERNS = (
@@ -165,6 +175,12 @@ def transient_wait(attempt: int) -> float:
     """Seconds to wait before the transient retry number ``attempt`` (1-based)."""
     index = min(max(attempt, 1), len(TRANSIENT_WAITS)) - 1
     return TRANSIENT_WAITS[index]
+
+
+def crash_wait(failures: int) -> float:
+    """Seconds to wait before relaunching after ``failures`` consecutive crashes."""
+    index = min(max(failures, 1), len(CRASH_WAITS)) - 1
+    return CRASH_WAITS[index]
 
 
 def parse_wait_seconds(text: str) -> float | None:

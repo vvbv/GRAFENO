@@ -678,6 +678,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "orch.usage_wait.passive": "Usage limit persists; passive wait mode: retrying every {wait} until the quota resets (attempt {attempt})",
         "orch.transient.retry": "Transient failure ({error}); resuming the phase in {wait} (attempt {attempt}/{max})",
         "orch.transient.exhausted": "The transient failure persisted after {max} retries; the phase fails (use Continue to resume it later).",
+        "orch.crash.retry": "The CLI exited unexpectedly ({error}); relaunching the phase in {wait} (retry {attempt}/{max})",
+        "orch.crash.retry_fresh": "The CLI exited unexpectedly ({error}); relaunching the phase in {wait} with a new session (retry {attempt}/{max})",
+        "orch.crash.exhausted": "The CLI failed {failures} times in a row; the phase fails (use Continue to resume it later).",
         "orch.changes_md": "Changes report written: changes.md",
         "orch.changes_md.fail": "Could not write changes.md: {error}",
         # hook de completado
@@ -1546,6 +1549,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "orch.usage_wait.passive": "El límite de uso persiste; modo de espera pasiva: reintentando cada {wait} hasta que se restablezca la cuota (intento {attempt})",
         "orch.transient.retry": "Fallo transitorio ({error}); se reanuda la fase en {wait} (intento {attempt}/{max})",
         "orch.transient.exhausted": "El fallo transitorio persistió tras {max} reintentos; la fase falla (usa Continuar para reanudarla más tarde).",
+        "orch.crash.retry": "El CLI terminó de forma inesperada ({error}); se relanza la fase en {wait} (reintento {attempt}/{max})",
+        "orch.crash.retry_fresh": "El CLI terminó de forma inesperada ({error}); se relanza la fase en {wait} con una sesión nueva (reintento {attempt}/{max})",
+        "orch.crash.exhausted": "El CLI falló {failures} veces seguidas; la fase falla (usa Continuar para reanudarla más tarde).",
         "orch.changes_md": "Informe de cambios generado: changes.md",
         "orch.changes_md.fail": "No se pudo generar changes.md: {error}",
         # hook de completado

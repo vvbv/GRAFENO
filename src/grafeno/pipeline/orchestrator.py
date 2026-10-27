@@ -41,6 +41,21 @@ def _error_summary(error: str, limit: int = 160) -> str:
     return summary if len(summary) <= limit else summary[: limit - 3] + "..."
 
 
+def _is_crash(result: RunResult) -> bool:
+    """True if the run died with a non-zero exit that no classifier explained.
+
+    Usage-limit and transient failures have their own retry policies, and a
+    failure without exit code (the executable could not be spawned) is
+    deterministic: neither counts as a crash.
+    """
+    return (
+        not result.ok
+        and result.usage_wait is None
+        and not result.transient
+        and result.returncode not in (None, 0)
+    )
+
+
 # Transient running states left behind by a catastrophic exit (app killed,
 # power loss, CLI crash), mapped to the pipeline phase that was running.
 INTERRUPTED_PHASE: dict[TaskState, str] = {
@@ -164,6 +179,7 @@ class Orchestrator:
         started_at = time.monotonic()
         attempt = 0            # usage-limit retries
         transient_attempt = 0  # transient-failure retries
+        crash_failures = 0     # consecutive unclassified non-zero exits
         try:
             while True:
                 result = await driver.run(
@@ -203,6 +219,25 @@ class Orchestrator:
                         attempt=transient_attempt, max=ratelimit.TRANSIENT_MAX_ATTEMPTS,
                     )
                     request.prompt = prompts.resumed_prompt(prompt)
+                elif _is_crash(result):
+                    # The CLI exited without a recognizable cause (e.g. a bare
+                    # "OpenCode CLI exited with code 1" when switching between
+                    # review and fix): relaunch it a couple of times first.
+                    crash_failures += 1
+                    if crash_failures >= ratelimit.CRASH_MAX_FAILURES:
+                        break
+                    wait = ratelimit.crash_wait(crash_failures)
+                    request.prompt = prompts.resumed_prompt(prompt)
+                    fresh = crash_failures == ratelimit.CRASH_MAX_FAILURES - 1 and bool(request.session_id)
+                    if fresh:
+                        # Last attempt: resuming the stored session may be what
+                        # kills the CLI, so start a new one.
+                        request.session_id = None
+                    message = t(
+                        "orch.crash.retry_fresh" if fresh else "orch.crash.retry",
+                        error=_error_summary(result.error), wait=format_duration(wait),
+                        attempt=crash_failures, max=ratelimit.CRASH_MAX_FAILURES - 1,
+                    )
                 else:
                     break
                 self._set_usage_waiting(True)
@@ -214,6 +249,8 @@ class Orchestrator:
         if not result.ok:
             if result.transient:
                 self._info(t("orch.transient.exhausted", max=ratelimit.TRANSIENT_MAX_ATTEMPTS))
+            elif crash_failures >= ratelimit.CRASH_MAX_FAILURES:
+                self._info(t("orch.crash.exhausted", failures=crash_failures))
             self._mark_failed(phase)
             await self._run_hooks(phase, "failed")
             raise PhaseError(result.error or t("orch.phase_failed", phase=phase_label(phase)))

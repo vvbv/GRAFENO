@@ -1151,6 +1151,24 @@ def test_run_failure_not_transient_for_deterministic_errors(tmp_path):
     assert result.transient is False
 
 
+def test_run_bare_exit_code_one_has_no_classification(tmp_path):
+    """A silent exit 1 keeps returncode set and stays unclassified (crash contract)."""
+    import sys
+
+    class SilentOpenCode(OpenCodeDriver):
+        executable = sys.executable
+
+        def build_command(self, request: RunRequest) -> list[str]:
+            return [sys.executable, "-c", "import sys; sys.exit(1)"]
+
+    result = asyncio.run(SilentOpenCode().run(_request(workdir=tmp_path)))
+    assert not result.ok
+    assert result.returncode == 1
+    assert result.transient is False
+    assert result.usage_wait is None
+    assert "exited with code 1" in result.error
+
+
 def test_stderr_tail_starts_at_error_line():
     """Tool output echoed to stderr before the error stays out of the message (kimi)."""
     from grafeno.drivers.base import stderr_tail
