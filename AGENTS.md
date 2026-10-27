@@ -26,7 +26,7 @@ src/grafeno/
 ├── modelcheck.py           # Verificación de modelos retirados: compara los pares cli+modelo configurados (config general + parser de Telegram, perfiles y tareas) con la lista que reporta cada CLI; lógica pura (collect_*/used_clis/find_missing/format_issues)
 ├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
 ├── timefmt.py              # Formateo de duraciones (42s, 3m 05s, 1h 02m 03s); `format_countdown` (distancia gruesa: 45m, 6h 05m, 2d 03h)
-├── ratelimit.py            # Detección de usage agotado en CLIs: patrones de error, pista de espera (retry-after, duración relativa u hora absoluta de reseteo con zona horaria) y constantes de sondeo/reintento (PROBE_SECONDS, MAX_ATTEMPTS, PASSIVE_WAIT_SECONDS); además fallos transitorios (red, 5xx del proveedor, apagado del servicio del CLI: looks_like_transient_failure, TRANSIENT_MAX_ATTEMPTS, TRANSIENT_WAITS)
+├── ratelimit.py            # Detección de usage agotado en CLIs: patrones de error, pista de espera (retry-after, duración relativa u hora absoluta de reseteo con zona horaria) y constantes de sondeo/reintento (PROBE_SECONDS, MAX_ATTEMPTS, PASSIVE_WAIT_SECONDS); además fallos transitorios (red, 5xx del proveedor, apagado del servicio del CLI: looks_like_transient_failure, TRANSIENT_MAX_ATTEMPTS, TRANSIENT_WAITS); y salidas no clasificadas con código distinto de 0 (CRASH_MAX_FAILURES, CRASH_WAITS, crash_wait)
 ├── scheduler.py            # Lógica pura: programación horaria, encadenamiento padre/hija y repetición de tareas; además `next_start` (próximo arranque efectivo: `scheduled_at` o `last_completed_at` + intervalo), `schedule_info`/`format_schedule` (estado derivado de solo lectura future/overdue/waiting_parent y texto con fecha completa, hoy/mañana, offset UTC y cuenta atrás)
 ├── usage.py                # Ledger de uso con fecha (~/.grafeno/usage.toml, [[record]] append-only): registro de tokens/tiempo desde el orquestador, backfill único desde las tareas existentes (fechado por updated_at), períodos (día/semana/mes) y agregación para la pantalla de reportes
 ├── updater.py              # Auto-actualización best-effort de los CLIs de agentes (comando nativo de cada uno) al arrancar la TUI si auto_update está activado en el config
@@ -175,7 +175,17 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   crecientes `TRANSIENT_WAITS`, mismo sufijo `state.waiting`) retomando la
   sesión y anteponiendo al prompt original el aviso de reanudación
   (`prompts.resumed_prompt`, nunca apilado); si persiste, la fase falla como
-  siempre (`failed_phase` registrada, reanudable con `c`/`u`). La rama de errores de cada driver
+  siempre (`failed_phase` registrada, reanudable con `c`/`u`).
+  Si el CLI termina con un código distinto de 0 sin causa reconocible (ni
+  usage ni transitorio, p. ej. el `OpenCode CLI exited with code 1` pelado
+  al pasar de revisión a corrección o al revés), el orquestador lo trata como
+  crash (`_is_crash`: exige `returncode` distinto de 0 y de `None`; un fallo
+  al lanzar el ejecutable no se reintenta) y relanza la fase hasta
+  `CRASH_MAX_FAILURES` (3) fallos consecutivos con esperas `CRASH_WAITS`
+  (10 s, 30 s) y el aviso `prompts.resumed_prompt`; el último intento
+  descarta la sesión guardada y arranca una nueva (mensaje
+  `orch.crash.retry_fresh`). Al tercer fallo la fase falla como siempre
+  (`orch.crash.exhausted`). La rama de errores de cada driver
   normaliza su texto con `format_error_message(payload, ...)` de
   `base.py` (nunca `str(payload)`: los campos dict del CLI se traducen a
   `name: message (ref)` y el fallback es `json.dumps`, nunca el repr de
