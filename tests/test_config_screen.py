@@ -728,3 +728,36 @@ def test_config_screen_parser_row_follows_planner_cli(monkeypatch):
             assert options == ["kimi-code/k3"]
 
     asyncio.run(scenario())
+
+
+def test_config_screen_keeps_web_and_theme(monkeypatch):
+    """Saving from the TUI settings screen must not wipe the [web] section."""
+    from grafeno.config import WebConfig
+
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
+    cfg = config_module.load()
+    cfg.web = WebConfig(instance_name="Lab", theme="blue")
+    config_module.save(cfg)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 80)) as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            for _ in range(20):
+                await pilot.pause(0.1)
+                if app.screen.query_one(RolesForm).models:
+                    break
+            await pilot.pause()
+            app.screen.query_one("#cfg-save").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#cfg-save")
+            await pilot.pause()
+
+        saved = config_module.load().web
+        assert (saved.instance_name, saved.theme) == ("Lab", "blue")
+
+    asyncio.run(scenario())

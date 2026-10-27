@@ -16,9 +16,9 @@ CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex, Claude Code, Cu
 ```
 src/grafeno/
 ├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas); intercepta el comando CLI `grafeno update` antes del argparse; `--version`/`-v` imprime la versión; `--web` (+ `--web-host`/`--web-port`/`--no-auth`, que lo implican) activa el panel web solo para esa ejecución (`--no-auth`: sin autenticación); arranca el servidor API (worker `api-server`) si `cfg.api.enabled` o con `--web`; worker `models-check` al arrancar: avisa si los modelos de la config/perfiles ya no existen en su CLI (los de la tarea se muestran en una banda roja del detalle)
-├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo (incluido `first` para el primer paso), automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), idioma de la GUI (`language`) y de los prompts internos (`prompt_language`, vacío = el de la GUI), prompt de primer paso (first step, opcional) y de pasos finales, sección [telegram] (TelegramConfig), sección [api] (ApiConfig: enabled/host/port/tokens + env GRAFENO_API_TOKEN)
+├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo (incluido `first` para el primer paso), automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), idioma de la GUI (`language`) y de los prompts internos (`prompt_language`, vacío = el de la GUI), prompt de primer paso (first step, opcional) y de pasos finales, sección [telegram] (TelegramConfig), sección [api] (ApiConfig: enabled/host/port/tokens + env GRAFENO_API_TOKEN), sección [web] (WebConfig: `instance_name`/`theme`/`favicon`, temas en `WEB_THEMES`)
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict; incluye `failed_phase` (fase del pipeline que fallo, para reanudar)
-├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME; incluye `api_log_path()` y `uploads_dir()` (spool de subidas binarias de la API)
+├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME; incluye `api_log_path()`, `uploads_dir()` (spool de subidas binarias de la API) y `web_dir()` (favicon propio del panel)
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs); además el idioma de los prompts internos (set_prompt_language/prompt_language, vacío = el de la GUI) y prompt_template() para elegir la variante de una plantilla por idioma
 ├── live_log.py             # Persistencia del log en vivo (Text -> logs/live.jsonl, carga al crear el runtime; best-effort)
 ├── mdnorm.py               # Normalización de Markdown: colapsa saltos de línea y compacta listas sueltas en los .md de cada etapa; `markdown_outline` da el esquema de encabezados con offsets
@@ -60,10 +60,11 @@ src/grafeno/
 │   ├── rest.py             #   Router con placeholders genéricos `{nombre}` (`{task_id}`, `{session_id}`) precompilados (regex fullmatch); dispatch a actions.py
 │   ├── actions.py          #   Operaciones compartidas REST/WS (read y write); ApiError(status, message) -> Response
 │   ├── clisessions.py      #   Operaciones REST/WS de las sesiones CLI directas (`session_summary`, crear/enviar/cancelar/renombrar/cerrar/reabrir/eliminar, transcript incremental)
-│   ├── web.py              #   Panel web (`grafeno --web`): prepare() (copia en memoria de ApiConfig, loopback por defecto, token efímero si se expone sin tokens), URLs del panel y render de la página con las cadenas i18n inyectadas
+│   ├── web.py              #   Panel web (`grafeno --web`): prepare() (copia en memoria de ApiConfig, loopback por defecto, token efímero si se expone sin tokens), URLs del panel y render de la página con las cadenas i18n inyectadas y los placeholders de tema (`data-theme`), título y versión del favicon
 │   ├── projectdocs.py      #   Documentos de proyecto de solo lectura (README.md, AGENTS.md, GRAFENO.md): lista blanca, proyecto resuelto contra list_projects, symlinks fuera del proyecto bloqueados, tope 1 MiB, paginación por caracteres sobre el texto normalizado y esquema de encabezados (mdnorm.markdown_outline)
 │   ├── projectfiles.py     #   Explorador de archivos de proyecto de solo lectura: listado paginado (ocultos opcionales, tope SCAN_MAX_ENTRIES), metadatos (mime seguro, preview, texto/binario, urls), páginas de texto por líneas (tope 2 MiB) y bytes en crudo con Range (206/416); rutas relativas validadas, `..`/absolutas rechazadas, `.git` bloqueado, symlinks fuera del proyecto bloqueados; reutiliza projectdocs.resolve_project
 │   ├── projectcreate.py    #   POST /api/v1/projects y WS projects.create: mapea ProjectError.code a status (400/409/422/500/503/504); propaga `code` en el error y registra petición/fallo/éxito con duración en `api.log`; 409 en modo sesión remota
+│   ├── branding.py         #   Marca del panel web: nombre de instancia, tema (`WEB_THEMES`) y favicon propio (`~/.grafeno/web/favicon.<ext>`, PNG/ICO/GIF/JPEG/WebP sin SVG, máx. 256 KiB, firma validada); `boot_info()` para la página y `favicon_response()` para `/favicon.ico` (204 sin favicon)
 │   ├── clock.py            #   Reloj del servidor para GET /api/v1/time y el método WS time: payload server_time() (ISO 8601 con offset, UTC con Z, epoch, fecha/hora/día locales, nombre IANA best effort vía TZ, /etc/localtime o /etc/timezone, vacío si no cuadra con el offset)
 │   ├── reviews.py          #   Operaciones REST/WS de la revisión asistida y mapa `code` -> status (`GitReviewError`); `ApiError` lleva `code` opcional
 │   ├── projectgit.py       #   Operaciones REST/WS de git por proyecto: indicador de pendientes (projects/changes), ramas, push, pull, checkout y abort; mapa code -> status
@@ -100,7 +101,7 @@ install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), v
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
 `task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `attachments.toml`, `logs/live.jsonl`, `logs/*.jsonl`; `cli-sessions/<id>/` con `session.toml`, `transcript.jsonl` y `logs/turn-NNN.jsonl`; `reviews/<id>/` con `review.toml` y `commits.jsonl`;
-además `config.toml`, `references.toml`, `triggers.toml`, `profiles.toml` (con backup rotativo `profiles.toml.bak` best-effort en cada guardado), `consoles/`,
+además `config.toml`, `references.toml`, `triggers.toml`, `profiles.toml` (con backup rotativo `profiles.toml.bak` best-effort en cada guardado), `consoles/`, `web/`,
 `mounts/`, `telegram-state.toml`, `api.log`); no
 en el repo.
 
@@ -340,6 +341,15 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   descripción y re-encadenado validado con `scheduler.rechain_error`),
   `roles`, `artifact` y `media`; `discard`/`restart` esperan a que el
   worker cancelado termine para que su PAUSED no pise el estado final.
+  La tarjeta 'Panel web' de los ajustes (`#/settings/web`) define el nombre
+  de la instancia (distintivo en la cabecera y título de la pestaña), el
+  tema (`auto` = claro/oscuro del sistema, o `night`/`day`/`blue`/`pink`/
+  `white`/`dark`/`gray`: juegos de las mismas variables CSS en `app.css` vía
+  `<html data-theme>`, renderizado en servidor para evitar parpadeo) y un
+  favicon propio subido en base64 por `POST /api/v1/settings`
+  (`web.favicon`/`web.favicon_clear`); se guarda en `[web]` del config (por
+  instancia) y `GET /api/v1/status` expone `instance_name`. La pantalla de
+  ajustes de la TUI conserva `theme` y `[web]` al guardar.
 - **Telegram**: integración opcional de un bot (sección `[telegram]` del
   config + sección en la pantalla de ajustes). El bot corre como worker de
   la App mientras la TUI está abierta (long polling con stdlib urllib:

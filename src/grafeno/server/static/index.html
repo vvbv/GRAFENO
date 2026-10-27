@@ -1,15 +1,17 @@
 <!doctype html>
-<html lang="__GRAFENO_LANG__">
+<html lang="__GRAFENO_LANG__" data-theme="__GRAFENO_THEME__">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>Grafeno</title>
+<title>__GRAFENO_TITLE__</title>
 <link rel="stylesheet" href="/assets/app.css?v=__GRAFENO_VERSION__">
+<link rel="icon" id="favicon" href="/favicon.ico?v=__GRAFENO_FAVICON_V__">
 </head>
 <body>
 <header class="top">
   <a class="brand" href="#/tasks">GRAFENO</a>
+  <span class="instance" id="instance" hidden></span>
   <span class="version" id="version"></span>
   <nav id="nav">
     <a href="#/tasks" data-route="tasks" id="nav-tasks"></a>

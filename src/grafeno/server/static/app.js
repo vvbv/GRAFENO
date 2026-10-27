@@ -2304,7 +2304,7 @@ const reportsView = {
 
 // ---------------------------------------------------------------- settings view
 const settingsView = {
-  // params[0] === "workspaces": open scrolled to the working directories card.
+  // params[0] === "workspaces" or "web": open scrolled to that card.
   async mount(params) {
     $("main").replaceChildren(h("div", { class: "page" }));
     let data;
@@ -2312,12 +2312,12 @@ const settingsView = {
       [data] = await Promise.all([api("GET", "/api/v1/settings"), store.getOptions().catch(() => null)]);
     } catch (err) { fail(err); return; }
     $("main").replaceChildren(this.build(data));
-    if (params && params[0] === "workspaces") {
-      const target = $("cfg-workspaces");
+    if (params && (params[0] === "workspaces" || params[0] === "web")) {
+      const target = $(params[0] === "web" ? "cfg-web" : "cfg-workspaces");
       if (target) target.scrollIntoView({ block: "start" });
     }
   },
-  unmount() {},
+  unmount() { applyTheme(BOOT.web && BOOT.web.theme); },  // undo the preview of an unsaved theme
   build(data) {
     let tgParser = null;  // Telegram parser row; follows the planner CLI when it inherits it
     const roles = rolesEditor(data.roles, { onChange: () => { if (tgParser) tgParser.refresh(); } });
@@ -2388,6 +2388,19 @@ const settingsView = {
     const apiHost = h("input", { type: "text", class: "mono", value: data.api.host });
     const apiPort = h("input", { type: "number", min: 1, max: 65535, value: data.api.port });
     const apiTokens = secret(data.api.tokens_set, tr("cfg.api.tokens.placeholder"));
+    const web = data.web || {};
+    const instanceName = h("input", { type: "text", maxlength: 60, value: web.instance_name || "", placeholder: tr("web.cfg.instance_name.placeholder") });
+    const theme = h("select", null, option(tr("web.theme.auto"), "", !web.theme),
+      (data.web_themes || []).map((value) => option(tr("web.theme." + value), value, value === web.theme)));
+    theme.addEventListener("change", () => applyTheme(theme.value));  // live preview; reverted on leave if not saved
+    const faviconInput = h("input", { type: "file", accept: (web.favicon_types || []).join(",") });
+    const faviconClear = check(tr("web.cfg.favicon.clear"), false);
+    const faviconMaxKiB = Math.floor((web.favicon_max_bytes || 262144) / 1024);
+    const faviconNode = h("div", null,
+      web.favicon_set
+        ? h("div", { class: "favicon-preview" }, h("img", { src: "/favicon.ico?v=" + enc(String(web.favicon_version || 0)), alt: "" }), faviconClear.node)
+        : h("p", { class: "help", text: tr("web.cfg.favicon.none") }),
+      faviconInput);
     const save = h("button", { type: "submit", class: "primary", text: tr("common.save") });
     const card = (title, ...children) => h("div", { class: "card" }, h("h3", { text: plain(title) }), ...children);
     const form = h("form", { class: "page-inner" },
@@ -2403,6 +2416,14 @@ const settingsView = {
       card(tr("cfg.updates"), h("div", { class: "checks" }, autoUpdate.node, selfUpdate.node)),
       card(tr("cfg.language"), h("p", { class: "help", text: tr("cfg.language.help") }),
         h("div", { class: "form-grid" }, field(tr("cfg.language.gui"), language), field(tr("cfg.language.prompts"), promptLanguage))),
+      h("div", { class: "card", id: "cfg-web" }, h("h3", { text: tr("web.cfg.title") }),
+        h("p", { class: "help", text: tr("web.cfg.help") }),
+        h("div", { class: "form-grid" },
+          field(tr("web.cfg.instance_name"), instanceName, { help: tr("web.cfg.instance_name.help") }),
+          field(tr("web.cfg.theme"), theme),
+          // Not field(): its outer <label> would forward clicks to the remove checkbox inside faviconNode.
+          h("div", { class: "field full" }, h("span", { class: "lbl", text: plain(tr("web.cfg.favicon")) }), faviconNode,
+            h("span", { class: "help", text: tr("web.cfg.favicon.help", { size: faviconMaxKiB }) })))),
       h("div", { class: "card", id: "cfg-workspaces" }, h("h3", { text: plain(tr("cfg.workspaces")) }),
         h("p", { class: "help", text: tr("cfg.workspaces.help") }), workspaces.node),
       card(tr("cfg.editor"), h("div", { class: "checks" }, editorEnabled.node),
@@ -2462,9 +2483,20 @@ const settingsView = {
         profiles: profiles.values(),
         telegram, api: apiSection,
       };
+      const webSection = { instance_name: instanceName.value, theme: theme.value };
+      const file = faviconInput.files && faviconInput.files[0];
+      if (file) {
+        if (file.size > (web.favicon_max_bytes || 262144)) { toast(tr("web.cfg.favicon.too_large", { size: faviconMaxKiB }), "error"); return; }
+        try { webSection.favicon = { name: file.name, data: await fileBase64(file) }; } catch (err) { fail(err); return; }
+      } else if (faviconClear.box.checked) {
+        webSection.favicon_clear = true;
+      }
+      payload.web = webSection;
       save.disabled = true;
       try {
-        await api("POST", "/api/v1/settings", payload);
+        const saved = await api("POST", "/api/v1/settings", payload);
+        BOOT.web = { instance_name: saved.web.instance_name, theme: saved.web.theme, favicon_version: saved.web.favicon_version };
+        applyBranding(BOOT.web);
         store.options = null;
         toast(tr("cfg.saved"));
         if (language.value !== BOOT.lang) setTimeout(() => location.reload(), 600);
@@ -2552,9 +2584,27 @@ const router = {
   },
 };
 
+// ---------------------------------------------------------------- branding
+// Instance name, theme and favicon of this GRAFENO instance ([web] section).
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme || "auto";
+}
+function applyBranding(web) {
+  web = web || {};
+  applyTheme(web.theme);
+  const name = (web.instance_name || "").trim();
+  const badge = $("instance");
+  badge.textContent = name;
+  badge.title = name;
+  badge.hidden = !name;
+  document.title = name ? name + " - " + tr("web.ui.title") : tr("web.ui.title");
+  const icon = $("favicon");
+  if (icon) icon.href = "/favicon.ico?v=" + encodeURIComponent(String(web.favicon_version || 0));
+}
+
 // ---------------------------------------------------------------- boot
 function boot() {
-  document.title = tr("web.ui.title");
+  applyBranding(BOOT.web);
   $("version").textContent = "v" + BOOT.version;
   $("nav-tasks").textContent = tr("web.nav.tasks");
   $("nav-projects").textContent = tr("tasks.bind.projects");

@@ -58,6 +58,13 @@ def api_log_path() -> Path:
     return home() / "api.log"
 
 
+def web_dir() -> Path:
+    """Web panel assets uploaded by the user (custom favicon)."""
+    path = home() / "web"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def tasks_dir() -> Path:
     path = home() / "tasks"
     path.mkdir(parents=True, exist_ok=True)

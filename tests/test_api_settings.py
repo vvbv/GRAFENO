@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from datetime import date
 
 import pytest
 
 from grafeno import config as config_module
-from grafeno import i18n, profiles, references, triggers
+from grafeno import i18n, paths, profiles, references, triggers
 from grafeno.config import RoleConfig
 from grafeno.server import settings
 from grafeno.server.actions import ApiError
@@ -193,3 +194,38 @@ def test_parser_timeout_validation(value) -> None:
         settings.update_settings(FakeService(), {"telegram": {"parser_timeout": value}})
     assert exc.value.status == 400
     assert config_module.load().telegram.parser_timeout == 300
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+PNG_B64 = base64.b64encode(PNG).decode()
+
+
+def test_web_settings_roundtrip() -> None:
+    result = settings.update_settings(FakeService(), {"web": {"instance_name": " Casa ", "theme": "night"}})
+    assert result["web"]["instance_name"] == "Casa"
+    assert result["web"]["theme"] == "night"
+    assert len(result["web_themes"]) == 7
+    saved = config_module.load().web
+    assert (saved.instance_name, saved.theme) == ("Casa", "night")
+
+
+def test_web_settings_favicon_upload_and_clear() -> None:
+    result = settings.update_settings(FakeService(), {"web": {"favicon": {"name": "f.png", "data": PNG_B64}}})
+    assert result["web"]["favicon_set"] is True
+    assert result["web"]["favicon_version"] > 0
+    assert (paths.web_dir() / "favicon.png").is_file()
+    result = settings.update_settings(FakeService(), {"web": {"favicon_clear": True}})
+    assert result["web"]["favicon_set"] is False
+    assert not (paths.web_dir() / "favicon.png").exists()
+
+
+def test_web_favicon_not_written_when_other_section_fails() -> None:
+    payload = {"web": {"favicon": {"name": "f.png", "data": PNG_B64}}, "api": {"port": 70000}}
+    with pytest.raises(ApiError):
+        settings.update_settings(FakeService(), payload)
+    assert not (paths.web_dir() / "favicon.png").exists()
+    # A section processed after the web block must not leave the favicon behind either.
+    payload = {"web": {"favicon": {"name": "f.png", "data": PNG_B64}}, "profiles": "x"}
+    with pytest.raises(ApiError):
+        settings.update_settings(FakeService(), payload)
+    assert not (paths.web_dir() / "favicon.png").exists()

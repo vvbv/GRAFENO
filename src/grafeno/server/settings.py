@@ -35,6 +35,7 @@ from ..config import (
     KNOWN_CLIS,
     PARSER_TIMEOUT_MAX,
     PARSER_TIMEOUT_MIN,
+    WEB_THEMES,
     RoleConfig,
 )
 from ..i18n import LANGUAGES, set_language, set_prompt_language, t
@@ -42,6 +43,7 @@ from ..pipeline.hooks import HOOK_STAGES, format_stages, parse_stages
 from ..profiles import Profile, roles_summary
 from ..references import Reference
 from ..triggers import ALL_PHASES, TIMINGS, TRIGGER_STAGES, Trigger
+from . import branding
 from .actions import ROLE_NAMES, ApiError, _coerce_bool
 
 if TYPE_CHECKING:
@@ -243,6 +245,15 @@ def get_settings(service: "ServerService") -> dict:
         "prompt_language": cfg.prompt_language,
         "languages": list(LANGUAGES),
         "workspaces": list(cfg.workspaces),
+        "web": {
+            "instance_name": cfg.web.instance_name,
+            "theme": cfg.web.theme,
+            "favicon_set": branding.favicon_file(cfg.web) is not None,
+            "favicon_version": branding.favicon_version(cfg.web),
+            "favicon_max_bytes": branding.FAVICON_MAX_BYTES,
+            "favicon_types": list(branding.FAVICON_TYPES),
+        },
+        "web_themes": list(WEB_THEMES),
         "references": [ref.to_dict() for ref in references_module.load_global()],
         "triggers": [trigger.to_dict() for trigger in triggers_module.load_global()],
         "profiles": [_profile_dict(profile) for profile in profiles_module.load_global()],
@@ -342,6 +353,8 @@ def update_settings(service: "ServerService", payload: dict) -> dict:
     (theme...) are kept. Language changes apply at once, like the TUI.
     The Telegram parser settings (``parser_*``) apply at once to the running
     bot; the rest of ``[telegram]``/``[api]`` applies on the next TUI start.
+    The ``web`` section applies at once (reload the page); its ``favicon`` is
+    ``{name, data}`` with base64 data and ``favicon_clear`` removes it.
     """
     if not isinstance(payload, dict):
         raise ApiError(400, "payload must be an object")
@@ -441,6 +454,18 @@ def update_settings(service: "ServerService", payload: dict) -> dict:
             raise ApiError(400, t("cfg.error.api_port"))
         api.port = port
         _apply_secret(api, "tokens", api_data)
+    favicon_upload: tuple[str, bytes] | None = None
+    favicon_clear = False
+    web_data = payload.get("web")
+    if isinstance(web_data, dict):
+        if "instance_name" in web_data:
+            cfg.web.instance_name = branding.normalize_instance_name(web_data.get("instance_name"))
+        if "theme" in web_data:
+            cfg.web.theme = branding.normalize_theme(web_data.get("theme"))
+        if web_data.get("favicon_clear"):
+            favicon_clear = True
+        elif web_data.get("favicon") is not None:
+            favicon_upload = branding.decode_favicon(web_data.get("favicon"))
     references = triggers = profiles = None
     if "references" in payload:
         raw = payload.get("references")
@@ -454,6 +479,11 @@ def update_settings(service: "ServerService", payload: dict) -> dict:
         triggers = _parse_triggers(payload.get("triggers"))
     if "profiles" in payload:
         profiles = _parse_profiles(payload.get("profiles"))
+    if favicon_clear:  # validation passed: now touch the disk
+        branding.clear_favicon()
+        cfg.web.favicon = ""
+    elif favicon_upload is not None:
+        cfg.web.favicon = branding.store_favicon(*favicon_upload)
     config_module.save(cfg)
     apply_parser = getattr(getattr(service, "app", None), "apply_telegram_parser", None)
     if apply_parser is not None:

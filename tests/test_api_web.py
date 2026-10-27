@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from importlib import resources
 from unittest.mock import MagicMock
 
 import pytest
 
 from grafeno import i18n
-from grafeno.config import ApiConfig
+from grafeno import config as config_module
+from grafeno.config import WEB_THEMES, ApiConfig
+from grafeno.server import branding, ws
 from grafeno.server import web
 from grafeno.server.service import ServerService
 
@@ -82,11 +86,11 @@ def test_render_page_injects_translated_strings():
     assert "__GRAFENO_VERSION__" not in html
     assert '"web.nav.new": "New task"' in html
     assert '"nt.repeat": "Repetitive task"' in html  # TUI texts are reused
-    assert '<html lang="en">' in html
+    assert '<html lang="en" data-theme="auto">' in html
     i18n.set_language("es")
     html = web.render_page()
     assert '"web.nav.new": "Nueva tarea"' in html
-    assert '<html lang="es">' in html
+    assert '<html lang="es" data-theme="auto">' in html
 
 
 def test_render_page_escapes_script_breakers(monkeypatch):
@@ -176,6 +180,72 @@ def test_working_directories_use_the_list_editor():
     assert 'type: "dir"' in script
     assert "function dirSuggestions(input)" in script
     assert 'workspaces.value.split(",")' not in script
+
+
+def test_render_page_injects_branding():
+    html = web.render_page()
+    assert 'data-theme="auto"' in html
+    assert "<title>Grafeno - web panel</title>" in html
+    assert "/favicon.ico?v=0" in html
+    cfg = config_module.load()
+    cfg.web.instance_name = "<b>Lab</b>"
+    cfg.web.theme = "gray"
+    config_module.save(cfg)
+    html = web.render_page()
+    assert 'data-theme="gray"' in html
+    assert "<title>&lt;b&gt;Lab&lt;/b&gt; - Grafeno - web panel</title>" in html
+    assert "<b>Lab</b>" not in html
+    assert "__GRAFENO_" not in html
+
+
+def test_web_theme_strings_exist():
+    for name in ("auto", *WEB_THEMES):
+        assert f"web.theme.{name}" in i18n._MESSAGES["en"]
+        assert f"web.theme.{name}" in i18n._MESSAGES["es"]
+
+
+def test_theme_palettes_present_in_css():
+    css = resources.files("grafeno.server").joinpath("static/app.css").read_text(encoding="utf-8")
+    for name in ("auto", *WEB_THEMES):
+        assert f':root[data-theme="{name}"]' in css
+    assert css.count("prefers-color-scheme") == 1
+
+
+def test_branding_hooks_present_in_js():
+    script = resources.files("grafeno.server").joinpath("static/app.js").read_text(encoding="utf-8")
+    for needle in ("function applyBranding", "function applyTheme", '"cfg-web"', "favicon_clear"):
+        assert needle in script
+    assert 'field(tr("web.cfg.favicon")' not in script  # nested <label> would toggle the remove checkbox
+
+
+def test_server_serves_custom_favicon_and_instance_name():
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+    cfg = config_module.load()
+    cfg.web.instance_name = "Lab"
+    cfg.web.favicon = branding.store_favicon(".png", png)
+    config_module.save(cfg)
+
+    async def scenario():
+        service = ServerService(
+            ApiConfig(enabled=True, host="127.0.0.1", port=0, tokens="secret"),
+            app=MagicMock(), web=web.WebLaunch(host="127.0.0.1", port=0, token="secret"),
+        )
+        task = asyncio.create_task(service.run())
+        for _ in range(200):
+            if service.server is not None:
+                break
+            await asyncio.sleep(0.01)
+        try:
+            status, headers, body = await _get(service.port, "/favicon.ico")
+            assert status == 200 and headers["content-type"] == "image/png" and body == png
+            status, _, body = await _get(service.port, "/api/v1/status?token=secret")
+            assert status == 200 and json.loads(body)["instance_name"] == "Lab"
+            assert (await ws._status_method(service, {}, None))["instance_name"] == "Lab"
+        finally:
+            service.stop()
+            task.cancel()
+
+    asyncio.run(scenario())
 
 
 # ---------------------------------------------------------------------- #

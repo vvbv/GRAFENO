@@ -315,6 +315,35 @@ class ApiConfig:
         )
 
 
+WEB_THEMES = ("night", "day", "blue", "pink", "white", "dark", "gray")  # web panel themes ("" = follow the browser)
+
+
+@dataclass
+class WebConfig:
+    """Web panel identity and look: instance name, theme and custom favicon.
+
+    ``favicon`` is the file name of the uploaded icon under
+    ``~/.grafeno/web/`` (empty = none). Saved per GRAFENO home, so each
+    running instance can be told apart in the browser.
+    """
+
+    instance_name: str = ""  # shown in the panel header and the browser tab title
+    theme: str = ""  # one of WEB_THEMES; empty = light/dark from the browser
+    favicon: str = ""  # e.g. "favicon.png"; empty = no custom favicon
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"instance_name": self.instance_name, "theme": self.theme, "favicon": self.favicon}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "WebConfig":
+        theme = str(data.get("theme", ""))
+        return cls(
+            instance_name=str(data.get("instance_name", "")),
+            theme=theme if theme in WEB_THEMES else "",
+            favicon=str(data.get("favicon", "")),
+        )
+
+
 @dataclass
 class Config:
     language: str = "en"
@@ -335,6 +364,7 @@ class Config:
     workspaces: list[str] = field(default_factory=list)  # root folders whose subfolders are projects
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     api: ApiConfig = field(default_factory=ApiConfig)
+    web: WebConfig = field(default_factory=WebConfig)
 
     def role(self, name: str) -> RoleConfig:
         return getattr(self, name)
@@ -359,6 +389,7 @@ class Config:
             "workspaces": list(self.workspaces),
             "telegram": self.telegram.to_dict(),
             "api": self.api.to_dict(),
+            "web": self.web.to_dict(),
         }
 
     @classmethod
@@ -386,6 +417,7 @@ class Config:
             ] if isinstance(data.get("workspaces", []), list) else [],
             telegram=TelegramConfig.from_dict(data.get("telegram", {})),
             api=ApiConfig.from_dict(data.get("api", {})),
+            web=WebConfig.from_dict(data.get("web") if isinstance(data.get("web"), dict) else {}),
         )
 
 

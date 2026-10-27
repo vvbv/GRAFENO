@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
-from . import actions, clisessions, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings
+from . import actions, branding, clisessions, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -61,6 +61,7 @@ async def _status(service: "ServerService", request: Request, params: dict[str, 
         "uptime_seconds": uptime,
         "pid": service.pid,
         "ws_path": "/api/v1/ws",
+        "instance_name": branding.instance_name(),
     }
 
 

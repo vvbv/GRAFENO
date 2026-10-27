@@ -3775,6 +3775,9 @@ components:
         ws_path:
           type: string
           example: /api/v1/ws
+        instance_name:
+          type: string
+          description: Instance name configured in the web panel settings (`[web]` section); empty when not set.
     ServerTimeResponse:
       type: object
       required: [iso, utc, epoch, epoch_ms, date, time, weekday, iso_weekday, timezone, tz_abbreviation, utc_offset, utc_offset_minutes]
@@ -4090,8 +4093,36 @@ components:
         `<key>_clear: true` empties them. `telegram.parser_cli`,
         `parser_model`, `parser_effort` and `parser_timeout` apply at once to
         the running bot; the rest of `[telegram]` and `[api]` applies on the
-        next TUI start.
+        next TUI start. The `web` section applies at once; the favicon
+        (PNG/ICO/GIF/JPEG/WebP, no SVG, max 256 KiB, signature checked) is
+        served without authentication at `GET /favicon.ico` (204 when none).
       properties:
+        web:
+          type: object
+          properties:
+            instance_name: {type: string, maxLength: 60}
+            theme:
+              type: string
+              enum: ["", night, day, blue, pink, white, dark, gray]
+              description: Empty = follow the browser light/dark preference.
+            favicon_set: {type: boolean, readOnly: true}
+            favicon_version: {type: integer, readOnly: true}
+            favicon_max_bytes: {type: integer, readOnly: true}
+            favicon_types:
+              type: array
+              readOnly: true
+              items: {type: string}
+            favicon:
+              type: object
+              writeOnly: true
+              properties:
+                name: {type: string}
+                data: {type: string, description: Base64 file contents.}
+            favicon_clear: {type: boolean, writeOnly: true}
+        web_themes:
+          type: array
+          readOnly: true
+          items: {type: string}
         roles:
           type: object
           additionalProperties:

@@ -372,6 +372,9 @@ class ConfigScreen(Screen[None]):
 
         previous_language = self._config.language
         cfg = Config()
+        current = config_module.load()  # fields this screen does not edit (may have changed since it opened)
+        cfg.theme = current.theme
+        cfg.web = current.web
         form = self.query_one("#cfg-roles", RolesForm)
         for role, _ in ROLES:
             role_cfg = cfg.role(role)

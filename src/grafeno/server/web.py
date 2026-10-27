@@ -14,6 +14,7 @@ the URL announced in the TUI and is never written to disk nor logged.
 
 from __future__ import annotations
 
+import html
 import ipaddress
 import json
 import secrets
@@ -24,8 +25,9 @@ from urllib.parse import quote
 
 from .. import __version__
 from ..config import ApiConfig
-from ..i18n import catalog, current_language
+from ..i18n import catalog, current_language, t
 from ..models import TaskState
+from . import branding
 from .httpcore import Request, Response
 
 DEFAULT_WEB_HOST = "127.0.0.1"
@@ -146,27 +148,37 @@ def _static(name: str) -> str:
 
 def render_page() -> str:
     """The panel HTML with the translated strings of the active language."""
+    info = branding.boot_info()
+    # Same text as applyBranding() in app.js, so the title does not change on load.
+    base = t("web.ui.title")
+    title = f"{info['instance_name']} - {base}" if info["instance_name"] else base
     data = {
         "lang": current_language(),
         "version": __version__,
         "states": [state.value for state in TaskState],
         "strings": catalog(UI_PREFIXES),
+        "web": info,
     }
     # Every "<" escaped so no string can close (or comment out) the
     # <script> block that carries the JSON.
     payload = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
-    return (
+    # Simple placeholders first and the JSON last, so an instance name that
+    # looks like a placeholder is never substituted inside the JSON.
+    page = (
         _static("index.html")
-        .replace(_I18N_MARKER, payload)
         .replace("__GRAFENO_LANG__", current_language())
         .replace("__GRAFENO_VERSION__", __version__)
+        .replace("__GRAFENO_THEME__", info["theme"] or "auto")
+        .replace("__GRAFENO_TITLE__", html.escape(title))
+        .replace("__GRAFENO_FAVICON_V__", str(info["favicon_version"]))
     )
+    return page.replace(_I18N_MARKER, payload)
 
 
 def page_response(request: Request) -> Response:
-    """Serve the panel, one of its assets or an empty favicon answer."""
+    """Serve the panel, one of its assets or the custom favicon (204 when none)."""
     if request.path == FAVICON_PATH:
-        return Response(204)
+        return branding.favicon_response()
     headers = {
         "Referrer-Policy": "no-referrer",  # the URL may carry ?token=
         "X-Content-Type-Options": "nosniff",
