@@ -239,3 +239,18 @@ def test_prompt_language_roundtrip():
     loaded = config.load()
     assert loaded.language == "en"
     assert loaded.prompt_language == "es"
+
+
+def test_startup_actions_roundtrip():
+    from grafeno.config import StartupAction
+
+    actions = [StartupAction(
+        name="vscode-web", command="code serve-web", settings_file="~/x.json",
+        settings='{"git.repositoryScanMaxDepth": -1}', stop_on_exit=False,
+        open_url="http://{host}:8080/?folder={folder}",
+    )]
+    config.save(config.Config(startup=actions))
+    assert config.load().startup == actions
+    assert config.Config.from_dict({"startup": "bad"}).startup == []
+    loaded = config.Config.from_dict({"startup": [1, {"name": "a"}]}).startup
+    assert len(loaded) == 1 and loaded[0].enabled is True

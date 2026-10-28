@@ -195,7 +195,7 @@ def done_hidden_ids(tasks: list[Task]) -> set[str]:
 def prepare_next_iteration(task: Task) -> None:
     """Reset the state machine for the next repetition.
 
-    Leaves ``state=DRAFT``, ``iteration=0``, ``cycle=1``, ``sessions={}``.
+    Leaves ``state=DRAFT``, ``iteration=0``, ``cycle=1``, ``sessions={}``, ``session_clis={}``.
     Does NOT touch plan files: the caller decides based on ``plan_reuse``.
     The ``repeat_count`` field is incremented by the caller (not this
     function).
@@ -204,6 +204,7 @@ def prepare_next_iteration(task: Task) -> None:
     task.iteration = 0
     task.cycle = 1
     task.sessions = {}
+    task.session_clis = {}
 
 
 # States that seal a chain position: nothing can be chained after them.

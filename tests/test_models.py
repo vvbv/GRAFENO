@@ -116,6 +116,7 @@ def test_cycles_roundtrip(tmp_path):
 def test_task_roundtrip(tmp_path):
     task = Task.create("Demo ñ", "desc\nmultilínea", str(tmp_path), Config())
     task.sessions["implementer"] = "ses_123"
+    task.session_clis["implementer"] = "opencode"
     task.iteration = 2
     task.branch = "grafeno/demo-n"
     task.final_prompt = "instrucciones\nmultilínea"
@@ -126,6 +127,7 @@ def test_task_roundtrip(tmp_path):
     assert loaded.name == "Demo ñ"
     assert loaded.description == "desc\nmultilínea"
     assert loaded.sessions == {"implementer": "ses_123"}
+    assert loaded.session_clis == {"implementer": "opencode"}
     assert loaded.iteration == 2
     assert loaded.branch == "grafeno/demo-n"
     assert loaded.final_prompt == "instrucciones\nmultilínea"
@@ -237,6 +239,7 @@ def test_reset_to_draft_limpia_estado_y_artefactos(tmp_path):
     task.iteration = 3
     task.cycle = 2
     task.sessions = {"planner": "s1"}
+    task.session_clis = {"planner": "opencode"}
     task.extensions = {"2": "mas cosas"}
     task.scheduled_at = "2030-01-01T10:00"
     models.save(task)
@@ -255,6 +258,7 @@ def test_reset_to_draft_limpia_estado_y_artefactos(tmp_path):
     assert persisted.iteration == 0
     assert persisted.cycle == 1
     assert persisted.sessions == {}
+    assert persisted.session_clis == {}
     assert persisted.extensions == {}
     assert persisted.scheduled_at == ""
     # Los artefactos desaparecen; los directorios quedan recreados vacíos.

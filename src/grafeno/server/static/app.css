@@ -254,6 +254,7 @@ dl.info dd { margin: 0; word-break: break-word; white-space: pre-line; }
 .chip button { border: none; background: none; padding: 0 6px; color: var(--muted); }
 .drop-hint { font-size: 12px; color: var(--muted); }
 .dropping { outline: 2px dashed var(--accent); }
+.list-editor { overflow-x: auto; }
 .list-editor table { margin-bottom: 8px; }
 .list-editor td input, .list-editor td select { width: 100%; }
 .list-editor td.actions-cell { width: 1%; white-space: nowrap; }

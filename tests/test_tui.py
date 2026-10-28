@@ -2297,3 +2297,83 @@ def test_detail_title_shows_full_schedule_with_offset():
             assert stamp in text and "UTC" in text and "tomorrow" in text
 
     asyncio.run(scenario())
+
+
+def test_main_nostartup_flag(monkeypatch):
+    """--nostartup skips the startup commands; stop_all always runs on exit."""
+    import os
+    from unittest.mock import MagicMock
+
+    import pytest
+
+    from grafeno import app as app_module
+    from grafeno import config as config_module
+    from grafeno import startup as startup_module
+    from grafeno.config import StartupAction
+
+    cfg = config_module.load()
+    cfg.startup = [StartupAction(name="x", command="x")]
+    config_module.save(cfg)
+
+    launch = MagicMock(return_value=[])
+    stop = MagicMock()
+    app_mock = MagicMock()
+    monkeypatch.setattr(startup_module.StartupRunner, "launch_all", launch)
+    monkeypatch.setattr(startup_module.StartupRunner, "stop_all", stop)
+    monkeypatch.setattr(app_module, "GrafenoApp", app_mock)
+
+    monkeypatch.setattr("sys.argv", ["grafeno", "--noeditor", "--nostartup"])
+    app_module.main()
+    launch.assert_not_called()
+    assert stop.call_count == 1
+
+    monkeypatch.setattr("sys.argv", ["grafeno", "--noeditor"])
+    app_module.main()
+    launch.assert_called_once_with(config_module.load().startup, os.getcwd())
+    assert stop.call_count == 2
+
+    app_mock.return_value.run.side_effect = RuntimeError("boom")
+    with pytest.raises(RuntimeError):
+        app_module.main()
+    assert stop.call_count == 3
+
+
+def test_startup_outcomes_are_notified():
+    from unittest.mock import MagicMock
+
+    from grafeno.startup import StartupOutcome, StartupRunner
+
+    async def scenario():
+        app = GrafenoApp()
+        runner = StartupRunner()
+        runner.outcomes = [
+            StartupOutcome("ok-cmd", True),
+            StartupOutcome("bad-cmd", False, detail="command not found: zz"),
+        ]
+        app.startup_runner = runner
+        app.notify = MagicMock()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+        messages = [call.args[0] for call in app.notify.call_args_list]
+        assert "Startup command started: ok-cmd" in messages
+        assert "Startup command bad-cmd could not start: command not found: zz" in messages
+
+    asyncio.run(scenario())
+
+
+def test_check_startup_exits_warns_once():
+    from unittest.mock import MagicMock
+
+    from grafeno.config import StartupAction
+    from grafeno.startup import StartupProcess
+
+    app = GrafenoApp()
+    item = StartupProcess(StartupAction(name="web"), MagicMock(), "/tmp/web.log")
+    runner = MagicMock()
+    runner.early_exits.side_effect = [[(item, 1)], []]
+    app.startup_runner = runner
+    app.notify = MagicMock()
+    app._check_startup_exits()
+    app._check_startup_exits()
+    assert app.notify.call_count == 1
+    assert "exited with code 1" in app.notify.call_args.args[0]

@@ -1539,3 +1539,20 @@ def test_run_on_session_called_once_per_new_session_id(tmp_path):
     assert result.ok, result.error
     assert seen == ["s-1"]
     assert result.session_id == "s-1"
+
+
+def test_opencode_session_id_format_and_rejection():
+    driver = OpenCodeDriver()
+    assert driver.accepts_session_id("ses_e847cd132ffeXvQMGUt7Yb6vH1")
+    assert not driver.accepts_session_id("a08633f8-f8f7-4533-a2ad-d2248ed8caf6")
+    assert driver.is_session_rejected('OpenCode CLI exited with code 1.\nExpected a string starting with "ses"\n  at ["sessionID"]')
+    assert not driver.is_session_rejected("OpenCode CLI exited with code 1.")
+
+
+def test_claude_session_id_format_and_rejection():
+    driver = ClaudeDriver()
+    assert driver.accepts_session_id("a08633f8-f8f7-4533-a2ad-d2248ed8caf6")
+    assert not driver.accepts_session_id("ses_e84278b9bffehUEEDB6J8llkbv")
+    assert driver.is_session_rejected("No conversation found with session ID: a08633f8-f8f7-4533-a2ad-d2248ed8caf6")
+    assert driver.is_session_rejected("Error: --resume requires a valid session ID or session title when used with --print.")
+    assert not driver.is_session_rejected("Claude Code CLI exited with code 1.")

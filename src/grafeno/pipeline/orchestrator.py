@@ -142,6 +142,34 @@ class Orchestrator:
         except OSError:
             pass  # missing directory: nothing to normalize
 
+    def _stored_session(self, role_name: str, cli: str, driver: CLIDriver) -> str | None:
+        """Session id to resume for the role, or None if it belongs to another CLI.
+
+        Tasks saved before ``session_clis`` existed have no owner recorded:
+        the driver's id format check is the only guard for them.
+        """
+        session_id = self.task.sessions.get(role_name) or ""
+        if not session_id:
+            return None
+        owner = self.task.session_clis.get(role_name, "")
+        if (owner and owner != cli) or not driver.accepts_session_id(session_id):
+            self._forget_session(role_name)
+            self._info(t("orch.session.mismatch", role=role_name, name=driver.display_name))
+            return None
+        return session_id
+
+    def _remember_session(self, role_name: str, cli: str, session_id: str) -> None:
+        """Store the role's session together with the CLI that created it."""
+        self.task.sessions[role_name] = session_id
+        self.task.session_clis[role_name] = cli
+        models.save(self.task)  # persist: a crash mid-wait keeps the session
+
+    def _forget_session(self, role_name: str) -> None:
+        """Drop the role's stored session (unusable by its current CLI)."""
+        self.task.sessions.pop(role_name, None)
+        self.task.session_clis.pop(role_name, None)
+        models.save(self.task)
+
     async def _execute(
         self,
         role_name: str,
@@ -171,7 +199,7 @@ class Orchestrator:
             prompt=prompt,
             model=role.model,
             workdir=remote.effective_workdir(task.remote, task.workdir),
-            session_id=task.sessions.get(role_name) or None,
+            session_id=self._stored_session(role_name, role.cli, driver),
             log_path=paths.logs_dir(task.id) / log_name,
             title=f"grafeno:{task.id}",
             effort=role.effort,
@@ -180,6 +208,7 @@ class Orchestrator:
         attempt = 0            # usage-limit retries
         transient_attempt = 0  # transient-failure retries
         crash_failures = 0     # consecutive unclassified non-zero exits
+        session_reset = False  # a rejected session is dropped and retried once
         try:
             while True:
                 result = await driver.run(
@@ -188,10 +217,23 @@ class Orchestrator:
                     on_activity=lambda: self._on_activity(phase),
                 )
                 self._record_tokens(phase, role, result)
-                if result.session_id:
-                    task.sessions[role_name] = result.session_id
+                rejected = (
+                    not result.ok
+                    and bool(request.session_id)
+                    and not session_reset
+                    and driver.is_session_rejected(f"{result.error}\n{result.text}")
+                )
+                if rejected:
+                    # The CLI refused the resumed id (e.g. a session created by
+                    # another CLI): never keep it, retry at once with a new one.
+                    session_reset = True
+                    self._forget_session(role_name)
+                    request.session_id = None
+                    self._info(t("orch.session.rejected", name=driver.display_name))
+                    continue
+                if result.session_id and driver.accepts_session_id(result.session_id):
+                    self._remember_session(role_name, role.cli, result.session_id)
                     request.session_id = result.session_id  # retry continues the session
-                    models.save(task)  # persist: a crash mid-wait keeps the session
                 if result.usage_wait is not None:
                     attempt += 1
                     if attempt <= ratelimit.MAX_ATTEMPTS:

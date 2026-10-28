@@ -23,6 +23,7 @@ from .tui.runtime import TaskRuntime
 if TYPE_CHECKING:
     from .config import ApiConfig
     from .server.web import WebLaunch
+    from .startup import StartupRunner
     from .telegram.service import TelegramService
 
 
@@ -76,6 +77,8 @@ class GrafenoApp(App):
         self.api_server = None
         # Model lists per CLI, filled by the startup availability check.
         self.available_models: dict[str, list[str]] = {}
+        # Startup commands launched by main() (None when the App is created elsewhere, e.g. tests).
+        self.startup_runner: StartupRunner | None = None
 
     def on_mount(self) -> None:
         self.sub_title = t("app.subtitle", version=__version__)
@@ -87,6 +90,7 @@ class GrafenoApp(App):
         from .tui.screens.tasks import TaskListScreen
 
         self.push_screen(TaskListScreen())
+        self._report_startup()
         if cfg.auto_update:
             self.run_worker(
                 self._auto_update(), exclusive=True,
@@ -243,6 +247,41 @@ class GrafenoApp(App):
         parser = cfg.telegram.parser_role(cfg.planner)
         self.telegram.apply_parser(parser.cli, parser.model, parser.effort, float(cfg.telegram.parser_timeout))
 
+    def _report_startup(self) -> None:
+        """Notify the outcome of the startup commands and watch for early crashes."""
+        runner = self.startup_runner
+        if runner is None:
+            return
+        for outcome in runner.outcomes:
+            if outcome.ok:
+                self.notify(t("startup.started", name=outcome.name), timeout=6)
+            else:
+                self.notify(
+                    t("startup.failed", name=outcome.name, error=outcome.detail or "?"),
+                    severity="warning", timeout=12,
+                )
+            if outcome.settings_error:
+                self.notify(
+                    t("startup.settings_failed", name=outcome.name, error=outcome.settings_error),
+                    severity="warning", timeout=12,
+                )
+        if runner.processes:
+            from .startup import EARLY_EXIT_CHECK_SECONDS
+
+            self.set_timer(EARLY_EXIT_CHECK_SECONDS, self._check_startup_exits)
+
+    def _check_startup_exits(self) -> None:
+        """Warn about startup commands that already died (e.g. port in use)."""
+        runner = self.startup_runner
+        if runner is None:
+            return
+        for item, code in runner.early_exits():
+            name = item.action.name.strip() or item.action.command.strip()
+            self.notify(
+                t("startup.exited", name=name, code=code, log=item.log),
+                severity="warning", timeout=15,
+            )
+
     def _start_api(self, cfg) -> None:
         """Start the REST + WebSocket API server worker when enabled."""
         from .server.service import ServerService
@@ -356,7 +395,7 @@ def main() -> None:
         raise SystemExit(selfupdate.cli_update())
 
     from . import config as config_module
-    from . import editor
+    from . import editor, startup
     from .i18n import set_language, set_prompt_language
 
     parser = argparse.ArgumentParser(prog="grafeno")
@@ -379,6 +418,11 @@ def main() -> None:
         "--noeditor",
         action="store_true",
         help="Do not open the configured editor on startup.",
+    )
+    parser.add_argument(
+        "--nostartup",
+        action="store_true",
+        help="Do not launch the configured startup commands on this run.",
     )
     parser.add_argument(
         "--web",
@@ -462,6 +506,14 @@ def main() -> None:
             editor.maybe_open_editor(editor_cfg, workdir)
         except Exception:  # best effort: the TUI starts even if the editor fails
             pass
+    # Startup commands (e.g. a web editor server) run locally over the cwd;
+    # in session mode the config belongs to the remote host: skip them.
+    runner = startup.StartupRunner()
+    if not args.nostartup and session is None:
+        try:
+            runner.launch_all(cfg.startup, os.getcwd())
+        except Exception:  # best effort: the TUI starts even if a command fails
+            pass
     web_launch = api_config = None
     if args.web or args.web_host or args.web_port or args.no_auth:
         from .server import web
@@ -469,7 +521,12 @@ def main() -> None:
         api_config, web_launch = web.prepare(
             cfg.api, args.web_host, args.web_port, no_auth=args.no_auth
         )
-    GrafenoApp(web=web_launch, api_config=api_config).run()
+    app = GrafenoApp(web=web_launch, api_config=api_config)
+    app.startup_runner = runner  # notifications on mount; stopped below on exit
+    try:
+        app.run()
+    finally:
+        runner.stop_all()
 
 
 if __name__ == "__main__":

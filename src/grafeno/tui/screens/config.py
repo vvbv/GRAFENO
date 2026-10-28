@@ -38,6 +38,7 @@ from ...pipeline.hooks import HOOK_STAGES, format_stages, parse_stages
 from ..profilesform import ProfilesForm
 from ..refform import ReferencesForm
 from ..rolesform import ROLES, RolesForm
+from ..startupform import StartupForm
 from ..trigform import TriggersForm
 from ..widgets import GrafenoHeader, LocationBar
 from ..workspacesform import WorkspacesForm
@@ -112,6 +113,9 @@ class ConfigScreen(Screen[None]):
                     id="editor-side",
                     allow_blank=False,
                 )
+            yield Static(t("cfg.startup"), classes="section-title", id="cfg-startup-title")
+            yield Static(t("cfg.startup.help"), markup=False)
+            yield StartupForm(id="cfg-startup")
             yield Static(t("cfg.language"), classes="section-title")
             yield Static(t("cfg.language.help"))
             with Horizontal(classes="automode-row"):
@@ -232,6 +236,7 @@ class ConfigScreen(Screen[None]):
         self.query_one("#editor-side", Select).value = (
             self._config.editor.side if self._config.editor.side in ("left", "right") else "left"
         )
+        self.query_one("#cfg-startup", StartupForm).set_actions(self._config.startup)
         self.query_one("#cfg-language", Select).value = (
             self._config.language if self._config.language in LANGUAGES else "en"
         )
@@ -398,6 +403,7 @@ class ConfigScreen(Screen[None]):
         cfg.editor.editor = "" if selected is Select.BLANK else str(selected)
         cfg.editor.mode = str(self.query_one("#editor-mode", Select).value)
         cfg.editor.side = str(self.query_one("#editor-side", Select).value)
+        cfg.startup = self.query_one("#cfg-startup", StartupForm).actions()
         cfg.language = str(self.query_one("#cfg-language", Select).value)
         prompt_language = str(self.query_one("#cfg-prompt-language", Select).value)
         cfg.prompt_language = "" if prompt_language == PROMPT_LANGUAGE_SAME else prompt_language

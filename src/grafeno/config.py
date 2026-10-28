@@ -127,6 +127,54 @@ class EditorConfig:
         )
 
 
+@dataclass
+class StartupAction:
+    """Command launched in the background every time GRAFENO starts.
+
+    Typical use: a web-based editor server (``code serve-web``, code-server,
+    openvscode-server...). ``settings_file`` + ``settings`` (a JSON object as
+    text) are merged into that JSON file before every launch, so the tool
+    always starts with those values. Stored as ``[[startup]]`` in config.toml
+    (flat scalars only: the TOML writer does not nest inside arrays of tables).
+    ``open_url`` turns the action into the web editor of the panel: a URL
+    template that opens a folder (see ``startup.editor_url``).
+    """
+
+    name: str = ""
+    command: str = ""          # split with shlex, run without a shell; "{workdir}" = folder GRAFENO starts in
+    enabled: bool = True
+    workdir: str = ""          # empty = folder GRAFENO starts in
+    stop_on_exit: bool = True  # terminate the process (and its group) when GRAFENO exits
+    settings_file: str = ""    # JSON settings file to enforce ("~" and $VARS expanded); empty = none
+    settings: str = ""         # JSON object merged into settings_file, e.g. '{"git.repositoryScanMaxDepth": -1}'
+    open_url: str = ""         # web panel link template: {host}, {folder}, {name}; empty = not an editor
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "command": self.command,
+            "enabled": self.enabled,
+            "workdir": self.workdir,
+            "stop_on_exit": self.stop_on_exit,
+            "settings_file": self.settings_file,
+            "settings": self.settings,
+            "open_url": self.open_url,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "StartupAction":
+        return cls(
+            name=str(data.get("name", "")),
+            command=str(data.get("command", "")),
+            enabled=bool(data.get("enabled", True)),
+            workdir=str(data.get("workdir", "")),
+            stop_on_exit=bool(data.get("stop_on_exit", True)),
+            settings_file=str(data.get("settings_file", "")),
+            settings=str(data.get("settings", "")),
+            open_url=str(data.get("open_url", "")),
+        )
+
+
 def _sanitize_key(value: str) -> str:
     """Clean a pasted API key: strips whitespace and label prefixes.
 
@@ -362,6 +410,7 @@ class Config:
     auto_update: bool = False  # update agent CLIs on TUI startup (native commands)
     self_update: bool = False  # self-update GRAFENO from GitHub releases
     workspaces: list[str] = field(default_factory=list)  # root folders whose subfolders are projects
+    startup: list[StartupAction] = field(default_factory=list)  # commands launched when GRAFENO starts
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     api: ApiConfig = field(default_factory=ApiConfig)
     web: WebConfig = field(default_factory=WebConfig)
@@ -387,6 +436,7 @@ class Config:
             "auto_update": self.auto_update,
             "self_update": self.self_update,
             "workspaces": list(self.workspaces),
+            "startup": [action.to_dict() for action in self.startup],
             "telegram": self.telegram.to_dict(),
             "api": self.api.to_dict(),
             "web": self.web.to_dict(),
@@ -415,6 +465,11 @@ class Config:
                 for item in data.get("workspaces", [])
                 if isinstance(item, str)
             ] if isinstance(data.get("workspaces", []), list) else [],
+            startup=[
+                StartupAction.from_dict(item)
+                for item in data.get("startup", [])
+                if isinstance(item, dict)
+            ] if isinstance(data.get("startup", []), list) else [],
             telegram=TelegramConfig.from_dict(data.get("telegram", {})),
             api=ApiConfig.from_dict(data.get("api", {})),
             web=WebConfig.from_dict(data.get("web") if isinstance(data.get("web"), dict) else {}),

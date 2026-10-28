@@ -21,6 +21,8 @@ Effort variants per model are listed with ``opencode models --verbose`` in
 1.x (header ``provider/model`` followed by a multi-line JSON block) and with
 ``opencode api model.list`` in 2.x (a single JSON document
 ``{"data": [{"providerID", "id", "variants": [{"id": ...}]}]}``).
+
+Session ids start with ``ses`` (the CLI validates it: ``Expected a string starting with "ses"``).
 """
 
 from __future__ import annotations
@@ -40,6 +42,10 @@ class OpenCodeDriver(CLIDriver):
     init_command = "/init"
     # Cached major version of the installed CLI (None = not detected yet).
     _major: int | None = None
+    # Native session ids look like "ses_e847cd132ffeXvQMGUt7Yb6vH1".
+    SESSION_PREFIX = "ses"
+    # Errors printed when --session gets an id OpenCode does not accept.
+    _SESSION_REJECTED = ('expected a string starting with "ses"', "session not found")
 
     def major_version(self) -> int:
         """Major version of the installed CLI, detected once (1 if unknown)."""
@@ -56,6 +62,13 @@ class OpenCodeDriver(CLIDriver):
         if self.major_version() < 2:
             return None
         return {**os.environ, "PWD": str(request.workdir)}  # 2.x resolves the project from $PWD
+
+    def accepts_session_id(self, session_id: str) -> bool:
+        return session_id.startswith(self.SESSION_PREFIX)
+
+    def is_session_rejected(self, text: str) -> bool:
+        lowered = text.lower()
+        return any(pattern in lowered for pattern in self._SESSION_REJECTED)
 
     def build_command(self, request: RunRequest) -> list[str]:
         # No prompt in argv: Windows .cmd shims cut quoted args at newlines.

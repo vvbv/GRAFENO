@@ -447,3 +447,15 @@ def test_projects_tab_creates_projects():
         assert f'"{mode}"' in script
         for lang in ("en", "es"):
             assert f"projects.create.mode.{mode}" in i18n._MESSAGES[lang], (lang, mode)
+
+
+def test_editor_button_wiring_in_script():
+    """Projects and tasks open the web editor; the tab is opened inside the click."""
+    from importlib import resources
+
+    script = resources.files("grafeno.server").joinpath("static", "app.js").read_text(encoding="utf-8")
+    for needle in (
+        '"/api/v1/editor/open"', 'tr("web.editor.open")', "openEditor({ workdir: item.workdir })",
+        "openEditor({ task_id: task.id })", 'key: "open_url"', 'window.open("", "_blank")',
+    ):
+        assert needle in script

@@ -128,6 +128,11 @@ def test_update_settings_sections() -> None:
         {"api": {"port": 70000}},
         {"roles": {"planner": {"cli": "bogus"}}},
         {"profiles": [{"name": "p", "roles": {"planner": {"cli": "bogus"}}}]},
+        {"startup": "x"},
+        {"startup": [{"name": "a", "command": "b", "settings": "[1]"}]},
+        {"startup": [{"name": "a", "command": "b", "settings": "{}"}]},
+        {"startup": [{"name": "a", "command": "b", "open_url": "ftp://x/{folder}"}]},
+        {"startup": [{"name": "a", "command": "b", "open_url": "http://x/"}]},
     ],
 )
 def test_update_settings_validation(payload) -> None:
@@ -229,3 +234,26 @@ def test_web_favicon_not_written_when_other_section_fails() -> None:
     with pytest.raises(ApiError):
         settings.update_settings(FakeService(), payload)
     assert not (paths.web_dir() / "favicon.png").exists()
+
+
+def test_startup_settings_roundtrip() -> None:
+    result = settings.update_settings(FakeService(), {"startup": [
+        {"name": "web", "command": "code serve-web", "enabled": False,
+         "settings_file": "~/s.json", "settings": '{"a": 1}'},
+        {"name": "", "command": ""},
+    ]})
+    assert len(result["startup"]) == 1
+    assert result["startup"][0]["enabled"] is False
+    assert result["startup"][0]["stop_on_exit"] is True
+    assert {p["key"] for p in result["startup_presets"]} == {"vscode", "code-server", "openvscode-server"}
+    assert config_module.load().startup[0].name == "web"
+
+
+def test_startup_open_url_saved_and_editor_option() -> None:
+    assert settings.form_options(FakeService())["editor"] == {"available": False, "name": ""}
+    result = settings.update_settings(FakeService(), {"startup": [
+        {"name": "ed", "command": "ed", "open_url": "http://{host}:8080/?folder={folder}"},
+    ]})
+    assert result["startup"][0]["open_url"] == "http://{host}:8080/?folder={folder}"
+    assert config_module.load().startup[0].open_url == "http://{host}:8080/?folder={folder}"
+    assert settings.form_options(FakeService())["editor"] == {"available": True, "name": "ed"}

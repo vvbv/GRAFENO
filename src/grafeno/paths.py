@@ -65,6 +65,13 @@ def web_dir() -> Path:
     return path
 
 
+def startup_dir() -> Path:
+    """Output logs of the startup commands (one ``<slug>.log`` per command)."""
+    path = home() / "startup"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def tasks_dir() -> Path:
     path = home() / "tasks"
     path.mkdir(parents=True, exist_ok=True)

@@ -17,7 +17,7 @@ import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Optional
 
-from . import actions, branding, clisessions, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings
+from . import actions, branding, clisessions, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings, webeditor
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -397,6 +397,10 @@ async def _projects_file_text(service: "ServerService", params: dict, conn: "WsC
     )
 
 
+async def _editor_open(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return webeditor.open_editor(service, params)
+
+
 async def _projects_file_raw(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
     import base64
 
@@ -764,6 +768,7 @@ METHODS: dict[str, Callable] = {
     "projects.file": _projects_file,
     "projects.file_text": _projects_file_text,
     "projects.file_raw": _projects_file_raw,
+    "editor.open": _editor_open,
     "tasks.logs": _tasks_logs,
     "tasks.artifacts": _tasks_artifacts,
     "tasks.create": _tasks_create,

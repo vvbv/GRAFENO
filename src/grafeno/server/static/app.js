@@ -476,6 +476,28 @@ const store = {
     return this.modelsPromise || Promise.resolve(this.models);
   },
 };
+// Opens the configured web editor on a project folder in a new tab. The tab is
+// opened synchronously (inside the click) so popup blockers keep the user
+// gesture; it is pointed at the editor once the server returns the URL.
+// target: { workdir } for a project or { task_id } for a task.
+async function openEditor(target) {
+  const tab = window.open("", "_blank");
+  if (tab) tab.opener = null;  // same isolation as rel="noopener"
+  try {
+    const data = await api("POST", "/api/v1/editor/open", Object.assign({ host: location.hostname }, target));
+    if (!/^https?:\/\//i.test(data.url || "")) throw new ApiFailure(0, "invalid editor URL");
+    if (data.settings_error) toast(tr("web.editor.settings_failed", { error: data.settings_error }), "error");
+    if (data.running === false) toast(tr("web.editor.not_running", { name: data.name }), "error");
+    if (tab) tab.location.href = data.url;
+    else if (!window.open(data.url, "_blank", "noopener")) toast(tr("web.editor.blocked", { url: data.url }), "error");
+  } catch (err) {
+    if (tab) tab.close();
+    fail(err);
+  }
+}
+function editorInfo() {
+  return (store.options && store.options.editor) || { available: false, name: "" };
+}
 const mediaCache = new Map();
 async function mediaUrl(taskId, name) {
   const key = taskId + "/" + name;
@@ -633,7 +655,7 @@ function dirSuggestions(input) {
 
 // ---------------------------------------------------------------- list editors
 function listEditor(columns, rows, emptyText) {
-  // columns: [{key, label, type?: "text"|"select"|"phases"|"dir", options?, placeholder?}]
+  // columns: [{key, label, type?: "text"|"select"|"phases"|"dir"|"check", options?, placeholder?}]
   const items = (rows || []).map((row) => Object.assign({}, row));
   const body = h("tbody");
   const table = h("table", null, h("thead", null, h("tr", null, columns.map((col) => h("th", { text: col.label })), h("th"))), body);
@@ -650,6 +672,11 @@ function listEditor(columns, rows, emptyText) {
           control.addEventListener("change", () => { item[col.key] = control.value; });
         } else if (col.type === "phases") {
           control = phasesPicker(item, col);
+        } else if (col.type === "check") {
+          control = h("input", { type: "checkbox" });
+          control.checked = item[col.key] !== false;
+          item[col.key] = control.checked;
+          control.addEventListener("change", () => { item[col.key] = control.checked; });
         } else {
           control = h("input", { type: "text", value: item[col.key] || "", placeholder: col.placeholder || "",
             class: col.type === "dir" ? "mono" : undefined });
@@ -665,19 +692,25 @@ function listEditor(columns, rows, emptyText) {
     empty.hidden = items.length > 0;
   };
   render();
+  const addRow = (initial) => {
+    const row = {};
+    columns.forEach((col) => {
+      row[col.key] = col.default !== undefined ? col.default
+        : (col.type === "select" ? col.options[0][1] : col.type === "check" ? true : "");
+    });
+    Object.assign(row, initial || {});
+    items.push(row);
+    render();
+    // Focus the first field of the new row: adding is a single click.
+    const first = body.lastElementChild && body.lastElementChild.querySelector("input, select");
+    if (first) first.focus();
+  };
   const add = h("button", { type: "button", class: "small", text: "+ " + tr("web.ui.add"),
-    onclick: () => {
-      const row = {};
-      columns.forEach((col) => { row[col.key] = col.default || (col.type === "select" ? col.options[0][1] : ""); });
-      items.push(row);
-      render();
-      // Focus the first field of the new row: adding is a single click.
-      const first = body.lastElementChild && body.lastElementChild.querySelector("input, select");
-      if (first) first.focus();
-    } });
+    onclick: () => addRow() });
   return {
     node: h("div", { class: "list-editor" }, table, empty, add),
     values: () => items.map((item) => Object.assign({}, item)),
+    add: (row) => addRow(row),
   };
 }
 function phasesPicker(item, col) {
@@ -1122,6 +1155,7 @@ const tasksView = {
     }
     this.renderHead();
     this.renderTabs();
+    if (!store.options) store.getOptions().then(() => { if (this.detail) this.renderHead(); }).catch(() => {});
     const stateChanged = previous && (previous.task.state !== task.state || previous.task.cycle !== task.cycle || previous.task.iteration !== task.iteration);
     const fileTab = ART_KINDS.includes(this.tab) || this.tab === "media";
     if (full || stateChanged || !fileTab) this.renderTab(full);
@@ -1235,7 +1269,17 @@ const tasksView = {
         btn(tr("det.bind.agents"), a.roles, () => this.editRoles()),
         btn(tr("det.bind.complete"), a.mark_done, () => this.simpleAction("mark-done", "det.mark.done.title", "det.mark.done.body")),
         btn(tr("det.bind.restart"), a.reset, () => this.simpleAction("reset", "det.restart.title", "det.restart.body", true)),
-        btn(tr("det.bind.discard"), a.discard, () => this.simpleAction("discard", "det.mark.discard.title", "det.mark.discard.body", true), "danger")));
+        btn(tr("det.bind.discard"), a.discard, () => this.simpleAction("discard", "det.mark.discard.title", "det.mark.discard.body", true), "danger")),
+      h("div", { class: "action-group" }, this.editorButton()));
+  },
+  editorButton() {
+    const task = this.detail.task;
+    const info = editorInfo();
+    const remote = !!task.remote;
+    const button = h("button", { class: "small", text: tr("web.editor.open"), disabled: !info.available || remote,
+      onclick: () => openEditor({ task_id: task.id }) });
+    button.title = remote ? tr("web.editor.remote") : (info.available ? info.name : tr("web.editor.none"));
+    return button;
   },
   async post(path, body, okMessage) {
     try {
@@ -1646,6 +1690,7 @@ const projectsView = {
     try {
       this.data = await api("GET", "/api/v1/projects");
     } catch (err) { fail(err); return; }
+    try { await store.getOptions(); } catch (err) { /* the editor button stays disabled */ }
     this.render();
   },
   render() {
@@ -1698,6 +1743,9 @@ const projectsView = {
         h("div", { class: "detail mono", text: item.workdir }),
         h("div", { class: "buttons" },
           h("button", { type: "button", text: tr("common.cancel"), onclick: () => close(undefined) }),
+          h("button", { type: "button", text: tr("web.editor.open"), disabled: !editorInfo().available,
+            title: editorInfo().available ? editorInfo().name : tr("web.editor.none"),
+            onclick: () => { openEditor({ workdir: item.workdir }); close(undefined); } }),
           h("button", { type: "button", text: tr("cs.open"), onclick: () => close("sessions") }),
           h("button", { type: "submit", class: "primary", autofocus: true, text: tr("projects.action.new_task"),
             onclick: () => close("new") })));
@@ -2358,6 +2406,26 @@ const settingsView = {
       { key: "timing", label: tr("trig.col.timing"), type: "select", default: "after", options: data.trigger_timings.map((value) => [tr("trig.timing." + value), value]) },
       { key: "workdir", label: tr("web.ui.col_workdir"), placeholder: tr("web.ui.same_workdir") },
     ], data.triggers, tr("web.ui.no_triggers"));
+    const startupCommands = listEditor([
+      { key: "name", label: tr("cfg.startup.name") },
+      { key: "command", label: tr("cfg.startup.command"), placeholder: "code serve-web --port 8080" },
+      { key: "workdir", label: tr("cfg.startup.workdir"), type: "dir" },
+      { key: "settings_file", label: tr("cfg.startup.settings_file") },
+      { key: "settings", label: tr("cfg.startup.settings"), placeholder: "{\"git.repositoryScanMaxDepth\": -1}" },
+      { key: "open_url", label: tr("cfg.startup.open_url"), placeholder: "http://{host}:8080/?folder={folder}" },
+      { key: "enabled", label: tr("cfg.startup.enabled"), type: "check", default: true },
+      { key: "stop_on_exit", label: tr("cfg.startup.stop_on_exit"), type: "check", default: true },
+    ], data.startup || [], tr("cfg.startup.empty"));
+    const presets = data.startup_presets || [];
+    const presetSelect = h("select", null, presets.map((item) => option(tr("cfg.startup.preset." + item.key), item.key)));
+    const addPreset = h("button", { type: "button", class: "small", text: tr("cfg.startup.add_preset"),
+      onclick: () => {
+        const chosen = presets.find((item) => item.key === presetSelect.value);
+        if (!chosen) return;
+        const row = Object.assign({}, chosen);
+        delete row.key;
+        startupCommands.add(row);
+      } });
     const profiles = this.profilesEditor(data.profiles);
     const tg = data.telegram;
     const tgEnabled = check(tr("cfg.tg.enabled"), tg.enabled);
@@ -2428,6 +2496,10 @@ const settingsView = {
         h("p", { class: "help", text: tr("cfg.workspaces.help") }), workspaces.node),
       card(tr("cfg.editor"), h("div", { class: "checks" }, editorEnabled.node),
         h("div", { class: "form-grid", style: { marginTop: "12px" } }, field(tr("cfg.editor.name"), editorName), field(tr("cfg.editor.mode"), editorMode), field(tr("cfg.editor.side"), editorSide))),
+      h("div", { class: "card", id: "cfg-startup" }, h("h3", { text: plain(tr("cfg.startup")) }),
+        h("p", { class: "help", text: tr("cfg.startup.help") }),
+        h("div", { class: "form-grid" }, field(tr("cfg.startup.preset"), h("div", { class: "row" }, presetSelect, addPreset))),
+        startupCommands.node),
       card(tr("cfg.references"), h("p", { class: "help", text: tr("refs.warning") }), refs.node),
       card(tr("cfg.triggers"), h("p", { class: "help", text: tr("trig.help") }), triggers.node),
       card(tr("cfg.profiles"), h("p", { class: "help", text: tr("cfg.profiles.help") }), profiles.node),
@@ -2480,6 +2552,7 @@ const settingsView = {
         workspaces: workspaces.values().map((item) => (item.path || "").trim()).filter(Boolean),
         references: refs.values().filter((ref) => (ref.name || "").trim() && (ref.path || "").trim()),
         triggers: triggers.values().filter((item) => (item.name || "").trim() && (item.description || "").trim()),
+        startup: startupCommands.values().filter((item) => (item.name || "").trim() || (item.command || "").trim()),
         profiles: profiles.values(),
         telegram, api: apiSection,
       };

@@ -1921,3 +1921,82 @@ def test_execute_failure_marks_phase_and_success_clears_it(tmp_path):
     _run(orch.run_plan())
     assert task.failed_phase == ""
     assert models.load(task.id).failed_phase == ""
+
+
+class SessionAwareDriver(FakeDriver):
+    """Fake driver with an OpenCode-like session id format."""
+
+    def accepts_session_id(self, session_id):
+        return session_id.startswith("ses")
+
+    def is_session_rejected(self, text):
+        return 'starting with "ses"' in text
+
+
+def _rejected() -> RunResult:
+    return RunResult(ok=False, returncode=1,
+                     error='OpenCode CLI exited with code 1.\nExpected a string starting with "ses"')
+
+
+def test_foreign_session_format_is_not_resumed(tmp_path):
+    task = _make_task(tmp_path)
+    task.sessions = {"reviewer": "a08633f8-f8f7-4533-a2ad-d2248ed8caf6"}
+    rev = SessionAwareDriver("fake-rev", [RunResult(ok=True, text="VERDICT: APPROVED", session_id="ses_new")])
+    infos: list[str] = []
+    orch = Orchestrator(task, drivers={"fake-rev": rev}, on_info=infos.append)
+    _run(orch.run_review())
+    assert rev.requests[0].session_id is None
+    assert task.sessions["reviewer"] == "ses_new"
+    assert task.session_clis["reviewer"] == "fake-rev"
+    assert any("belongs to another CLI" in line for line in infos)
+
+
+def test_session_of_another_cli_is_not_resumed(tmp_path):
+    task = _make_task(tmp_path)
+    task.sessions = {"reviewer": "ses_old"}
+    task.session_clis = {"reviewer": "opencode"}
+    rev = FakeDriver("fake-rev", [RunResult(ok=True, text="VERDICT: APPROVED")])
+    orch = Orchestrator(task, drivers={"fake-rev": rev})
+    _run(orch.run_review())
+    assert rev.requests[0].session_id is None
+
+
+def test_rejected_session_retries_once_with_new_session(tmp_path, monkeypatch):
+    waits = _sleep_recorder(monkeypatch)
+    task = _make_task(tmp_path)
+    task.sessions = {"reviewer": "ses_gone"}
+    rev = SessionAwareDriver("fake-rev", [_rejected(), RunResult(ok=True, text="VERDICT: APPROVED", session_id="ses_fresh")])
+    infos: list[str] = []
+    orch = Orchestrator(task, drivers={"fake-rev": rev}, on_info=infos.append)
+    _run(orch.run_review())
+    assert len(rev.requests) == 2
+    assert rev.requests[0].session_id == "ses_gone"
+    assert rev.requests[1].session_id is None
+    assert waits == []
+    assert task.sessions["reviewer"] == "ses_fresh"
+    assert task.failed_phase == ""
+    assert any("rejected the stored session" in line for line in infos)
+
+
+def test_rejected_session_is_not_retried_twice(tmp_path, monkeypatch):
+    _sleep_recorder(monkeypatch)
+    task = _make_task(tmp_path)
+    task.sessions = {"reviewer": "ses_gone"}
+    rev = SessionAwareDriver("fake-rev", [_rejected()] * 4)
+    orch = Orchestrator(task, drivers={"fake-rev": rev})
+    with pytest.raises(PhaseError):
+        _run(orch.run_review())
+    assert "reviewer" not in task.sessions
+
+
+def test_session_from_failed_resume_is_not_stored(tmp_path, monkeypatch):
+    _sleep_recorder(monkeypatch)
+    task = _make_task(tmp_path)
+    task.sessions = {"reviewer": "ses_gone"}
+    rev = SessionAwareDriver("fake-rev", [
+        RunResult(ok=False, returncode=1, error='Expected a string starting with "ses"', session_id="ses_bogus"),
+        RunResult(ok=True, text="VERDICT: APPROVED"),
+    ])
+    orch = Orchestrator(task, drivers={"fake-rev": rev})
+    _run(orch.run_review())
+    assert task.sessions.get("reviewer") != "ses_bogus"

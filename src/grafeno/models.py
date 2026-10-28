@@ -133,6 +133,7 @@ class Task:
     cycle: int = 1  # current cycle (>=2 = "ask for more" extensions)
     extensions: dict[str, str] = field(default_factory=dict)  # cycle -> request
     sessions: dict[str, str] = field(default_factory=dict)  # role -> session id
+    session_clis: dict[str, str] = field(default_factory=dict)  # role -> CLI that created the session
     durations: dict[str, int] = field(default_factory=dict)  # phase -> accumulated seconds
     tokens: dict[str, int] = field(default_factory=dict)  # "{phase}|{cli}|{model}|{input|output}" -> accumulated tokens
     # References: list of additional resources (paths/URLs) attached as
@@ -335,6 +336,7 @@ class Task:
             "reviewer": self.reviewer.to_dict(),
             "final": self.final.to_dict(),
             "sessions": dict(self.sessions),
+            "session_clis": dict(self.session_clis),
             "durations": dict(self.durations),
             "extensions": dict(self.extensions),
             "tokens": dict(self.tokens),
@@ -382,6 +384,7 @@ class Task:
             profile=str(raw.get("profile", "")),
             failed_phase=str(raw.get("failed_phase", "")),
             sessions={str(k): str(v) for k, v in data.get("sessions", {}).items()},
+            session_clis={str(k): str(v) for k, v in data.get("session_clis", {}).items()},
             durations={str(k): int(v) for k, v in data.get("durations", {}).items()},
             extensions={str(k): str(v) for k, v in data.get("extensions", {}).items()},
             tokens={str(k): int(v) for k, v in data.get("tokens", {}).items()},
@@ -429,6 +432,7 @@ def reset_to_draft(task: Task) -> None:
     task.iteration = 0
     task.cycle = 1
     task.sessions = {}
+    task.session_clis = {}
     task.extensions = {}
     task.scheduled_at = ""
     task.base_commit = ""

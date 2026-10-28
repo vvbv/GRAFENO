@@ -761,3 +761,38 @@ def test_config_screen_keeps_web_and_theme(monkeypatch):
         assert (saved.instance_name, saved.theme) == ("Lab", "blue")
 
     asyncio.run(scenario())
+
+
+def test_startup_section_roundtrip(monkeypatch):
+    """Saving the settings screen keeps the startup commands (fresh Config on save)."""
+    from grafeno.config import StartupAction
+    from grafeno.tui.startupform import StartupForm
+
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_models", _fake_fetch)
+    monkeypatch.setattr("grafeno.tui.screens.config.fetch_all_variants", _fake_fetch_variants)
+    action = StartupAction(name="web", command="code serve-web", stop_on_exit=False,
+                           open_url="http://{host}:8080/?folder={folder}")
+    cfg = config_module.load()
+    cfg.startup = [action]
+    config_module.save(cfg)
+
+    async def scenario():
+        app = GrafenoApp()
+        async with app.run_test(size=(110, 80)) as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            for _ in range(20):
+                await pilot.pause(0.1)
+                if app.screen.query_one(RolesForm).models:
+                    break
+            await pilot.pause()
+            assert app.screen.query_one("#cfg-startup", StartupForm).actions() == [action]
+            app.screen.query_one("#cfg-save").scroll_visible()
+            for _ in range(5):
+                await pilot.pause(0.05)
+            await pilot.click("#cfg-save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+    assert config_module.load().startup == [action]

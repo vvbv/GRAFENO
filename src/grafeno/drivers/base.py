@@ -429,6 +429,21 @@ class CLIDriver:
         """
         return ratelimit.looks_like_transient_failure(text)
 
+    def accepts_session_id(self, session_id: str) -> bool:
+        """True if ``session_id`` has the format of this CLI's native session ids.
+
+        Guards against resuming a session created by another CLI (the role
+        switched CLI). Default: accept anything (format unknown).
+        """
+        return True
+
+    def is_session_rejected(self, text: str) -> bool:
+        """True if the failure ``text`` says the CLI refused the resumed session.
+
+        Default: never (no known message). Subclasses list their CLI's errors.
+        """
+        return False
+
     def decode_event(
         self, payload: dict
     ) -> tuple[RunEvent | list[RunEvent] | None, str | None]:

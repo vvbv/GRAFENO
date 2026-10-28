@@ -43,6 +43,7 @@ id is carried in ``session_id`` for both ``system`` and ``result`` events.
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
@@ -58,6 +59,10 @@ class ClaudeDriver(CLIDriver):
 
     # claude does not expose model listing: static aliases (best effort).
     STATIC_MODELS = ("opus", "sonnet", "haiku", "fable")
+    # Native session ids are UUIDs ("a08633f8-f8f7-4533-a2ad-d2248ed8caf6").
+    _SESSION_ID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+    # Errors printed when --resume gets an unknown or malformed id.
+    _SESSION_REJECTED = ("no conversation found with session id", "--resume requires a valid session id")
     EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
     # Statuses that mean the turn was blocked by the limit (defensive list).
     _RATE_LIMIT_BLOCKED = ("rejected", "blocked", "exceeded", "limited", "error")
@@ -71,6 +76,13 @@ class ClaudeDriver(CLIDriver):
 
     def stdin_prompt(self) -> bool:
         return True  # claude -p reads the prompt from stdin when omitted
+
+    def accepts_session_id(self, session_id: str) -> bool:
+        return bool(self._SESSION_ID_RE.fullmatch(session_id))
+
+    def is_session_rejected(self, text: str) -> bool:
+        lowered = text.lower()
+        return any(pattern in lowered for pattern in self._SESSION_REJECTED)
 
     def build_command(self, request: RunRequest) -> list[str]:
         # No prompt in argv: Windows .cmd shims cut quoted args at newlines.

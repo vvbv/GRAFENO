@@ -319,6 +319,61 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/v1/editor/open:
+    post:
+      tags: [projects]
+      summary: URL that opens a project (or the project of a task) in the configured web editor.
+      description: |
+        The web editor is the first enabled startup command with `open_url` (else the first
+        one with `open_url`). Placeholders of `open_url`: `{host}` (the `host` field, default
+        `localhost`), `{folder}` (URL-encoded absolute folder) and `{name}` (folder name).
+        Before answering, `{"git.repositoryScanMaxDepth": -1}` (plus the command `settings`)
+        is merged into its `settings_file` when one is set (best effort: failures are reported
+        in `settings_error`). Projects must be listed by `GET /api/v1/projects`. Remote (SSH)
+        projects/tasks and remote session mode answer 409.
+      operationId: openWebEditor
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workdir: {type: string, description: Project folder (one of GET /api/v1/projects).}
+                project: {type: string, description: Project name (case-insensitive).}
+                task_id: {type: string, description: Open the folder of this task instead.}
+                host: {type: string, description: Host the browser uses to reach the panel (`location.hostname`).}
+      responses:
+        "200":
+          description: Editor URL ready to open in a new tab.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EditorOpenResponse"
+        "400":
+          description: Neither workdir, project nor task_id given, or invalid host.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid token (only enforced when tokens are configured).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No web editor configured, or project, task or folder not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Ambiguous project, remote project or task, or remote session mode.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/projects/doc:
     get:
       tags: [projects]
@@ -3968,6 +4023,16 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/RoleConfig"
+    EditorOpenResponse:
+      type: object
+      required: [url, name, folder, running, settings_updated, settings_error]
+      properties:
+        url: {type: string, description: Editor URL (http or https).}
+        name: {type: string, description: Name of the startup command used as editor.}
+        folder: {type: string, description: Absolute project folder.}
+        running: {type: ["boolean", "null"], description: "Whether GRAFENO launched it and it is alive; null when GRAFENO did not launch it."}
+        settings_updated: {type: boolean}
+        settings_error: {type: string}
     OptionsResponse:
       type: object
       properties:
@@ -4001,6 +4066,12 @@ components:
         session_clis:
           type: array
           items: {type: string}
+        editor:
+          type: object
+          description: Web editor of the panel (startup command with `open_url`).
+          properties:
+            available: {type: boolean}
+            name: {type: string}
         available_clis:
           type: array
           items: {type: string}
@@ -4153,6 +4224,30 @@ components:
             editor: {type: string}
             mode: {type: string, enum: [window, split, none]}
             side: {type: string, enum: [left, right]}
+        startup:
+          type: array
+          description: >-
+            Commands launched in the background when GRAFENO starts (e.g. a
+            web editor server). Applies on the next start. `settings` is a
+            JSON object (as text) merged into `settings_file` before every
+            launch. Rows with empty name and command are ignored; invalid
+            rows return 400.
+          items:
+            type: object
+            properties:
+              name: {type: string}
+              command: {type: string, description: "Split with shlex and run without a shell; {workdir} = folder GRAFENO starts in."}
+              enabled: {type: boolean}
+              workdir: {type: string}
+              stop_on_exit: {type: boolean}
+              settings_file: {type: string}
+              settings: {type: string}
+              open_url: {type: string, description: "Web panel editor link: {host}, {folder}, {name}; empty = not an editor. Must start with http(s):// and contain {folder}. Editors always get git.repositoryScanMaxDepth = -1."}
+        startup_presets:
+          type: array
+          readOnly: true
+          description: Presets for web editors (VS Code serve-web, code-server, openvscode-server); same fields as `startup` (including `open_url`) plus `key`.
+          items: {type: object}
         language: {type: string, enum: [en, es]}
         prompt_language:
           type: string

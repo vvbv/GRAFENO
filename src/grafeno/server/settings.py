@@ -26,6 +26,7 @@ from .. import paths
 from .. import profiles as profiles_module
 from .. import references as references_module
 from .. import remotesession
+from .. import startup as startup_module
 from .. import triggers as triggers_module
 from .. import usage
 from .. import workspaces as workspaces_module
@@ -37,6 +38,7 @@ from ..config import (
     PARSER_TIMEOUT_MIN,
     WEB_THEMES,
     RoleConfig,
+    StartupAction,
 )
 from ..i18n import LANGUAGES, set_language, set_prompt_language, t
 from ..pipeline.hooks import HOOK_STAGES, format_stages, parse_stages
@@ -90,11 +92,19 @@ def form_options(service: "ServerService") -> dict:
         "known_clis": list(KNOWN_CLIS),
         "session_clis": list(SESSION_CLIS),
         "available_clis": available_clis(),
+        "editor": editor_info(cfg),
         "session": {
             "active": remotesession.active(),
             "label": remotesession.label() if remotesession.active() else "",
         },
     }
+
+
+def editor_info(cfg) -> dict:
+    """Web editor of the panel: availability and name (no paths, no URL template)."""
+    action = startup_module.editor_action(cfg.startup)
+    available = action is not None and not remotesession.active()
+    return {"available": available, "name": action.name if action else ""}
 
 
 async def models_catalog(service: "ServerService", refresh: bool = False) -> dict:
@@ -241,6 +251,10 @@ def get_settings(service: "ServerService") -> dict:
         "hook": {"command": cfg.hook.command, "stages": parse_stages(cfg.hook.stages)},
         "editor": cfg.editor.to_dict(),
         "editors_available": editor_module.available_editors(),
+        "startup": [action.to_dict() for action in cfg.startup],
+        "startup_presets": [
+            {"key": key, **item.to_dict()} for key, item in startup_module.PRESETS.items()
+        ],
         "language": cfg.language,
         "prompt_language": cfg.prompt_language,
         "languages": list(LANGUAGES),
@@ -300,6 +314,32 @@ def _apply_secret(section_obj: object, key: str, data: dict) -> None:
         setattr(section_obj, key, value)
 
 
+def _parse_startup(raw: object) -> list[StartupAction]:
+    if not isinstance(raw, list):
+        raise ApiError(400, "startup must be a list")
+    result: list[StartupAction] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ApiError(400, "each startup command must be an object")
+        action = StartupAction(
+            name=str(item.get("name") or "").strip(),
+            command=str(item.get("command") or "").strip(),
+            enabled=_coerce_bool(item.get("enabled"), True),
+            workdir=str(item.get("workdir") or "").strip(),
+            stop_on_exit=_coerce_bool(item.get("stop_on_exit"), True),
+            settings_file=str(item.get("settings_file") or "").strip(),
+            settings=str(item.get("settings") or "").strip(),
+            open_url=str(item.get("open_url") or "").strip(),
+        )
+        if not (action.name or action.command):
+            continue  # blank row of the panel editor
+        error = startup_module.validation_error(action)
+        if error:
+            raise ApiError(400, error)
+        result.append(action)
+    return result
+
+
 def _parse_triggers(raw: object) -> list[Trigger]:
     if not isinstance(raw, list):
         raise ApiError(400, "triggers must be a list")
@@ -353,6 +393,7 @@ def update_settings(service: "ServerService", payload: dict) -> dict:
     (theme...) are kept. Language changes apply at once, like the TUI.
     The Telegram parser settings (``parser_*``) apply at once to the running
     bot; the rest of ``[telegram]``/``[api]`` applies on the next TUI start.
+    ``startup`` applies on the next GRAFENO start.
     The ``web`` section applies at once (reload the page); its ``favicon`` is
     ``{name, data}`` with base64 data and ``favicon_clear`` removes it.
     """
@@ -477,6 +518,8 @@ def update_settings(service: "ServerService", payload: dict) -> dict:
         ]
     if "triggers" in payload:
         triggers = _parse_triggers(payload.get("triggers"))
+    if "startup" in payload:
+        cfg.startup = _parse_startup(payload.get("startup"))  # applies on the next GRAFENO start
     if "profiles" in payload:
         profiles = _parse_profiles(payload.get("profiles"))
     if favicon_clear:  # validation passed: now touch the disk

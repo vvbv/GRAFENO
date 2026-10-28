@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
-from . import actions, branding, clisessions, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings
+from . import actions, branding, clisessions, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings, webeditor
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -110,6 +110,11 @@ async def _project_docs(service: "ServerService", request: Request, params: dict
     return projectdocs.list_docs(
         service, workdir=query.get("workdir") or "", project=query.get("project") or ""
     )
+
+
+@route("POST", "/api/v1/editor/open")
+async def _editor_open(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return webeditor.open_editor(service, parse_json_body(request))
 
 
 @route("GET", "/api/v1/projects/doc")

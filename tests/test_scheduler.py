@@ -377,12 +377,14 @@ def test_prepare_next_iteration_resets_machine(tmp_path):
     task.iteration = 3
     task.cycle = 5
     task.sessions = {"planner": "ses-1"}
+    task.session_clis = {"planner": "opencode"}
     task.repeat_count = 7
     scheduler.prepare_next_iteration(task)
     assert task.state is TaskState.DRAFT
     assert task.iteration == 0
     assert task.cycle == 1
     assert task.sessions == {}
+    assert task.session_clis == {}
     assert task.repeat_count == 7  # the increment is done by the caller
 
 
