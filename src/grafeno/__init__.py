@@ -1,3 +1,3 @@
 """GRAFENO - multi-CLI TUI orchestrator for programming tasks."""
 
-__version__ = "1.94.0"
+__version__ = "1.95.0"

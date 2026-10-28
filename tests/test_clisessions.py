@@ -111,3 +111,59 @@ def test_record_session_usage_does_not_count_tasks():
     summary = usage.summarize(usage.load_records())
     assert summary.tokens_in == 10 and summary.tokens_out == 5
     assert not summary.task_ids
+
+
+def _task(tmp_path, cycle=1, description="desc"):
+    from grafeno import models
+    from grafeno.config import Config
+
+    task = models.Task.create("T", description, str(tmp_path), Config())
+    task.cycle = cycle
+    return task
+
+
+def _summary(task, cycle, text):
+    folder = paths.final_dir(task.id, cycle)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "summary.md").write_text(text, encoding="utf-8")
+
+
+def test_task_id_roundtrip(tmp_path):
+    session = clisessions.create(str(_project(tmp_path)), "claude", task_id="abc")
+    assert clisessions.load(session.id).task_id == "abc"
+    assert clisessions.CliSession.from_dict({"id": "x"}).task_id == ""
+
+
+def test_initial_context_store(tmp_path):
+    session = clisessions.create(str(_project(tmp_path)), "claude")
+    assert not clisessions.has_initial_context(session.id)
+    clisessions.save_initial_context(session.id, "ctx")
+    assert clisessions.has_initial_context(session.id)
+    assert clisessions.load_initial_context(session.id) == "ctx"
+    clisessions.clear_initial_context(session.id)
+    clisessions.clear_initial_context(session.id)
+    assert clisessions.load_initial_context(session.id) == ""
+
+
+def test_latest_summary_picks_most_recent_cycle(tmp_path):
+    task = _task(tmp_path, cycle=2)
+    assert clisessions.latest_summary(task) is None
+    _summary(task, 1, "one")
+    assert clisessions.latest_summary(task) == paths.final_dir(task.id, 1) / "summary.md"
+    _summary(task, 2, "two")
+    assert clisessions.latest_summary(task) == paths.final_dir(task.id, 2) / "summary.md"
+
+
+def test_task_context_variants(tmp_path):
+    task = _task(tmp_path)
+    assert "desc" in clisessions.task_context(task)
+    _summary(task, 1, "RESUMEN {x} here")
+    text = clisessions.task_context(task)
+    assert "RESUMEN {x} here" in text and task.name in text and task.id in text
+    assert text.endswith("First user message:\n")
+
+
+def test_task_context_truncates(tmp_path):
+    task = _task(tmp_path)
+    _summary(task, 1, "a" * (clisessions.CONTEXT_MAX_CHARS + 10))
+    assert "(summary truncated)" in clisessions.task_context(task)

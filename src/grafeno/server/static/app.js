@@ -1270,7 +1270,16 @@ const tasksView = {
         btn(tr("det.bind.complete"), a.mark_done, () => this.simpleAction("mark-done", "det.mark.done.title", "det.mark.done.body")),
         btn(tr("det.bind.restart"), a.reset, () => this.simpleAction("reset", "det.restart.title", "det.restart.body", true)),
         btn(tr("det.bind.discard"), a.discard, () => this.simpleAction("discard", "det.mark.discard.title", "det.mark.discard.body", true), "danger")),
-      h("div", { class: "action-group" }, this.editorButton()));
+      h("div", { class: "action-group" }, this.editorButton(), this.sessionButton()));
+  },
+  sessionButton() {
+    const task = this.detail.task;
+    const remoteSession = !!(store.options && store.options.session && store.options.session.active);
+    const remote = !!task.remote;
+    const button = h("button", { class: "small", text: tr("web.task.new_session"), disabled: remote || remoteSession,
+      onclick: () => sessionsView.newSession({ workdir: task.workdir, task_id: task.id, task_name: task.name }) });
+    button.title = remoteSession ? tr("cs.unavailable.remote") : (remote ? tr("web.task.new_session.remote") : tr("cs.context.hint", { name: task.name }));
+    return button;
   },
   editorButton() {
     const task = this.detail.task;
@@ -1926,16 +1935,18 @@ const sessionsView = {
     row.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); open(); } });
     return row;
   },
-  async newSession() {
+  async newSession(preset) {
+    preset = preset || { workdir: this.workdir };  // callable from other views: no mounted state
     let options;
     try { options = await store.getOptions(); } catch (err) { fail(err); return; }
     const clis = options.session_clis || ["claude", "opencode"];
     const implementer = options.defaults && options.defaults.roles && options.defaults.roles.implementer;
     const initial = implementer && clis.includes(implementer.cli) ? implementer : { cli: "claude", model: "", effort: "" };
     const values = await modal({ title: tr("cs.new.title"), wide: true }, (form, close) => {
-      const folder = h("input", { type: "text", value: this.workdir, readOnly: !!this.workdir, class: "mono" });
-      if (!this.workdir) dirSuggestions(folder);
-      const name = h("input", { type: "text" });
+      const folder = h("input", { type: "text", value: preset.workdir || "", readOnly: !!preset.workdir, class: "mono" });
+      if (!preset.workdir) dirSuggestions(folder);
+      const name = h("input", { type: "text",
+        placeholder: preset.task_id ? tr("cs.task_session_name", { name: preset.task_name }) : "" });
       const roles = rolesEditor({ session: initial }, { roles: ["session"], labels: { session: tr("cs.role") }, clis });
       const prompt = h("textarea", { rows: 3 });
       form.append(
@@ -1943,11 +1954,14 @@ const sessionsView = {
         h("label", { class: "field" }, h("span", { class: "lbl", text: tr("cs.field.name") }), name),
         roles.node,
         h("label", { class: "field" }, h("span", { class: "lbl", text: tr("cs.field.prompt") }), prompt),
+        preset.task_id ? h("p", { class: "help", text: tr("cs.context.hint", { name: preset.task_name }) }) : null,
         h("div", { class: "buttons" },
           h("button", { type: "button", text: tr("common.cancel"), onclick: () => close(undefined) }),
           h("button", { type: "submit", class: "primary", text: tr("cs.new"), onclick: () => {
             const role = roles.values().session;
-            close({ workdir: folder.value.trim(), name: name.value.trim(), cli: role.cli, model: role.model, effort: role.effort, prompt: prompt.value.trim() });
+            const result = { workdir: folder.value.trim(), name: name.value.trim(), cli: role.cli, model: role.model, effort: role.effort, prompt: prompt.value.trim() };
+            if (preset.task_id) Object.assign(result, { task_id: preset.task_id });
+            close(result);
           } })));
     });
     if (!values) return;
@@ -2006,7 +2020,8 @@ const sessionsView = {
       button(tr(closed ? "cs.reopen" : "cs.close"), "", () => this.action(closed ? "reopen" : "close"), running),
       button(tr("cs.delete"), "danger", () => this.remove()));
     const hint = $("cs-hint");
-    if (hint) hint.textContent = closed ? tr("cs.closed_notice") : tr("cs.hint.auto", { workdir: item.workdir });
+    if (hint) hint.textContent = closed ? tr("cs.closed_notice")
+      : (item.initial_context ? tr("cs.context.pending") + " " : "") + tr("cs.hint.auto", { workdir: item.workdir });
   },
   buildComposer() {
     // Created once per chat: later session changes only toggle `disabled`, so a draft survives.

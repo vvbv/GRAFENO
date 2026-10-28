@@ -1486,6 +1486,18 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Unknown `task_id`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The task is remote (SSH).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "503":
           $ref: "#/components/responses/Unavailable"
   /api/v1/sessions/{session_id}:
@@ -2742,6 +2754,8 @@ components:
         seconds: {type: integer}
         created_at: {type: string}
         updated_at: {type: string}
+        task_id: {type: string, description: Task the session was opened from (empty = none).}
+        initial_context: {type: boolean, description: Initial context pending (sent with the next turn).}
       required: [id, name, workdir, cli, state, running, turns]
     CliSessionResponse:
       type: object
@@ -2766,13 +2780,13 @@ components:
     CliSessionCreateRequest:
       type: object
       properties:
-        workdir: {type: string, description: Absolute local project folder.}
+        workdir: {type: string, description: "Absolute local project folder. Required unless `task_id` is given."}
+        task_id: {type: string, description: "Open the session from this task: workdir defaults to the task folder, name to 'Task: <name>', and its latest summary.md (or its description) is sent as initial context with the first turn. 404 unknown task, 409 remote task."}
         cli: {type: string, enum: [claude, opencode], default: claude}
         model: {type: string}
         effort: {type: string}
         name: {type: string}
         prompt: {type: string, description: Optional first prompt sent right after creation.}
-      required: [workdir]
     CliSessionSendRequest:
       type: object
       properties:

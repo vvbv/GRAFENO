@@ -56,7 +56,7 @@ info:
     | sessions.list       | `workdir?`                                       | GET /api/v1/sessions               |
     | sessions.get        | `session_id`                                     | GET /api/v1/sessions/{id}          |
     | sessions.transcript | `session_id`, `after?`, `limit?`                 | GET /api/v1/sessions/{id}/transcript |
-    | sessions.create     | `workdir`, `cli?`, `model?`, `effort?`, `name?`, `prompt?` | POST /api/v1/sessions    |
+    | sessions.create     | `workdir?`, `cli?`, `model?`, `effort?`, `name?`, `prompt?`, `task_id?` | POST /api/v1/sessions    |
     | sessions.send       | `session_id`, `prompt`                           | POST /api/v1/sessions/{id}/send    |
     | sessions.cancel     | `session_id`                                     | POST /api/v1/sessions/{id}/cancel  |
     | sessions.edit       | `session_id`, `name`                             | POST /api/v1/sessions/{id}/edit    |

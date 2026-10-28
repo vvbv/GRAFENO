@@ -459,3 +459,15 @@ def test_editor_button_wiring_in_script():
         "openEditor({ task_id: task.id })", 'key: "open_url"', 'window.open("", "_blank")',
     ):
         assert needle in script
+
+
+def test_task_session_button_wiring_in_script():
+    """The task detail offers a CLI session whose first turn carries the task summary."""
+    from importlib import resources
+
+    script = resources.files("grafeno.server").joinpath("static", "app.js").read_text(encoding="utf-8")
+    for needle in (
+        "sessionButton()", 'tr("web.task.new_session")', "task_id: preset.task_id",
+        "sessionsView.newSession({ workdir: task.workdir, task_id: task.id", 'tr("cs.context.pending")',
+    ):
+        assert needle in script

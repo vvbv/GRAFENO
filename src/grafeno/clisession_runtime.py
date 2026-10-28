@@ -86,9 +86,10 @@ class CliSessionManager:
 
     # ------------------------------------------------------------- commands #
     def create(
-        self, workdir: str, cli: str, model: str = "", effort: str = "", name: str = ""
+        self, workdir: str, cli: str, model: str = "", effort: str = "", name: str = "",
+        task_id: str = "",
     ) -> CliSession:
-        session = clisessions.create(workdir, cli, model=model, effort=effort, name=name)
+        session = clisessions.create(workdir, cli, model=model, effort=effort, name=name, task_id=task_id)
         self._emit("changed", session)
         return session
 
@@ -106,10 +107,13 @@ class CliSessionManager:
         session.last_prompt = prompt[:PREVIEW_CHARS]
         session.last_error = ""
         clisessions.save(session)
+        context = clisessions.load_initial_context(session.id)  # pending context of a task session
         self._entry(session, "user", prompt)
+        if context:
+            self._entry(session, "info", t("cs.context.sent"))
         self._live[session.id] = session
         self._finished[session.id] = asyncio.Event()
-        coro = self._run_turn(session, prompt)
+        coro = self._run_turn(session, context + prompt if context else prompt)
         try:
             self._handles[session.id] = self._spawn(coro, f"grafeno-cli-session-{session.id}")
         except Exception:
@@ -219,6 +223,8 @@ class CliSessionManager:
             tokens = result.tokens
             if result.session_id:
                 session.cli_session_id = result.session_id
+            if result.ok or session.cli_session_id:
+                clisessions.clear_initial_context(session.id)  # the conversation already has it
             if result.ok:
                 self._entry(session, "info", t(
                     "cs.turn.done", n=turn, duration=format_duration(time.monotonic() - started)

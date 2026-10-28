@@ -173,3 +173,47 @@ def test_delete_cancels_and_removes(tmp_path):
     assert ok is True
     assert not paths.cli_session_dir(session_id).exists()
     assert "deleted" in seen
+
+
+class _NoSessionDriver(FakeSessionDriver):
+    async def run(self, request, on_event=None, on_activity=None, on_session=None):
+        self.requests.append(request)
+        return RunResult(ok=False, text="", session_id="", error="boom", tokens=TokenUsage(0, 0))
+
+
+def test_initial_context_is_prepended_once(tmp_path):
+    from grafeno.i18n import t
+
+    driver = FakeSessionDriver()
+
+    async def main():
+        manager = _manager(driver)
+        session = manager.create(str(_project(tmp_path)), "claude")
+        clisessions.save_initial_context(session.id, "CTX\n")
+        manager.send(session.id, "hola")
+        await manager.wait(session.id)
+        manager.send(session.id, "dos")
+        await manager.wait(session.id)
+        return session.id
+
+    session_id = asyncio.run(main())
+    assert driver.requests[0].prompt == "CTX\nhola"
+    assert driver.requests[1].prompt == "dos"
+    assert not clisessions.has_initial_context(session_id)
+    entries = clisessions.load_transcript(session_id)[0]
+    assert [e["text"] for e in entries if e["kind"] == "user"] == ["hola", "dos"]
+    assert any(e["kind"] == "info" and e["text"] == t("cs.context.sent") for e in entries)
+
+
+def test_initial_context_survives_a_failed_turn(tmp_path):
+    driver = _NoSessionDriver(ok=False)
+
+    async def main():
+        manager = _manager(driver)
+        session = manager.create(str(_project(tmp_path)), "claude")
+        clisessions.save_initial_context(session.id, "CTX\n")
+        manager.send(session.id, "hola")
+        await manager.wait(session.id)
+        return session.id
+
+    assert clisessions.has_initial_context(asyncio.run(main()))

@@ -9,6 +9,7 @@ from ..clisession_runtime import CliSessionManager, SessionBusy, SessionClosed
 from ..clisessions import SESSION_CLIS, CliSession
 from ..i18n import t
 from .actions import ApiError
+from .actions import _load_or_404 as load_task_or_404
 
 if TYPE_CHECKING:
     from .service import ServerService
@@ -36,6 +37,8 @@ def session_summary(session: CliSession, running: bool) -> dict:
         "seconds": session.seconds,
         "created_at": session.created_at,
         "updated_at": session.updated_at,
+        "task_id": session.task_id,
+        "initial_context": clisessions.has_initial_context(session.id),
     }
 
 
@@ -104,14 +107,28 @@ def _text(payload: dict, key: str) -> str:
 def create_session(service: "ServerService", payload: dict) -> tuple[int, dict]:
     manager = _require_manager(service)
     prompt = _text(payload, "prompt")
+    task_id = _text(payload, "task_id")
+    task = None
+    if task_id:
+        task = load_task_or_404(task_id)  # 404 task not found
+        if task.is_remote:
+            raise ApiError(409, "remote projects are not supported")
+    workdir = _text(payload, "workdir") or (task.workdir if task else "")
+    name = _text(payload, "name") or (t("cs.task_session_name", name=task.name) if task else "")
     try:
         session = manager.create(
-            _text(payload, "workdir"),
+            workdir,
             _text(payload, "cli") or "claude",
             model=_text(payload, "model"),
             effort=_text(payload, "effort"),
-            name=_text(payload, "name"),
+            name=name,
+            task_id=task.id if task else "",
         )
+        if task is not None:
+            try:
+                clisessions.save_initial_context(session.id, clisessions.task_context(task))
+            except OSError as exc:
+                raise ApiError(500, "could not store the initial context") from exc
         if prompt:
             manager.send(session.id, prompt)
     except ValueError as exc:

@@ -226,3 +226,35 @@ def test_ws_sessions_list_and_changed_event(tmp_path) -> None:
             _stop(service, srv)
 
     _run(scenario())
+
+
+def test_create_from_task(tmp_path) -> None:
+    from grafeno import models
+    from grafeno.config import Config
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    task = models.Task.create("My task", "d", str(project), Config())
+    models.save(task)
+    remote = models.Task.create("Far", "d", str(project), Config())
+    remote.remote = "u@h:/p"
+    models.save(remote)
+
+    async def scenario():
+        service, srv = await _start(FakeApp())
+        try:
+            status, data = await _request(service, "POST", "/api/v1/sessions", _body(task_id=task.id))
+            assert status == 201, data
+            session = data["session"]
+            assert session["workdir"] == str(project.resolve())
+            assert session["task_id"] == task.id
+            assert session["name"] == "Task: My task"
+            assert session["initial_context"] is True
+            assert (await _request(service, "POST", "/api/v1/sessions", _body(task_id="nope")))[0] == 404
+            assert (await _request(service, "POST", "/api/v1/sessions", _body(task_id=remote.id)))[0] == 409
+            plain = await _create(service, tmp_path)
+            assert plain["task_id"] == "" and plain["initial_context"] is False
+        finally:
+            _stop(service, srv)
+
+    _run(scenario())

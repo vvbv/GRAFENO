@@ -19,10 +19,13 @@ import tomllib
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import _toml, paths, remote, remotesession
-from .i18n import t
+from .i18n import prompt_template, t
+
+if TYPE_CHECKING:
+    from .models import Task
 
 SESSION_CLIS = ("claude", "opencode")  # CLIs offered for direct sessions
 STATE_ACTIVE = "active"
@@ -31,8 +34,10 @@ STATES = (STATE_ACTIVE, STATE_CLOSED)
 ENTRY_KINDS = ("user", "text", "tool", "info", "error")
 _META_NAME = "session.toml"
 _TRANSCRIPT_NAME = "transcript.jsonl"
+_CONTEXT_NAME = "context.md"
 _ID_PATTERN = re.compile(r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$")
 PREVIEW_CHARS = 200  # last_prompt preview length
+CONTEXT_MAX_CHARS = 60_000  # summary characters sent as initial context
 
 
 def _now() -> str:
@@ -64,6 +69,7 @@ class CliSession:
     seconds: int = 0
     created_at: str = ""
     updated_at: str = ""
+    task_id: str = ""         # task the session was opened from (initial context); empty = none
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -88,6 +94,7 @@ class CliSession:
             seconds=_to_int(data.get("seconds")),
             created_at=str(data.get("created_at", "")),
             updated_at=str(data.get("updated_at", "")),
+            task_id=str(data.get("task_id", "")),
         )
 
     @property
@@ -120,7 +127,8 @@ def resolve_workdir(raw: str) -> Path:
 
 
 def create(
-    workdir: str, cli: str, model: str = "", effort: str = "", name: str = ""
+    workdir: str, cli: str, model: str = "", effort: str = "", name: str = "",
+    *, task_id: str = "",
 ) -> CliSession:
     """Create and persist a new active session in a project folder."""
     if cli not in SESSION_CLIS:
@@ -137,9 +145,101 @@ def create(
         model=model.strip(),
         effort=effort.strip(),
         created_at=_now(),
+        task_id=task_id,
     )
     save(session)
     return session
+
+
+_TASK_CONTEXT = {
+    "es": (
+        "Contexto inicial de esta sesion: proviene de la tarea de GRAFENO \"{task_name}\" "
+        "(id {task_id}) del proyecto {workdir}. Complementa las instrucciones del proyecto "
+        "(AGENTS.md, CLAUDE.md...) que ya cargas por tu cuenta.\n"
+        "Los artefactos completos de la tarea (plan, revision, informe final, changes.md) "
+        "estan en {task_dir} por si necesitas mas detalle.\n\n"
+        "{source}:\n{body}\n\n"
+        "---\n"
+        "Primer mensaje del usuario:\n"
+    ),
+    "en": (
+        "Initial context of this session: it comes from the GRAFENO task \"{task_name}\" "
+        "(id {task_id}) of the project {workdir}. It complements the project instructions "
+        "(AGENTS.md, CLAUDE.md...) that you already load on your own.\n"
+        "The full artifacts of the task (plan, review, final report, changes.md) are in "
+        "{task_dir} if you need more detail.\n\n"
+        "{source}:\n{body}\n\n"
+        "---\n"
+        "First user message:\n"
+    ),
+}
+_SOURCE_SUMMARY = {"es": "Resumen de la tarea ({path})", "en": "Task summary ({path})"}
+_SOURCE_DESCRIPTION = {
+    "es": "La tarea aun no tiene summary.md; descripcion de la tarea",
+    "en": "The task has no summary.md yet; task description",
+}
+_TRUNCATED_CONTEXT = {"es": "(resumen truncado)", "en": "(summary truncated)"}
+
+
+def context_path(session_id: str) -> Path:
+    return paths.cli_session_dir(session_id) / _CONTEXT_NAME
+
+
+def save_initial_context(session_id: str, text: str) -> None:
+    """Store the context sent with the next (first) turn of the session."""
+    path = context_path(session_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def load_initial_context(session_id: str) -> str:
+    """Pending initial context, or "" when there is none (or it is unreadable)."""
+    try:
+        return context_path(session_id).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def clear_initial_context(session_id: str) -> None:
+    try:
+        context_path(session_id).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def has_initial_context(session_id: str) -> bool:
+    return context_path(session_id).is_file()
+
+
+def latest_summary(task: "Task") -> Path | None:
+    """summary.md of the most recent cycle that has one."""
+    for cycle in range(max(task.cycle, 1), 0, -1):
+        path = paths.final_dir(task.id, cycle) / "summary.md"
+        if path.is_file():
+            return path
+    return None
+
+
+def task_context(task: "Task") -> str:
+    """Initial context block for a session opened from ``task`` (ends ready for the user text)."""
+    summary = latest_summary(task)
+    body = ""
+    if summary is not None:
+        try:
+            body = summary.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError):
+            body = ""
+    if summary is not None and body:
+        source = prompt_template(_SOURCE_SUMMARY).format(path=str(summary))
+    else:
+        body = task.description.strip() or "-"
+        source = prompt_template(_SOURCE_DESCRIPTION)
+    if len(body) > CONTEXT_MAX_CHARS:
+        body = body[:CONTEXT_MAX_CHARS] + "\n" + prompt_template(_TRUNCATED_CONTEXT)
+    return prompt_template(_TASK_CONTEXT).format(  # formatted once: braces in the body stay literal
+        task_name=task.name, task_id=task.id, workdir=task.workdir,
+        task_dir=str(paths.task_dir(task.id)), source=source, body=body,
+    )
 
 
 def save(session: CliSession) -> None:

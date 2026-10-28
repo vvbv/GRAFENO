@@ -103,7 +103,7 @@ install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), v
 ```
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
-`task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `attachments.toml`, `logs/live.jsonl`, `logs/*.jsonl`; `cli-sessions/<id>/` con `session.toml`, `transcript.jsonl` y `logs/turn-NNN.jsonl`; `reviews/<id>/` con `review.toml` y `commits.jsonl`;
+`task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `attachments.toml`, `logs/live.jsonl`, `logs/*.jsonl`; `cli-sessions/<id>/` con `session.toml`, `transcript.jsonl`, `context.md` (contexto inicial pendiente) y `logs/turn-NNN.jsonl`; `reviews/<id>/` con `review.toml` y `commits.jsonl`;
 además `config.toml`, `references.toml`, `triggers.toml`, `profiles.toml` (con backup rotativo `profiles.toml.bak` best-effort en cada guardado), `consoles/`, `web/`,
 `mounts/`, `telegram-state.toml`, `api.log`); no
 en el repo.
@@ -618,7 +618,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   Quedan deshabilitadas en modo sesión remota y para proyectos SSH. El uso se
   registra en `usage.toml` con fase `session` y `task_id` vacío (suma tokens y
   tiempo al proyecto sin contar como tarea). Las herramientas se ejecutan
-  autoaprobadas, igual que en el pipeline.
+  autoaprobadas, igual que en el pipeline. Desde el detalle de una tarea del panel web (botón "Nueva sesión CLI" junto a "Abrir editor") se crean con `task_id`: `CliSession.task_id`, contexto pendiente en `cli-sessions/<id>/context.md` (`clisessions.task_context`: summary.md del ciclo más reciente o la descripción, plantilla en/es) que `CliSessionManager.send` antepone al prompt del CLI (el transcript guarda solo el texto del usuario) y que se borra cuando el turno termina bien o el CLI informa su id nativo.
 - **Consolas por proyecto**: la lista de tareas (botón/tecla `k`) y el
   detalle de cada tarea (`k`) abren la pantalla de consolas del proyecto
   (en remotas, sobre el montaje sshfs vía `remote.effective_workdir`).
