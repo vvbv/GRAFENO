@@ -6,8 +6,8 @@ with stdout/stderr in ``~/.grafeno/startup/<slug>.log``. Before launching,
 the optional JSON ``settings`` are merged into ``settings_file`` so the tool
 (e.g. a web editor) always starts with them. Presets cover common web
 editors, but any command works: nothing here is tied to VS Code. An action
-with ``open_url`` is the web editor of the panel and always gets
-``EDITOR_SETTINGS`` on top of its ``settings``. Everything
+with ``open_url`` is the web editor of the panel: it gets ``EDITOR_DEFAULTS``
+(dark theme) under its ``settings`` and ``EDITOR_SETTINGS`` on top. Everything
 is best effort: a failing command never prevents GRAFENO from starting.
 """
 
@@ -34,7 +34,8 @@ WORKDIR_PLACEHOLDER = "{workdir}"  # replaced in every argv item by the effectiv
 STOP_GRACE_SECONDS = 5.0           # SIGTERM -> SIGKILL grace when GRAFENO exits
 EARLY_EXIT_CHECK_SECONDS = 5.0     # the App checks for crashed commands after this delay
 EDITOR_SETTINGS: dict[str, Any] = {"git.repositoryScanMaxDepth": -1}  # always enforced on web editors
-GIT_SCAN_SETTINGS = json.dumps(EDITOR_SETTINGS)  # same text the presets always used
+EDITOR_DEFAULTS: dict[str, Any] = {"workbench.colorTheme": "Default Dark Modern"}  # dark theme unless the command settings set another
+PRESET_SETTINGS = json.dumps({**EDITOR_DEFAULTS, **EDITOR_SETTINGS})  # settings text prefilled by the presets
 EDITOR_URL = "http://{host}:8080/?folder={folder}"  # preset link: ?folder= works in the three presets
 
 PRESETS: dict[str, StartupAction] = {
@@ -42,21 +43,21 @@ PRESETS: dict[str, StartupAction] = {
         name="vscode-web",
         command="code serve-web --host 0.0.0.0 --port 8080 --without-connection-token",
         settings_file="~/.vscode-server/data/Machine/settings.json",
-        settings=GIT_SCAN_SETTINGS,
+        settings=PRESET_SETTINGS,
         open_url=EDITOR_URL,
     ),
     "code-server": StartupAction(
         name="code-server",
         command="code-server --bind-addr 0.0.0.0:8080 --auth none",
         settings_file="~/.local/share/code-server/User/settings.json",
-        settings=GIT_SCAN_SETTINGS,
+        settings=PRESET_SETTINGS,
         open_url=EDITOR_URL,
     ),
     "openvscode-server": StartupAction(
         name="openvscode-server",
         command="openvscode-server --host 0.0.0.0 --port 8080 --without-connection-token",
         settings_file="~/.openvscode-server/data/Machine/settings.json",
-        settings=GIT_SCAN_SETTINGS,
+        settings=PRESET_SETTINGS,
         open_url=EDITOR_URL,
     ),
 }
@@ -94,12 +95,17 @@ def is_editor(action: StartupAction) -> bool:
 
 
 def effective_settings(action: StartupAction) -> dict[str, Any]:
-    """Settings merged into ``settings_file``: editors always get ``EDITOR_SETTINGS`` on top.
+    """Settings merged into ``settings_file``.
 
-    Raises ValueError when ``settings`` is not a JSON object.
+    Editors get ``EDITOR_DEFAULTS`` (dark theme) underneath their own
+    ``settings`` and ``EDITOR_SETTINGS`` on top: the command may pick another
+    theme, but never another git scan depth. Raises ValueError when
+    ``settings`` is not a JSON object.
     """
     settings = parse_settings(action.settings)
-    return {**settings, **EDITOR_SETTINGS} if is_editor(action) else settings
+    if not is_editor(action):
+        return settings
+    return {**EDITOR_DEFAULTS, **settings, **EDITOR_SETTINGS}
 
 
 def editor_action(actions: list[StartupAction]) -> StartupAction | None:

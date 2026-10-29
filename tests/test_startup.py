@@ -97,12 +97,13 @@ def test_build_argv_missing_executable(monkeypatch):
 def test_presets_are_copies_and_enforce_git_depth():
     chosen = startup.preset("vscode")
     assert chosen.command == "code serve-web --host 0.0.0.0 --port 8080 --without-connection-token"
-    assert startup.parse_settings(chosen.settings) == {"git.repositoryScanMaxDepth": -1}
+    assert startup.parse_settings(chosen.settings) == {"workbench.colorTheme": "Default Dark Modern", "git.repositoryScanMaxDepth": -1}
     chosen.command = "changed"
     assert startup.PRESETS["vscode"].command != "changed"
     assert startup.preset("nope") is None
     for key in startup.PRESETS:
         assert startup.parse_settings(startup.PRESETS[key].settings)["git.repositoryScanMaxDepth"] == -1
+        assert startup.parse_settings(startup.PRESETS[key].settings)["workbench.colorTheme"] == "Default Dark Modern"
 
 
 def test_validation_error():
@@ -178,14 +179,30 @@ def test_runner_settings_error_does_not_block_launch(tmp_path):
 def test_presets_are_editors():
     for item in startup.PRESETS.values():
         assert item.open_url == startup.EDITOR_URL
-        assert startup.parse_settings(item.settings) == startup.EDITOR_SETTINGS
+        assert startup.parse_settings(item.settings) == {**startup.EDITOR_DEFAULTS, **startup.EDITOR_SETTINGS}
 
 
 def test_effective_settings_force_editor_value():
     text = '{"git.repositoryScanMaxDepth": 1, "a": 2}'
     editor = StartupAction(name="e", command="c", settings=text, open_url="http://{folder}")
-    assert startup.effective_settings(editor) == {"git.repositoryScanMaxDepth": -1, "a": 2}
+    assert startup.effective_settings(editor) == {"workbench.colorTheme": "Default Dark Modern", "git.repositoryScanMaxDepth": -1, "a": 2}
     assert startup.effective_settings(StartupAction(name="e", command="c", settings=text))["git.repositoryScanMaxDepth"] == 1
+    assert "workbench.colorTheme" not in startup.effective_settings(StartupAction(name="e", command="c", settings=text))
+
+
+def test_effective_settings_user_theme_wins():
+    text = '{"workbench.colorTheme": "Default Light Modern", "git.repositoryScanMaxDepth": 3}'
+    editor = StartupAction(name="e", command="c", settings=text, open_url="http://{folder}")
+    assert startup.effective_settings(editor) == {
+        "workbench.colorTheme": "Default Light Modern", "git.repositoryScanMaxDepth": -1,
+    }
+
+
+def test_effective_settings_dark_theme_for_saved_editors():
+    editor = StartupAction(name="e", command="c", settings="", open_url="http://{folder}")
+    assert startup.effective_settings(editor) == {
+        "workbench.colorTheme": "Default Dark Modern", "git.repositoryScanMaxDepth": -1,
+    }
 
 
 def test_editor_action_selection():
@@ -228,5 +245,6 @@ def test_launch_enforces_editor_settings(tmp_path):
     try:
         assert runner.launch(action, str(tmp_path)).ok
         assert json.loads(target.read_text())["git.repositoryScanMaxDepth"] == -1
+        assert json.loads(target.read_text())["workbench.colorTheme"] == "Default Dark Modern"
     finally:
         runner.stop_all()

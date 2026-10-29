@@ -46,7 +46,7 @@ def test_preset_fills_inputs_and_add_appends():
             assert app.query_one("#startup-command", Input).value == (
                 "code serve-web --host 0.0.0.0 --port 8080 --without-connection-token"
             )
-            assert app.query_one("#startup-settings", Input).value == '{"git.repositoryScanMaxDepth": -1}'
+            assert app.query_one("#startup-settings", Input).value == '{"workbench.colorTheme": "Default Dark Modern", "git.repositoryScanMaxDepth": -1}'
             assert app.query_one("#startup-open-url", Input).value == "http://{host}:8080/?folder={folder}"
             app.query_one("#startup-add", Button).press()
             await pilot.pause()

@@ -2426,7 +2426,7 @@ const settingsView = {
       { key: "command", label: tr("cfg.startup.command"), placeholder: "code serve-web --port 8080" },
       { key: "workdir", label: tr("cfg.startup.workdir"), type: "dir" },
       { key: "settings_file", label: tr("cfg.startup.settings_file") },
-      { key: "settings", label: tr("cfg.startup.settings"), placeholder: "{\"git.repositoryScanMaxDepth\": -1}" },
+      { key: "settings", label: tr("cfg.startup.settings"), placeholder: "{\"workbench.colorTheme\": \"Default Dark Modern\"}" },
       { key: "open_url", label: tr("cfg.startup.open_url"), placeholder: "http://{host}:8080/?folder={folder}" },
       { key: "enabled", label: tr("cfg.startup.enabled"), type: "check", default: true },
       { key: "stop_on_exit", label: tr("cfg.startup.stop_on_exit"), type: "check", default: true },

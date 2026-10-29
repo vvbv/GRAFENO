@@ -327,7 +327,8 @@ paths:
         The web editor is the first enabled startup command with `open_url` (else the first
         one with `open_url`). Placeholders of `open_url`: `{host}` (the `host` field, default
         `localhost`), `{folder}` (URL-encoded absolute folder) and `{name}` (folder name).
-        Before answering, `{"git.repositoryScanMaxDepth": -1}` (plus the command `settings`)
+        Before answering, the command `settings` over the default dark theme
+        (`{"workbench.colorTheme": "Default Dark Modern"}`), with `{"git.repositoryScanMaxDepth": -1}` always on top,
         is merged into its `settings_file` when one is set (best effort: failures are reported
         in `settings_error`). Projects must be listed by `GET /api/v1/projects`. Remote (SSH)
         projects/tasks and remote session mode answer 409.
@@ -4256,7 +4257,7 @@ components:
               stop_on_exit: {type: boolean}
               settings_file: {type: string}
               settings: {type: string}
-              open_url: {type: string, description: "Web panel editor link: {host}, {folder}, {name}; empty = not an editor. Must start with http(s):// and contain {folder}. Editors always get git.repositoryScanMaxDepth = -1."}
+              open_url: {type: string, description: "Web panel editor link: {host}, {folder}, {name}; empty = not an editor. Must start with http(s):// and contain {folder}. Editors always get git.repositoryScanMaxDepth = -1 and the dark theme by default."}
         startup_presets:
           type: array
           readOnly: true

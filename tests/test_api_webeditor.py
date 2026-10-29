@@ -57,6 +57,7 @@ def test_open_by_workdir_enforces_settings(project, settings_file):
     assert result["url"] == f"http://localhost:9000/?folder={quote(str(project), safe='/:')}"
     assert result["running"] is None and result["settings_updated"] is True
     assert json.loads(settings_file.read_text())["git.repositoryScanMaxDepth"] == -1
+    assert json.loads(settings_file.read_text())["workbench.colorTheme"] == "Default Dark Modern"
     assert webeditor.open_editor(_Service(), {"workdir": str(project)})["settings_updated"] is False
 
 
