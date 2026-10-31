@@ -458,7 +458,29 @@ async def _session_transcript(service: "ServerService", request: Request, params
 @route("POST", "/api/v1/sessions/{session_id}/send")
 async def _session_send(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
     payload = parse_json_body(request)
-    return clisessions.send_prompt(service, params["session_id"], str(payload.get("prompt") or ""))
+    return clisessions.send_prompt(
+        service, params["session_id"], str(payload.get("prompt") or ""), payload.get("attachments")
+    )
+
+
+@route("GET", "/api/v1/sessions/{session_id}/attachments")
+async def _session_attachments(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return clisessions.list_attachments(service, params["session_id"])
+
+
+@route("POST", "/api/v1/sessions/{session_id}/attachments")
+async def _session_attachments_upload(service: "ServerService", request: Request, params: dict[str, str]):
+    """Raw file body with ?name= (no base64): stored in the session media dir."""
+    if request.headers.get("content-type", "").lower().startswith("application/json"):
+        raise actions.ApiError(415, "send the file as the raw request body with ?name=")
+    name = (request.query.get("name") or "").strip()
+    if not name:
+        raise actions.ApiError(400, "name is required")
+    if request.body_path is not None:  # spooled by httpcore: moved, never loaded
+        return clisessions.upload_attachment_file(service, params["session_id"], name, request.body_path)
+    if not request.body:
+        raise actions.ApiError(400, "empty body")
+    return clisessions.upload_attachment(service, params["session_id"], name, bytes(request.body))  # small body fallback
 
 
 @route("POST", "/api/v1/sessions/{session_id}/cancel")

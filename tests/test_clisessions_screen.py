@@ -150,3 +150,43 @@ def test_empty_notice_is_not_duplicated_and_all_view_text(tmp_path, monkeypatch)
             assert text.count("No messages yet") == 1
 
     asyncio.run(scenario())
+
+
+def test_pasted_image_is_saved_in_the_session_and_its_path_inserted(tmp_path, monkeypatch):
+    """Ctrl+V with an image stores it under the session media dir and inserts its absolute path."""
+    from grafeno import media
+    from grafeno.tui.screens.clisessions import SessionPromptInput
+
+    png = b"\x89PNG\r\n\x1a\npayload"
+
+    async def fake_clipboard():
+        return png
+
+    async def no_clipboard():
+        return None
+
+    async def scenario():
+        project = _setup(tmp_path, monkeypatch)
+        session = clisessions.create(str(project), "claude")
+        monkeypatch.setattr(media, "read_clipboard_image_async", fake_clipboard)
+        app = GrafenoApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            field = SessionPromptInput(id="probe")
+            await app.mount(field)
+            field.value = "mira"
+            field.cursor_position = len(field.value)
+            field.session_id = session.id
+            await field.action_paste_media()
+            stored = clisessions.list_attachments(session.id)
+            assert [e.file for e in stored] == ["media-01.png"]
+            path = clisessions.attachment_path(session.id, "media-01.png")
+            assert path.read_bytes() == png
+            assert field.value == f"mira {path} "
+            # Without a selected session nothing is stored (plain text paste path).
+            field.session_id = None
+            monkeypatch.setattr(media, "read_clipboard_image_async", no_clipboard)
+            await field.action_paste_media()
+            assert len(clisessions.list_attachments(session.id)) == 1
+
+    asyncio.run(scenario())

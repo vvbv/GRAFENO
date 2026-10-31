@@ -1604,6 +1604,73 @@ paths:
           $ref: "#/components/responses/Conflict"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /api/v1/sessions/{session_id}/attachments:
+    get:
+      tags: [sessions]
+      summary: Files attached to the messages of a session, with their absolute paths.
+      operationId: listSessionAttachments
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attachments:
+                    type: array
+                    items: {$ref: "#/components/schemas/CliSessionAttachment"}
+                required: [attachments]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [sessions]
+      summary: Upload one file for the next message (raw binary body, no base64).
+      operationId: uploadSessionAttachment
+      description: >-
+        The body is the file itself (`?name=` carries the original name); it is
+        streamed to `~/.grafeno/cli-sessions/<id>/media/` and never loaded in
+        memory. No turn is started: send the returned `file` in the
+        `attachments` of `POST .../send` and the agent receives its absolute
+        path (never its contents). Max 500 MiB per file; authorized before the
+        body is read; `Expect: 100-continue` is honored. JSON bodies are
+        refused with 415.
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - {name: name, in: query, required: true, description: "Original file name.", schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: {type: string, format: binary}
+      responses:
+        "201":
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attachment: {$ref: "#/components/schemas/CliSessionAttachment"}
+                required: [attachment]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          description: File larger than 500 MiB.
+        "415":
+          description: "JSON/base64 body: send the file as the raw request body."
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "507":
+          description: Not enough disk space to store the upload.
   /api/v1/sessions/{session_id}/cancel:
     post:
       tags: [sessions]
@@ -2790,9 +2857,25 @@ components:
         prompt: {type: string, description: Optional first prompt sent right after creation.}
     CliSessionSendRequest:
       type: object
+      description: "`prompt` may be empty when `attachments` is not."
       properties:
         prompt: {type: string}
-      required: [prompt]
+        attachments:
+          type: array
+          maxItems: 10
+          description: >-
+            Stored names (`file`) returned by `POST .../attachments`. The agent
+            receives their absolute paths appended to the prompt, never their contents.
+          items: {type: string}
+    CliSessionAttachment:
+      type: object
+      properties:
+        file: {type: string, description: "Stored name inside the session media dir (media-NN.ext)."}
+        name: {type: string, description: Original file name.}
+        kind: {type: string, enum: [image, video, audio, spreadsheet, document, data, archive, other]}
+        size: {type: integer}
+        path: {type: string, description: Absolute path on the GRAFENO host (what the agent receives).}
+      required: [file, name, kind, size, path]
     CliSessionEditRequest:
       type: object
       properties:

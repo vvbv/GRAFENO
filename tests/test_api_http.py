@@ -271,10 +271,12 @@ def test_body_policy_by_route() -> None:
         policy = httpcore.body_policy("POST", path, json_headers)
         assert policy.limit == httpcore.MAX_UPLOAD_BODY
         assert policy.upload and not policy.spool
-    raw = httpcore.body_policy(
-        "POST", "/api/v1/tasks/x/attachments", {"content-type": "application/octet-stream"}
-    )
-    assert raw.limit == httpcore.MAX_RAW_UPLOAD_BODY and raw.spool and raw.upload
+    for path in ("/api/v1/tasks/x/attachments", "/api/v1/sessions/x/attachments"):
+        raw = httpcore.body_policy("POST", path, {"content-type": "application/octet-stream"})
+        assert raw.limit == httpcore.MAX_RAW_UPLOAD_BODY and raw.spool and raw.upload
+    # Sessions never take base64: a JSON body there gets the regular small cap.
+    policy = httpcore.body_policy("POST", "/api/v1/sessions/x/attachments", json_headers)
+    assert policy.limit == httpcore.MAX_BODY and not policy.upload
     for method, path in (("POST", "/api/v1/settings"), ("GET", "/api/v1/tasks")):
         policy = httpcore.body_policy(method, path, json_headers)
         assert policy.limit == httpcore.MAX_BODY and not policy.upload

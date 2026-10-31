@@ -264,7 +264,11 @@ class Attachment:
 
 def _load_manifest(task_id: str) -> dict[str, Attachment]:
     """Manifest entries by stored file name ({} when missing or unreadable)."""
-    path = paths.attachments_manifest_path(task_id)
+    return _read_manifest(paths.attachments_manifest_path(task_id))
+
+
+def _read_manifest(path: Path) -> dict[str, Attachment]:
+    """Entries of the manifest at ``path`` by stored file name ({} when missing or unreadable)."""
     if not path.exists():
         return {}
     try:
@@ -287,7 +291,11 @@ def _load_manifest(task_id: str) -> dict[str, Attachment]:
 
 def _save_manifest(task_id: str, entries: list[Attachment]) -> None:
     """Rewrite the manifest (removes the file when ``entries`` is empty)."""
-    path = paths.attachments_manifest_path(task_id)
+    _write_manifest(paths.attachments_manifest_path(task_id), entries)
+
+
+def _write_manifest(path: Path, entries: list[Attachment]) -> None:
+    """Rewrite the manifest at ``path`` (removes the file when ``entries`` is empty)."""
     try:
         if not entries:
             path.unlink(missing_ok=True)
@@ -300,9 +308,13 @@ def _save_manifest(task_id: str, entries: list[Attachment]) -> None:
 
 def record_attachment(task_id: str, entry: Attachment) -> None:
     """Add or replace the manifest entry of ``entry.file``."""
-    manifest = _load_manifest(task_id)
+    _record_in(paths.attachments_manifest_path(task_id), entry)
+
+
+def _record_in(manifest_path: Path, entry: Attachment) -> None:
+    manifest = _read_manifest(manifest_path)
     manifest[entry.file] = entry
-    _save_manifest(task_id, list(manifest.values()))
+    _write_manifest(manifest_path, list(manifest.values()))
 
 
 def list_attachments(task_id: str) -> list[Attachment]:
@@ -313,10 +325,19 @@ def list_attachments(task_id: str) -> list[Attachment]:
     kind by suffix, size from disk); manifest entries without a file are
     ignored. Hidden files are skipped.
     """
-    directory = paths.task_dir(task_id) / "media"
+    return list_attachments_in(
+        paths.task_dir(task_id) / "media", paths.attachments_manifest_path(task_id)
+    )
+
+
+def list_attachments_in(directory: Path, manifest_path: Path) -> list[Attachment]:
+    """Files of ``directory`` with the metadata of ``manifest_path`` (see list_attachments).
+
+    Shared by the task media dir and the media dir of the direct CLI sessions.
+    """
     if not directory.is_dir():
         return []
-    manifest = _load_manifest(task_id)
+    manifest = _read_manifest(manifest_path)
     result: list[Attachment] = []
     for entry in sorted(directory.iterdir(), key=lambda e: e.name):
         if not entry.is_file() or entry.name.startswith("."):
@@ -376,9 +397,29 @@ def save_attachment(
     recorded in the task manifest. Files above ``MAX_ATTACHMENT_BYTES`` are
     rejected (None).
     """
+    return store_attachment(
+        paths.media_dir(task_id), paths.attachments_manifest_path(task_id),
+        filename, data, origin=origin, cycle=cycle,
+    )
+
+
+def store_attachment(
+    directory: Path,
+    manifest_path: Path,
+    filename: str,
+    data: bytes,
+    *,
+    origin: str = "",
+    cycle: int = 1,
+) -> Path | None:
+    """Store ``data`` as the next ``media-NN<ext>`` of ``directory`` and record it.
+
+    Same rules as :func:`save_attachment` for any media dir (tasks and direct
+    CLI sessions): safe suffixes, MAX_ATTACHMENT_BYTES and free disk space.
+    """
     if len(data) > MAX_ATTACHMENT_BYTES:
         return None
-    directory = paths.media_dir(task_id)
+    directory.mkdir(parents=True, exist_ok=True)
     if not has_free_space(directory, len(data)):
         return None
     target = _next_target(directory, filename)
@@ -386,7 +427,7 @@ def save_attachment(
         target.write_bytes(data)
     except OSError:
         return None
-    _record_saved(task_id, target, filename, len(data), origin, cycle)
+    _record_saved(manifest_path, target, filename, len(data), origin, cycle)
     return target
 
 
@@ -403,10 +444,10 @@ def _next_target(directory: Path, filename: str) -> Path:
 
 
 def _record_saved(
-    task_id: str, target: Path, filename: str, size: int, origin: str, cycle: int
+    manifest_path: Path, target: Path, filename: str, size: int, origin: str, cycle: int
 ) -> None:
     """Add the manifest entry of a freshly stored attachment."""
-    record_attachment(task_id, Attachment(
+    _record_in(manifest_path, Attachment(
         file=target.name,
         name=display_name(filename),
         kind=attachment_kind(filename),  # by the ORIGINAL name: evil.sh -> "other"
@@ -434,13 +475,30 @@ def save_attachment_file(
     ``shutil.copyfile`` (in-kernel copy on Linux). Returns None when the file
     is missing, above MAX_ATTACHMENT_BYTES, the disk is full or the copy fails.
     """
+    return store_attachment_file(
+        paths.media_dir(task_id), paths.attachments_manifest_path(task_id),
+        filename, source, origin=origin, cycle=cycle, move=move,
+    )
+
+
+def store_attachment_file(
+    directory: Path,
+    manifest_path: Path,
+    filename: str,
+    source: Path,
+    *,
+    origin: str = "",
+    cycle: int = 1,
+    move: bool = False,
+) -> Path | None:
+    """Store a file from disk under ``directory`` without loading it (see save_attachment_file)."""
     try:
         size = source.stat().st_size
     except OSError:
         return None
     if size > MAX_ATTACHMENT_BYTES:
         return None
-    directory = paths.media_dir(task_id)
+    directory.mkdir(parents=True, exist_ok=True)
     if not move and not has_free_space(directory, size):
         return None
     target = _next_target(directory, filename)
@@ -452,7 +510,7 @@ def save_attachment_file(
     except OSError:
         target.unlink(missing_ok=True)
         return None
-    _record_saved(task_id, target, filename, size, origin, cycle)
+    _record_saved(manifest_path, target, filename, size, origin, cycle)
     return target
 
 

@@ -519,8 +519,8 @@ def test_cli_session_composer_keeps_send_next_to_prompt():
     assert "align-items: flex-end;" not in actions
 
 
-def test_cli_session_composer_sends_multiple_attachments_in_prompt():
-    """Session files are base64 blocks in prompt and are cleared only on success."""
+def test_cli_session_composer_uploads_files_and_sends_their_names():
+    """Session files are raw uploads to the session; the prompt never carries their contents."""
     from importlib import resources
 
     static = resources.files("grafeno.server").joinpath("static")
@@ -528,32 +528,25 @@ def test_cli_session_composer_sends_multiple_attachments_in_prompt():
     css = static.joinpath("app.css").read_text(encoding="utf-8")
     build = script.split("  buildComposer() {", 1)[1].split("  applyEnterMode() {", 1)[0]
     send = script.split("  async send() {", 1)[1].split("  async action(name) {", 1)[0]
-    prompt = script.split("function sessionPrompt(text, attachments) {", 1)[1].split(
-        "// ---------------------------------------------------------------- CLI sessions view", 1
-    )[0]
     mobile = css.split("@media (max-width: 760px) {", 1)[1].split(".media-upload", 1)[0]
 
     assert 'this.files = attachmentsCollector([prompt], tr("cs.attachments_hint"))' in build
+    assert "this.uploaded = new Map();" in build
     assert 'class: "cs-editor"' in build
     assert "this.sendButton" in build and "enter.node" in build
-    assert "function sessionPrompt(text, attachments)" in script
-    assert 'JSON.stringify({ name: item.name, encoding: "base64" })' in prompt
-    assert "--- GRAFENO ATTACHMENT ---" in prompt
-    assert "--- END GRAFENO ATTACHMENT ---" in prompt
-    assert "if (!attachments.length) return text;" in prompt
-    assert "await this.files.payload()" in send
-    assert "sessionPrompt(text, attachments)" in send
-    assert 'await api("POST", sessionPath(this.sessionId, "/send"), { prompt })' in send
-    assert "this.files.bytes() > CS_ATTACH_MAX_TOTAL" in send
-    assert 'tr("cs.error.attachments_too_large")' in send
-    assert send.index("await api(") < send.index('this.prompt.value = "";') < send.index("this.files.clear()")
-    assert "uploadRaw" not in send
-    assert "this.files.split()" not in send
-    assert "attachments:" not in send
+    # No base64 and no inlined file contents anywhere in the session flow.
+    assert "function sessionPrompt" not in script
+    assert "GRAFENO ATTACHMENT" not in script
+    assert "CS_ATTACH_MAX_TOTAL" not in script
+    assert "this.files.payload(" not in send
+    assert 'this.files.uploadTo((file) => sessionPath(this.sessionId, "/attachments?name=" + enc(file.name)), pending)' in send
+    assert 'await api("POST", sessionPath(this.sessionId, "/send"), { prompt: text, attachments })' in send
+    assert "if (!text && !this.files.count())" in send
+    assert send.index("uploadTo(") < send.index("await api(") < send.index('this.prompt.value = "";') < send.index("this.files.clear()")
     assert "this.sending = false; this.updateComposer();" in send
     for language in ("en", "es"):
         assert "cs.attachments_hint" in i18n._MESSAGES[language]
-        assert "cs.error.attachments_too_large" in i18n._MESSAGES[language]
+        assert "cs.attachments.sent" in i18n._MESSAGES[language]
     assert ".cs-editor" in css
     assert '.cs-editor input[type="file"]' in css
     assert ".cs-compose { flex-direction: column; }" in mobile

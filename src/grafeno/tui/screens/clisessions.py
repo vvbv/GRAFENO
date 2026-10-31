@@ -17,7 +17,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Input, Label, RichLog, Static
 
-from ... import clisessions, config as config_module, remotesession
+from ... import clisessions, config as config_module, media, remotesession
 from ...clisession_runtime import SessionBusy, SessionClosed
 from ...clisessions import SESSION_CLIS, STATE_CLOSED, CliSession
 from ...drivers import fetch_all_models, fetch_all_variants
@@ -31,6 +31,31 @@ from ..widgets import GrafenoHeader, LocationBar
 from .detail import StatusConfirmScreen
 
 SESSION_ROLES: tuple[tuple[str, str], ...] = (("session", "cs.role"),)
+
+
+class SessionPromptInput(Input):
+    """Prompt field of a session: Ctrl+V with an image in the clipboard stores
+    it in the session media dir and inserts its absolute path (the agent reads
+    the file from disk; nothing is inlined). Without an image it pastes text."""
+
+    BINDINGS = [Binding("ctrl+v", "paste_media", show=False, priority=True)]
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.session_id: str | None = None
+
+    async def action_paste_media(self) -> None:
+        data = await media.read_clipboard_image_async() if self.session_id else None
+        if data is None:
+            self.action_paste()  # normal text paste
+            return
+        saved = clisessions.save_attachment(self.session_id, "pasted.png", data, origin="tui")
+        if saved is None:
+            self.notify(t("cs.error.image_paste"), severity="error")
+            return
+        prefix = "" if not self.value or self.value.endswith(" ") else " "
+        self.insert_text_at_cursor(prefix + str(saved) + " ")
+        self.notify(t("cs.image_pasted", path=str(saved)))
 
 
 class NewCliSessionScreen(ModalScreen["dict | None"]):
@@ -170,7 +195,7 @@ class CliSessionsScreen(Screen[None]):
                 yield RichLog(id="cs-log", highlight=False, markup=False, wrap=True)
                 yield Static("", id="cs-hint", markup=False)
                 with Horizontal(id="cs-compose"):
-                    yield Input(placeholder=t("cs.prompt.placeholder"), id="cs-input")
+                    yield SessionPromptInput(placeholder=t("cs.prompt.placeholder"), id="cs-input")
                     yield Button(t("cs.send"), id="cs-send", variant="primary", compact=True)
                     yield Button(t("cs.stop"), id="cs-stop", compact=True)
                     yield Button(t("cs.rename"), id="cs-rename", compact=True)
@@ -299,7 +324,9 @@ class CliSessionsScreen(Screen[None]):
         running = session is not None and self._manager.is_running(session.id)
         closed = session is not None and session.state == STATE_CLOSED
         self.query_one("#cs-new", Button).disabled = remote
-        self.query_one("#cs-input", Input).disabled = session is None or closed
+        field = self.query_one("#cs-input", SessionPromptInput)
+        field.disabled = session is None or closed
+        field.session_id = session.id if session is not None else None  # pasted images go here
         self.query_one("#cs-send", Button).disabled = session is None or closed or running
         self.query_one("#cs-stop", Button).disabled = not running
         for button_id in ("#cs-rename", "#cs-toggle", "#cs-delete"):

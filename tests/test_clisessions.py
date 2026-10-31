@@ -167,3 +167,45 @@ def test_task_context_truncates(tmp_path):
     task = _task(tmp_path)
     _summary(task, 1, "a" * (clisessions.CONTEXT_MAX_CHARS + 10))
     assert "(summary truncated)" in clisessions.task_context(task)
+
+
+def test_session_attachments_are_stored_in_the_session_media_dir(tmp_path):
+    session = clisessions.create(str(tmp_path), "claude")
+    source = tmp_path / "Informe final.xlsx"
+    source.write_bytes(b"PK\x03\x04 sheet")
+    saved = clisessions.save_attachment_file(session.id, source.name, source)
+    assert saved is not None and saved.parent == clisessions.media_dir(session.id)
+    assert saved.name == "media-01.xlsx" and source.exists()  # copied, not moved
+    entries = clisessions.list_attachments(session.id)
+    assert [(e.file, e.name, e.kind) for e in entries] == [("media-01.xlsx", "Informe final.xlsx", "spreadsheet")]
+    assert clisessions.resolve_attachments(session.id, [saved.name, saved.name]) == entries
+    block = clisessions.attachments_prompt(session.id, entries)
+    assert str(saved.resolve()) in block and "Informe final.xlsx" in block
+
+
+def test_unsafe_suffixes_are_stored_as_bin_and_too_many_files_are_rejected(tmp_path):
+    session = clisessions.create(str(tmp_path), "claude")
+    saved = clisessions.save_attachment(session.id, "evil.sh", b"rm -rf /")
+    assert saved is not None and saved.suffix == ".bin"
+    names = [f"media-{n:02d}.png" for n in range(1, clisessions.MAX_MESSAGE_ATTACHMENTS + 2)]
+    with pytest.raises(ValueError):
+        clisessions.resolve_attachments(session.id, names)
+    assert clisessions.save_attachment("../escape", "a.png", b"x") is None
+
+
+def test_deleting_a_session_removes_its_attachments(tmp_path):
+    session = clisessions.create(str(tmp_path), "claude")
+    saved = clisessions.save_attachment(session.id, "a.png", b"\x89PNG")
+    assert clisessions.delete(session.id)
+    assert not saved.exists()
+
+
+def test_task_context_lists_task_media_with_absolute_paths(tmp_path):
+    from grafeno import media
+
+    task = _task(tmp_path)
+    image = media.save_image(task.id, b"\x89PNG\r\n\x1a\n")
+    doc = media.save_attachment(task.id, "notas.docx", b"PK")
+    context = clisessions.task_context(task)
+    assert str(image) in context and str(doc.resolve()) in context
+    assert context.endswith("First user message:\n")

@@ -217,3 +217,60 @@ def test_initial_context_survives_a_failed_turn(tmp_path):
         return session.id
 
     assert clisessions.has_initial_context(asyncio.run(main()))
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+def test_attachments_reach_the_agent_as_absolute_paths_never_contents(tmp_path):
+    driver = FakeSessionDriver()
+
+    async def main():
+        manager = _manager(driver)
+        session = manager.create(str(_project(tmp_path)), "claude")
+        image = clisessions.save_attachment(session.id, "Screenshot 1.png", PNG)
+        doc = clisessions.save_attachment(session.id, "spec.pdf", b"%PDF-1.7 data")
+        manager.send(session.id, "mira esto", [image.name, doc.name])
+        await manager.wait(session.id)
+        return session.id, image, doc
+
+    session_id, image, doc = asyncio.run(main())
+    prompt = driver.requests[0].prompt
+    assert prompt.startswith("mira esto")
+    assert str(image.resolve()) in prompt and str(doc.resolve()) in prompt
+    assert "Screenshot 1.png" in prompt and "spec.pdf" in prompt
+    assert "base64" not in prompt and "GRAFENO ATTACHMENT" not in prompt
+    entries = clisessions.load_transcript(session_id)[0]
+    assert [e["text"] for e in entries if e["kind"] == "user"] == ["mira esto"]
+    assert any(e["kind"] == "info" and str(image.resolve()) in e["text"] for e in entries)
+
+
+def test_attachments_only_message_is_allowed(tmp_path):
+    driver = FakeSessionDriver()
+
+    async def main():
+        manager = _manager(driver)
+        session = manager.create(str(_project(tmp_path)), "claude")
+        image = clisessions.save_attachment(session.id, "a.png", PNG)
+        manager.send(session.id, "  ", [image.name])
+        await manager.wait(session.id)
+        return image
+
+    image = asyncio.run(main())
+    assert str(image.resolve()) in driver.requests[0].prompt
+
+
+@pytest.mark.parametrize("names", [["../session.toml"], ["missing.png"], ["/etc/passwd"]])
+def test_invalid_attachment_names_are_rejected_before_the_turn(tmp_path, names):
+    driver = FakeSessionDriver()
+
+    async def main():
+        manager = _manager(driver)
+        session = manager.create(str(_project(tmp_path)), "claude")
+        with pytest.raises(ValueError):
+            manager.send(session.id, "hola", names)
+        return session.id
+
+    session_id = asyncio.run(main())
+    assert driver.requests == []
+    assert clisessions.load(session_id).turns == 0

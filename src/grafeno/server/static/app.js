@@ -22,7 +22,6 @@ const TASK_COL_MIN = 160;  // px: same floor as the task cells (app.css)
 const TASK_COL_MAX = 4000; // px: caps absurd stored values
 const TASK_COL_STEP = 20;  // px per ArrowLeft/ArrowRight on the resize handle
 const CS_ENTER_KEY = "grafeno.csEnterSends";  // CLI session composer: Enter sends
-const CS_ATTACH_MAX_TOTAL = 4 * 1024 * 1024;
 
 // ---------------------------------------------------------------- helpers
 function tr(key, vars) {
@@ -844,21 +843,29 @@ function attachmentsCollector(targets, hint) {
       for (const file of (list || files).slice()) out.push({ name: file.name, data: await fileBase64(file) });
       return out;
     },
-    // Streams each file as a raw body (in sequence) with a progress line.
+    // Streams each file of a task as a raw body (in sequence) with a progress line.
     async upload(taskId, list, cycle) {
+      await this.uploadTo((file) => taskUploadUrl(taskId, file, cycle), list);
+    },
+    // Streams each file as the raw body of POST urlFor(file) (in sequence, no
+    // base64) and returns the parsed responses in the same order.
+    async uploadTo(urlFor, list) {
+      const results = [];
       for (const file of list || files) {
         try {
-          await uploadRaw(taskId, file, cycle, (loaded, total) => {
+          results.push(await uploadRaw(urlFor(file), file, (loaded, total) => {
             progress.textContent = tr("web.ui.uploading", { name: file.name, percent: Math.floor(loaded * 100 / total) });
-          });
+          }));
         } catch (err) {
           progress.textContent = "";
           throw new ApiFailure(err && err.status ? err.status : 0, tr("web.ui.upload_failed", { name: file.name, error: err && err.message ? err.message : String(err) }));
         }
       }
       progress.textContent = "";
+      return results;
     },
     clear() { files.splice(0, files.length); render(); },
+    list: () => files.slice(),
     bytes: () => files.reduce((total, file) => total + file.size, 0),
     setDisabled(value) { input.disabled = !!value; },
     count: () => files.length,
@@ -873,13 +880,18 @@ function fileBase64(file) {
   });
 }
 
-// Streams one file as the raw body of POST .../attachments (no base64, no full
-// read into memory). XMLHttpRequest instead of fetch: it reports upload progress.
-function uploadRaw(taskId, file, cycle, onProgress) {
+function taskUploadUrl(taskId, file, cycle) {
+  let url = taskPath(taskId, "/attachments?name=" + enc(file.name));
+  if (cycle) url += "&cycle=" + enc(String(cycle));
+  return url;
+}
+
+// Streams one file as the raw body of POST <url> (task or CLI session
+// attachments: no base64, no full read into memory). XMLHttpRequest instead of
+// fetch: it reports upload progress.
+function uploadRaw(url, file, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    let url = taskPath(taskId, "/attachments?name=" + enc(file.name));
-    if (cycle) url += "&cycle=" + enc(String(cycle));
     xhr.open("POST", url);
     if (auth.token) xhr.setRequestHeader("Authorization", "Bearer " + auth.token);
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
@@ -1883,14 +1895,6 @@ function saveEnterSends(on) {
     else localStorage.removeItem(CS_ENTER_KEY);
   } catch (e) { /* storage blocked */ }
 }
-function sessionPrompt(text, attachments) {
-  if (!attachments.length) return text;
-  const blocks = attachments.map((item) => {
-    const metadata = JSON.stringify({ name: item.name, encoding: "base64" });
-    return "--- GRAFENO ATTACHMENT ---\n" + metadata + "\n" + item.data + "\n--- END GRAFENO ATTACHMENT ---";
-  });
-  return text + "\n\n" + blocks.join("\n\n");
-}
 
 // ---------------------------------------------------------------- CLI sessions view
 // #/sessions -> every session; #/sessions/<folder> -> the sessions of a project;
@@ -2086,6 +2090,7 @@ const sessionsView = {
     this.enterSends = loadEnterSends();
     const prompt = h("textarea");
     this.files = attachmentsCollector([prompt], tr("cs.attachments_hint"));
+    this.uploaded = new Map();  // File -> stored name of the session attachment
     prompt.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" || event.isComposing) return;  // IME composition confirms with Enter
       const modifier = event.ctrlKey || event.metaKey;
@@ -2149,19 +2154,21 @@ const sessionsView = {
   async send() {
     if (this.sending) return;
     const text = this.prompt.value.trim();
-    if (!text) { toast(tr("cs.error.empty_prompt"), "error"); return; }
-    if (this.files.bytes() > CS_ATTACH_MAX_TOTAL) {
-      toast(tr("cs.error.attachments_too_large"), "error");
-      return;
-    }
+    if (!text && !this.files.count()) { toast(tr("cs.error.empty_prompt"), "error"); return; }
     this.sending = true;
     this.updateComposer();
     try {
-      const attachments = await this.files.payload();
-      const prompt = sessionPrompt(text, attachments);
-      await api("POST", sessionPath(this.sessionId, "/send"), { prompt });
+      // Files go to the session media dir as raw bodies and the agent gets their
+      // paths. Files already stored by a failed send are not uploaded again.
+      const files = this.files.list();
+      const pending = files.filter((file) => !this.uploaded.has(file));
+      const results = await this.files.uploadTo((file) => sessionPath(this.sessionId, "/attachments?name=" + enc(file.name)), pending);
+      pending.forEach((file, index) => this.uploaded.set(file, results[index].attachment.file));
+      const attachments = files.map((file) => this.uploaded.get(file));
+      await api("POST", sessionPath(this.sessionId, "/send"), { prompt: text, attachments });
       this.prompt.value = "";
       this.files.clear();
+      this.uploaded = new Map();
     } catch (err) { if (err && err.status === 409) toast(err.message, "error"); else fail(err); return; }
     finally { this.sending = false; this.updateComposer(); }
     this.poll();

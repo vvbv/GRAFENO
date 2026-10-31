@@ -31,7 +31,7 @@ MAX_RAW_UPLOAD_BODY = media.MAX_ATTACHMENT_BYTES  # raw file body of POST .../at
 UPLOAD_IDLE_TIMEOUT = 60.0  # seconds without receiving upload bytes
 READ_CHUNK = 1024 * 1024    # bytes per read/write when streaming bodies and files
 _UPLOAD_PATH = re.compile(r"/api/v1/tasks(?:/[^/]+/(?:extend|attachments))?")
-_RAW_UPLOAD_PATH = re.compile(r"/api/v1/tasks/[^/]+/attachments")
+_RAW_UPLOAD_PATH = re.compile(r"/api/v1/(?:tasks|sessions)/[^/]+/attachments")  # raw file bodies only
 HEAD_READ_TIMEOUT = 15.0  # seconds to receive the request head
 REQUEST_TIMEOUT = 30.0    # seconds for any single read on the request
 

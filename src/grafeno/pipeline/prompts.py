@@ -13,6 +13,8 @@ placeholders and are formatted exactly once, so braces in task data are safe.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..i18n import prompt_language, prompt_template
 from ..models import Task
 from ..references import resolve
@@ -277,6 +279,13 @@ _ATTACHMENT_LARGE = {
 
 def _attachment_item(task: Task, entry: media.Attachment, lang: str) -> str:
     """One bullet of the attachments section: name, kind, size, path and hint."""
+    return attachment_item(entry, media.attachment_path(task.id, entry.file), lang)
+
+
+def attachment_item(entry: media.Attachment, path: Path, lang: str | None = None) -> str:
+    """Bullet describing one stored attachment: name, kind, size, absolute path
+    and the reading hint of its kind. Shared by the task prompts and the
+    direct CLI sessions, so an agent always gets a path, never file contents."""
     labels = prompt_template(_ATTACHMENT_KIND_LABELS, lang)
     hints = prompt_template(_ATTACHMENT_HINTS, lang)
     cycle = (
@@ -284,7 +293,6 @@ def _attachment_item(task: Task, entry: media.Attachment, lang: str) -> str:
         if entry.cycle > 1
         else ""
     )
-    path = media.attachment_path(task.id, entry.file)
     first = (
         f"- **{entry.name or entry.file}** ({labels.get(entry.kind, entry.kind)}, "
         f"{media.format_size(entry.size)}{cycle}): {path}"
@@ -309,6 +317,11 @@ def _attachments_section(task: Task, lang: str) -> str:
     return prompt_template(_ATTACHMENTS_SECTION, lang).format(
         directory=paths.task_dir(task.id) / "media", items=items
     )
+
+
+def media_section(task: Task, lang: str | None = None) -> str:
+    """Images and reference files of ``task`` with absolute paths ("" when none)."""
+    return _media_section(task, lang)
 
 
 def _media_section(task: Task, lang: str) -> str:

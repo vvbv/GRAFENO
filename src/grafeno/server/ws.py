@@ -535,8 +535,13 @@ async def _sessions_create(service: "ServerService", params: dict, conn: "WsConn
 
 async def _sessions_send(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
     return clisessions.send_prompt(
-        service, _required_session_id(params), str(params.get("prompt") or "")
+        service, _required_session_id(params), str(params.get("prompt") or ""),
+        params.get("attachments"),
     )
+
+
+async def _sessions_attachments(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return clisessions.list_attachments(service, _required_session_id(params))
 
 
 async def _sessions_cancel(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
@@ -795,6 +800,7 @@ METHODS: dict[str, Callable] = {
     "sessions.transcript": _sessions_transcript,
     "sessions.create": _sessions_create,
     "sessions.send": _sessions_send,
+    "sessions.attachments": _sessions_attachments,
     "sessions.cancel": _sessions_cancel,
     "sessions.edit": _sessions_edit,
     "sessions.close": _sessions_close,

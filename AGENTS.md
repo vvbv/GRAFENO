@@ -22,7 +22,7 @@ src/grafeno/
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs); además el idioma de los prompts internos (set_prompt_language/prompt_language, vacío = el de la GUI) y prompt_template() para elegir la variante de una plantilla por idioma
 ├── live_log.py             # Persistencia del log en vivo (Text -> logs/live.jsonl, carga al crear el runtime; best-effort)
 ├── mdnorm.py               # Normalización de Markdown: colapsa saltos de línea y compacta listas sueltas en los .md de cada etapa; `markdown_outline` da el esquema de encabezados con offsets
-├── media.py                # Imágenes del portapapeles: lectura (wl-paste/xclip/pngpaste/osascript), guardado en media/ de la tarea, listado y apertura con el visor del SO; preview inline opcional vía textual-image; adjuntos de referencia de cualquier tipo (Word, Excel, PDF, imágenes, vídeo, otros): grupos de sufijos (`ATTACHMENT_KINDS`, `SAFE_SUFFIXES`, el resto `.bin`), tope `MAX_ATTACHMENT_BYTES` (500 MiB), `save_attachment_file` (copia/mueve desde disco sin cargarlo en memoria, chequeo de espacio libre `has_free_space`), `base64_length` y `LARGE_ATTACHMENT_BYTES` (50 MiB: los prompts avisan de leerlo por partes), manifiesto `attachments.toml` en la carpeta de la tarea (dataclass `Attachment`: nombre original, tipo, tamaño, origen, ciclo) con `list_attachments`/`delete_attachment`
+├── media.py                # Imágenes del portapapeles: lectura (wl-paste/xclip/pngpaste/osascript), guardado en media/ de la tarea, listado y apertura con el visor del SO; preview inline opcional vía textual-image; adjuntos de referencia de cualquier tipo (Word, Excel, PDF, imágenes, vídeo, otros): grupos de sufijos (`ATTACHMENT_KINDS`, `SAFE_SUFFIXES`, el resto `.bin`), tope `MAX_ATTACHMENT_BYTES` (500 MiB), `save_attachment_file` (copia/mueve desde disco sin cargarlo en memoria, chequeo de espacio libre `has_free_space`), `base64_length` y `LARGE_ATTACHMENT_BYTES` (50 MiB: los prompts avisan de leerlo por partes), manifiesto `attachments.toml` en la carpeta de la tarea (dataclass `Attachment`: nombre original, tipo, tamaño, origen, ciclo) con `list_attachments`/`delete_attachment`; `store_attachment`/`store_attachment_file`/`list_attachments_in` hacen lo mismo sobre cualquier carpeta media + manifiesto (los usan las sesiones CLI directas)
 ├── modelcheck.py           # Verificación de modelos retirados: compara los pares cli+modelo configurados (config general + parser de Telegram, perfiles y tareas) con la lista que reporta cada CLI; lógica pura (collect_*/used_clis/find_missing/format_issues)
 ├── tokenfmt.py             # Formateo compacto de conteos de tokens (1.2k, 3.4M)
 ├── timefmt.py              # Formateo de duraciones (42s, 3m 05s, 1h 02m 03s); `format_countdown` (distancia gruesa: 45m, 6h 05m, 2d 03h)
@@ -56,7 +56,7 @@ src/grafeno/
 │   └── service.py          #   Bucle de polling (worker de la App), whitelist de chats, propuestas con botones inline, creación origin="telegram", notificación de fin
 ├── server/                 # Servidor remoto REST + WS sobre stdlib (asyncio)
 │   ├── service.py          #   Ciclo de vida: bind, eventos push por sondeo (signature) y registro de conexiones WS; logs a ~/.grafeno/api.log (cap 1 MiB) sin el token
-│   ├── httpcore.py         #   HTTP/1.1 parseo/serialización (límites 32 KiB head/8 MiB body; `body_policy`: rutas de subida autorizadas antes de leer el cuerpo, JSON+base64 hasta el base64 de un archivo de 500 MiB + 1 MiB y cuerpo binario de `POST .../attachments` volcado a `~/.grafeno/uploads/` por bloques hasta 500 MiB; timeout por inactividad de 60 s; 413 si excede, 507 sin espacio, `Expect: 100-continue`; `Response.file` sirve archivos en streaming (con `file_offset`/`file_length` para respuestas parciales 206), keep-alive)
+│   ├── httpcore.py         #   HTTP/1.1 parseo/serialización (límites 32 KiB head/8 MiB body; `body_policy`: rutas de subida autorizadas antes de leer el cuerpo, JSON+base64 hasta el base64 de un archivo de 500 MiB + 1 MiB y cuerpo binario de `POST .../attachments` (tareas y sesiones CLI) volcado a `~/.grafeno/uploads/` por bloques hasta 500 MiB; timeout por inactividad de 60 s; 413 si excede, 507 sin espacio, `Expect: 100-continue`; `Response.file` sirve archivos en streaming (con `file_offset`/`file_length` para respuestas parciales 206), keep-alive)
 │   ├── auth.py             #   Bearer/query token; denegar todo cuando no hay tokens
 │   ├── rest.py             #   Router con placeholders genéricos `{nombre}` (`{task_id}`, `{session_id}`) precompilados (regex fullmatch); dispatch a actions.py
 │   ├── actions.py          #   Operaciones compartidas REST/WS (read y write); ApiError(status, message) -> Response
@@ -103,7 +103,7 @@ install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), v
 ```
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
-`task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `attachments.toml`, `logs/live.jsonl`, `logs/*.jsonl`; `cli-sessions/<id>/` con `session.toml`, `transcript.jsonl`, `context.md` (contexto inicial pendiente) y `logs/turn-NNN.jsonl`; `reviews/<id>/` con `review.toml` y `commits.jsonl`;
+`task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `attachments.toml`, `logs/live.jsonl`, `logs/*.jsonl`; `cli-sessions/<id>/` con `session.toml`, `transcript.jsonl`, `context.md` (contexto inicial pendiente), `media/` + `attachments.toml` (archivos adjuntos a los mensajes) y `logs/turn-NNN.jsonl`; `reviews/<id>/` con `review.toml` y `commits.jsonl`;
 además `config.toml`, `references.toml`, `triggers.toml`, `profiles.toml` (con backup rotativo `profiles.toml.bak` best-effort en cada guardado), `consoles/`, `web/`,
 `mounts/`, `telegram-state.toml`, `api.log`); no
 en el repo.
@@ -611,14 +611,31 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   paralelo); el estado running vive solo en memoria (en disco solo
   `active`/`closed`). Se gestionan en la TUI (Proyectos -> "CLI sessions" o `s`;
   `s` en la lista de tareas abre todas), en el panel web
-  (`#/sessions[/<carpeta>[/<id>]]`, polling del transcript cada 1.5 s); el alta global usa un selector de proyectos con filtro por nombre/ruta alimentado por `/api/v1/projects`, mientras los accesos con carpeta predefinida la mantienen fija; el composer tiene un checkbox "Enviar con Enter" (Shift+Enter = salto de línea; preferencia en `localStorage` `grafeno.csEnterSends`; desactivado = botón o Ctrl+Enter) y admite hasta 10 archivos por mensaje, 4 MiB en total, cuyos contenidos base64 se incorporan al prompt junto con el texto; y por API:
+  (`#/sessions[/<carpeta>[/<id>]]`, polling del transcript cada 1.5 s); el alta global usa un selector de proyectos con filtro por nombre/ruta alimentado por `/api/v1/projects`, mientras los accesos con carpeta predefinida la mantienen fija; el composer tiene un checkbox "Enviar con Enter" (Shift+Enter = salto de línea; preferencia en `localStorage` `grafeno.csEnterSends`; desactivado = botón o Ctrl+Enter) y admite hasta 10 archivos por mensaje (500 MiB máx. cada uno), que se suben en binario (`uploadRaw`, sin base64) a `POST /api/v1/sessions/{id}/attachments?name=` y se envían por nombre (`attachments` de `/send`); en la TUI, Ctrl+V con una imagen en el portapapeles la guarda en la sesión e inserta su ruta absoluta en el prompt (`SessionPromptInput`); y por API:
   rutas `/api/v1/sessions...`, métodos WS `sessions.*` y topic `sessions` con los
   eventos `session.changed`/`session.deleted` (las entradas del transcript se
   consultan con `after`). `SESSION_CLIS` es el único punto para añadir CLIs.
   Quedan deshabilitadas en modo sesión remota y para proyectos SSH. El uso se
   registra en `usage.toml` con fase `session` y `task_id` vacío (suma tokens y
   tiempo al proyecto sin contar como tarea). Las herramientas se ejecutan
-  autoaprobadas, igual que en el pipeline. Desde el detalle de una tarea del panel web (botón "Nueva sesión CLI" junto a "Abrir editor") se crean con `task_id`: `CliSession.task_id`, contexto pendiente en `cli-sessions/<id>/context.md` (`clisessions.task_context`: summary.md del ciclo más reciente o la descripción, plantilla en/es) que `CliSessionManager.send` antepone al prompt del CLI (el transcript guarda solo el texto del usuario) y que se borra cuando el turno termina bien o el CLI informa su id nativo.
+  autoaprobadas, igual que en el pipeline. **Adjuntos de las sesiones (regla: rutas, nunca contenido)**: el agente
+  recibe siempre la ruta absoluta de cada archivo, nunca su contenido en el
+  prompt (base64 ni ningún otro inline: un modelo sin visión recibía un blob
+  ilegible de cientos de miles de tokens). Los archivos se guardan en
+  `cli-sessions/<id>/media/` con las mismas reglas que los de las tareas
+  (`media.store_attachment`/`store_attachment_file`: `media-NN<ext>`,
+  `SAFE_SUFFIXES`, 500 MiB, espacio libre, nombre original en
+  `attachments.toml`); `CliSessionManager.send(id, prompt, attachments)`
+  valida los nombres (`clisessions.resolve_attachments`: máx. 10, sin
+  separadores ni archivos ajenos) y añade al prompt el bloque de
+  `clisessions.attachments_prompt` (mismo formato por archivo que las tareas:
+  `prompts.attachment_item`, con tipo, tamaño, ruta y pista de lectura); el
+  transcript guarda el texto del usuario y una línea `info` con nombres y
+  rutas. El cuerpo JSON en `POST .../attachments` de una sesión responde 415.
+  El contexto inicial de una sesión abierta desde una tarea incluye las
+  imágenes y adjuntos de la tarea con rutas absolutas (`prompts.media_section`):
+  los tokens `media/...` de la descripción son relativos a la carpeta de la
+  tarea, no al proyecto. Desde el detalle de una tarea del panel web (botón "Nueva sesión CLI" junto a "Abrir editor") se crean con `task_id`: `CliSession.task_id`, contexto pendiente en `cli-sessions/<id>/context.md` (`clisessions.task_context`: summary.md del ciclo más reciente o la descripción, plantilla en/es) que `CliSessionManager.send` antepone al prompt del CLI (el transcript guarda solo el texto del usuario) y que se borra cuando el turno termina bien o el CLI informa su id nativo.
 - **Consolas por proyecto**: la lista de tareas (botón/tecla `k`) y el
   detalle de cada tarea (`k`) abren la pantalla de consolas del proyecto
   (en remotas, sobre el montaje sshfs vía `remote.effective_workdir`).

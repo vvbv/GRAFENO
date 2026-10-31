@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .. import clisessions, remotesession
+from .. import clisessions, media, paths, remotesession
 from ..clisession_runtime import CliSessionManager, SessionBusy, SessionClosed
 from ..clisessions import SESSION_CLIS, CliSession
 from ..i18n import t
@@ -136,11 +137,74 @@ def create_session(service: "ServerService", payload: dict) -> tuple[int, dict]:
     return 201, {"session": session_summary(manager.get(session.id), manager.is_running(session.id))}
 
 
-def send_prompt(service: "ServerService", session_id: str, prompt: str) -> dict:
-    manager = _require_manager(service)
+def _attachment_names(raw: object) -> list[str]:
+    """``attachments`` of a send request: a list of stored file names."""
+    if raw is None or raw == "":
+        return []
+    if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
+        raise ApiError(400, "attachments must be a list of stored file names")
+    return list(raw)
+
+
+def attachment_payload(session_id: str, entry: media.Attachment) -> dict:
+    """Public metadata of a session attachment (with its absolute path)."""
+    return {
+        "file": entry.file, "name": entry.name or entry.file, "kind": entry.kind,
+        "size": entry.size, "path": str(clisessions.attachment_path(session_id, entry.file)),
+    }
+
+
+def list_attachments(service: "ServerService", session_id: str) -> dict:
+    _load_or_404(service, session_id)
+    return {"attachments": [attachment_payload(session_id, a) for a in clisessions.list_attachments(session_id)]}
+
+
+def upload_attachment_file(
+    service: "ServerService", session_id: str, name: str, source: Path
+) -> tuple[int, dict]:
+    """Move a spooled raw upload into the session media dir (no turn is started).
+
+    The file is referenced later by its stored name in ``send`` (``attachments``),
+    and the agent receives its absolute path, never its contents.
+    """
+    _require_manager(service)
     _load_or_404(service, session_id)
     try:
-        session = manager.send(session_id, prompt)
+        size = source.stat().st_size
+    except OSError as exc:
+        raise ApiError(400, "empty body") from exc
+    if size > media.MAX_ATTACHMENT_BYTES:
+        raise ApiError(413, f"attachment too large (max {media.MAX_ATTACHMENT_BYTES} bytes)")
+    saved = clisessions.save_attachment_file(session_id, name, source, origin="api", move=True)
+    return _saved_response(session_id, name, saved)
+
+
+def upload_attachment(service: "ServerService", session_id: str, name: str, data: bytes) -> tuple[int, dict]:
+    """Store a small in-memory body as a session attachment (same response as the raw route)."""
+    _require_manager(service)
+    _load_or_404(service, session_id)
+    if len(data) > media.MAX_ATTACHMENT_BYTES:
+        raise ApiError(413, f"attachment too large (max {media.MAX_ATTACHMENT_BYTES} bytes)")
+    return _saved_response(session_id, name, clisessions.save_attachment(session_id, name, data, origin="api"))
+
+
+def _saved_response(session_id: str, name: str, saved: Path | None) -> tuple[int, dict]:
+    if saved is None:
+        if not media.has_free_space(paths.cli_sessions_dir(), 0):
+            raise ApiError(507, "insufficient storage")
+        raise ApiError(500, f"could not save {name}")
+    entry = next(a for a in clisessions.list_attachments(session_id) if a.file == saved.name)
+    return 201, {"attachment": attachment_payload(session_id, entry)}
+
+
+def send_prompt(
+    service: "ServerService", session_id: str, prompt: str, attachments: object = None
+) -> dict:
+    manager = _require_manager(service)
+    _load_or_404(service, session_id)
+    names = _attachment_names(attachments)
+    try:
+        session = manager.send(session_id, prompt, names)
     except ValueError as exc:
         raise ApiError(400, str(exc)) from exc
     except SessionBusy as exc:

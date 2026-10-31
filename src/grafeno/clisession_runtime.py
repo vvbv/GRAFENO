@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
-from typing import Any, Callable, Coroutine
+from typing import Any, Callable, Coroutine, Sequence
 
 from . import clisessions, usage
 from .clisessions import PREVIEW_CHARS, STATE_ACTIVE, STATE_CLOSED, CliSession
@@ -93,10 +93,16 @@ class CliSessionManager:
         self._emit("changed", session)
         return session
 
-    def send(self, session_id: str, prompt: str) -> CliSession:
-        """Validate and start a turn (needs a running event loop)."""
+    def send(self, session_id: str, prompt: str, attachments: Sequence[str] = ()) -> CliSession:
+        """Validate and start a turn (needs a running event loop).
+
+        ``attachments`` are stored names of files already saved in the session
+        media dir (``clisessions.save_attachment*``): the agent receives their
+        absolute paths appended to the prompt, never their contents.
+        """
         prompt = prompt.strip()
-        if not prompt:
+        entries = clisessions.resolve_attachments(session_id, list(attachments))  # ValueError if invalid
+        if not prompt and not entries:
             raise ValueError("prompt is required")
         if self.is_running(session_id):
             raise SessionBusy(session_id)
@@ -104,16 +110,20 @@ class CliSessionManager:
         if session.state == STATE_CLOSED:
             raise SessionClosed(session_id)
         session.turns += 1
-        session.last_prompt = prompt[:PREVIEW_CHARS]
+        session.last_prompt = (prompt or ", ".join(e.name or e.file for e in entries))[:PREVIEW_CHARS]
         session.last_error = ""
         clisessions.save(session)
         context = clisessions.load_initial_context(session.id)  # pending context of a task session
-        self._entry(session, "user", prompt)
+        if prompt:
+            self._entry(session, "user", prompt)
+        if entries:
+            self._entry(session, "info", clisessions.attachments_note(session.id, entries))
         if context:
             self._entry(session, "info", t("cs.context.sent"))
+        message = (prompt + clisessions.attachments_prompt(session.id, entries)).strip()
         self._live[session.id] = session
         self._finished[session.id] = asyncio.Event()
-        coro = self._run_turn(session, context + prompt if context else prompt)
+        coro = self._run_turn(session, context + message if context else message)
         try:
             self._handles[session.id] = self._spawn(coro, f"grafeno-cli-session-{session.id}")
         except Exception:

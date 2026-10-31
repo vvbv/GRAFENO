@@ -258,3 +258,68 @@ def test_create_from_task(tmp_path) -> None:
             _stop(service, srv)
 
     _run(scenario())
+
+
+def test_raw_attachment_upload_and_send_with_paths(tmp_path) -> None:
+    """Files are uploaded as raw bodies and the agent gets their absolute paths."""
+    from grafeno import clisessions
+
+    prompts: list[str] = []
+
+    class RecordingDriver(FakeSessionDriver):
+        async def run(self, request, on_event=None, on_activity=None, on_session=None):
+            prompts.append(request.prompt)
+            return await super().run(request, on_event, on_activity, on_session)
+
+    async def scenario():
+        app = FakeApp()
+        app.cli_sessions = CliSessionManager(driver_factory=lambda cli: RecordingDriver())
+        service, srv = await _start(app)
+        try:
+            session = await _create(service, tmp_path)
+            sid = session["id"]
+            png = b"\x89PNG\r\n\x1a\n" + b"\x01" * 32
+            status, data = await _request(
+                service, "POST", f"/api/v1/sessions/{sid}/attachments?name=Screenshot%201.png",
+                png, content_type="application/octet-stream",
+            )
+            assert status == 201, data
+            attachment = data["attachment"]
+            assert attachment["name"] == "Screenshot 1.png" and attachment["kind"] == "image"
+            stored = clisessions.attachment_path(sid, attachment["file"])
+            assert attachment["path"] == str(stored) and stored.read_bytes() == png
+
+            status, listed = await _request(service, "GET", f"/api/v1/sessions/{sid}/attachments")
+            assert status == 200 and [a["file"] for a in listed["attachments"]] == [attachment["file"]]
+
+            status, data = await _request(
+                service, "POST", f"/api/v1/sessions/{sid}/send",
+                _body(prompt="no encaja", attachments=[attachment["file"]]),
+            )
+            assert status == 200, data
+            await _idle(service, sid)
+            assert str(stored) in prompts[0] and "base64" not in prompts[0]
+
+            # base64/JSON uploads are refused, unknown names and bad payloads too.
+            status, _ = await _request(
+                service, "POST", f"/api/v1/sessions/{sid}/attachments?name=a.png",
+                _body(attachments=[{"name": "a.png", "data": "AAAA"}]),
+            )
+            assert status == 415
+            status, _ = await _request(
+                service, "POST", f"/api/v1/sessions/{sid}/send", _body(prompt="x", attachments=["nope.png"]),
+            )
+            assert status == 400
+            status, _ = await _request(
+                service, "POST", f"/api/v1/sessions/{sid}/send", _body(prompt="x", attachments="media-01.png"),
+            )
+            assert status == 400
+            status, _ = await _request(
+                service, "POST", "/api/v1/sessions/20990101-000000-abcdef/attachments?name=a.png",
+                b"data", content_type="application/octet-stream",
+            )
+            assert status == 404
+        finally:
+            _stop(service, srv)
+
+    _run(scenario())
