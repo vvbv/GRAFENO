@@ -116,6 +116,17 @@ def test_page_strings_exist_in_both_languages():
         assert key in i18n._MESSAGES["es"], key
 
 
+def test_new_task_link_immediately_follows_tasks_in_navigation():
+    """New task stays visually grouped with Tasks in the header."""
+    import re
+    from importlib import resources
+
+    html = resources.files("grafeno.server").joinpath("static/index.html").read_text(encoding="utf-8")
+    nav = html.split('<nav id="nav">', 1)[1].split("</nav>", 1)[0]
+    routes = re.findall(r'data-route="([^"]+)"', nav)
+    assert routes == ["tasks", "new", "projects", "sessions", "reports", "settings"]
+
+
 def test_task_column_defaults_to_60vw_and_keeps_the_resized_width():
     """The task column starts at 60% of the viewport and its resized width persists."""
     import re
@@ -155,6 +166,30 @@ def test_projects_tab_and_preset_new_task_route():
     assert "build(options, tasks, preset)" in script
 
 
+def test_project_actions_have_corner_close_button():
+    """Project actions replace Cancel with an accessible corner close button."""
+    from importlib import resources
+
+    static = resources.files("grafeno.server").joinpath("static")
+    script = static.joinpath("app.js").read_text(encoding="utf-8")
+    css = static.joinpath("app.css").read_text(encoding="utf-8")
+    choose = script.split("  async choose(item) {", 1)[1].split("  async createProject() {", 1)[0]
+    for fragment in (
+        "project-actions-header", "project-actions-close", "project-actions-buttons", 'text: "×"',
+        'tr("projects.actions.title", { name: item.name })', "text: item.workdir",
+        'tr("web.editor.open")', 'tr("cs.open")', 'tr("projects.action.new_task")',
+        'close("sessions")', 'close("new")',
+    ):
+        assert fragment in choose
+    assert choose.count('tr("common.close")') == 2
+    assert 'tr("common.cancel")' not in choose
+    assert "dialog .project-actions-header" in css
+    assert "dialog .project-actions-close" in css
+    assert "justify-content: space-between" in css
+    for language in ("en", "es"):
+        assert "common.close" in i18n._MESSAGES[language]
+
+
 def test_cli_sessions_tab_and_project_action():
     """The panel has a CLI sessions tab, reachable from the project actions."""
     from importlib import resources
@@ -170,6 +205,47 @@ def test_cli_sessions_tab_and_project_action():
     assert "innerHTML" not in script
     # The composer is built once; session changes only toggle `disabled`.
     assert "updateComposer()" in script and "renderComposer" not in script
+
+
+def test_new_cli_session_uses_searchable_project_selector():
+    """Global session creation searches projects and keeps preset folders fixed."""
+    from importlib import resources
+
+    from grafeno import i18n
+
+    static = resources.files("grafeno.server").joinpath("static")
+    script = static.joinpath("app.js").read_text(encoding="utf-8")
+    css = static.joinpath("app.css").read_text(encoding="utf-8")
+    method = script.split("  async newSession(preset) {", 1)[1].split("  async openChat() {", 1)[0]
+    selector = script.split("function projectSelector(projects) {", 1)[1].split("// ---------------------------------------------------------------- list editors", 1)[0]
+    for needle in (
+        'api("GET", "/api/v1/projects")',
+        "projectSelector(projectData.projects || [])",
+        "folder.node",
+        "const workdir = folder.value()",
+        "{ workdir, name:",
+    ):
+        assert needle in method
+    assert "dirSuggestions(folder)" not in method
+    assert 'const needle = filter.value.trim().toLowerCase();' in selector
+    assert '(item.name + " " + item.workdir).toLowerCase()' in selector
+    assert "if (selected && !shown.some((item) => item.workdir === selected))" in selector
+    for needle in ('tr("cs.workdir.prompt")', 'tr("cs.error.select_workdir")'):
+        assert needle in script
+    for language in ("en", "es"):
+        assert "cs.workdir.prompt" in i18n._MESSAGES[language]
+        assert "cs.error.select_workdir" in i18n._MESSAGES[language]
+    assert ".cs-project-selector" in css
+
+
+def test_new_cli_session_does_not_append_null_task_context():
+    """Ordinary session creation omits the task hint instead of appending null."""
+    from importlib import resources
+
+    script = resources.files("grafeno.server").joinpath("static/app.js").read_text(encoding="utf-8")
+    method = script.split("  async newSession(preset) {", 1)[1].split("  async openChat() {", 1)[0]
+    assert '...(preset.task_id ? [h("p", { class: "help", text: tr("cs.context.hint", { name: preset.task_name }) })] : []),' in method
+    assert 'preset.task_id ? h("p", { class: "help", text: tr("cs.context.hint", { name: preset.task_name }) }) : null' not in method
 
 
 def test_working_directories_use_the_list_editor():
@@ -429,6 +505,60 @@ def test_cli_session_composer_can_send_with_enter():
     assert "event.isComposing" in script  # IME composition never sends
     assert "event.shiftKey" in script     # Shift+Enter keeps inserting a new line
     assert ".cs-actions" in css
+
+
+def test_cli_session_composer_keeps_send_next_to_prompt():
+    """The Send button stays next to the prompt instead of the checkbox edge."""
+    from importlib import resources
+
+    css = resources.files("grafeno.server").joinpath("static/app.css").read_text(encoding="utf-8")
+    compose = next(line for line in css.splitlines() if line.startswith(".cs-compose {"))
+    actions = next(line for line in css.splitlines() if line.startswith(".cs-actions {"))
+    assert "gap: 8px;" in compose
+    assert "align-items: flex-start;" in actions
+    assert "align-items: flex-end;" not in actions
+
+
+def test_cli_session_composer_sends_multiple_attachments_in_prompt():
+    """Session files are base64 blocks in prompt and are cleared only on success."""
+    from importlib import resources
+
+    static = resources.files("grafeno.server").joinpath("static")
+    script = static.joinpath("app.js").read_text(encoding="utf-8")
+    css = static.joinpath("app.css").read_text(encoding="utf-8")
+    build = script.split("  buildComposer() {", 1)[1].split("  applyEnterMode() {", 1)[0]
+    send = script.split("  async send() {", 1)[1].split("  async action(name) {", 1)[0]
+    prompt = script.split("function sessionPrompt(text, attachments) {", 1)[1].split(
+        "// ---------------------------------------------------------------- CLI sessions view", 1
+    )[0]
+    mobile = css.split("@media (max-width: 760px) {", 1)[1].split(".media-upload", 1)[0]
+
+    assert 'this.files = attachmentsCollector([prompt], tr("cs.attachments_hint"))' in build
+    assert 'class: "cs-editor"' in build
+    assert "this.sendButton" in build and "enter.node" in build
+    assert "function sessionPrompt(text, attachments)" in script
+    assert 'JSON.stringify({ name: item.name, encoding: "base64" })' in prompt
+    assert "--- GRAFENO ATTACHMENT ---" in prompt
+    assert "--- END GRAFENO ATTACHMENT ---" in prompt
+    assert "if (!attachments.length) return text;" in prompt
+    assert "await this.files.payload()" in send
+    assert "sessionPrompt(text, attachments)" in send
+    assert 'await api("POST", sessionPath(this.sessionId, "/send"), { prompt })' in send
+    assert "this.files.bytes() > CS_ATTACH_MAX_TOTAL" in send
+    assert 'tr("cs.error.attachments_too_large")' in send
+    assert send.index("await api(") < send.index('this.prompt.value = "";') < send.index("this.files.clear()")
+    assert "uploadRaw" not in send
+    assert "this.files.split()" not in send
+    assert "attachments:" not in send
+    assert "this.sending = false; this.updateComposer();" in send
+    for language in ("en", "es"):
+        assert "cs.attachments_hint" in i18n._MESSAGES[language]
+        assert "cs.error.attachments_too_large" in i18n._MESSAGES[language]
+    assert ".cs-editor" in css
+    assert '.cs-editor input[type="file"]' in css
+    assert ".cs-compose { flex-direction: column; }" in mobile
+    assert ".cs-actions" in mobile and "flex-direction: row" in mobile
+    assert "align-items: center" in mobile
 
 
 def test_projects_tab_creates_projects():

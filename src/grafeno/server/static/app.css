@@ -292,6 +292,14 @@ dialog.wide { width: min(980px, calc(100vw - 24px)); }
 dialog::backdrop { background: rgba(0, 0, 0, .45); }
 dialog form { display: flex; flex-direction: column; gap: 12px; padding: 18px; }
 dialog h3 { margin: 0; font-size: 16px; }
+dialog .project-actions-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+dialog .project-actions-header h3 { min-width: 0; padding-right: 4px; }
+dialog .project-actions-close {
+  flex: none; margin: -8px -8px 0 0; border: 0; background: none; color: var(--muted);
+  font-size: 24px; line-height: 1; padding: 0 4px;
+}
+dialog .project-actions-close:hover { color: var(--text); }
+dialog .project-actions-buttons { flex-wrap: wrap; }
 dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 dialog .body { white-space: pre-line; }
 dialog .detail { font-size: 13px; color: var(--muted); white-space: pre-line; }
@@ -314,6 +322,7 @@ dialog .detail { font-size: 13px; color: var(--muted); white-space: pre-line; }
 @media (max-width: 760px) {
   .col-opt { display: none; }
   .form-grid { grid-template-columns: 1fr; }
+  dialog .cs-project-selector { grid-template-columns: 1fr; }
   .files-layout { flex-direction: column; }
   .file-list { width: auto; }
   .tab-body.files-mode { overflow: auto; display: block; }
@@ -322,12 +331,15 @@ dialog .detail { font-size: 13px; color: var(--muted); white-space: pre-line; }
   header.top { gap: 8px; padding: 8px 12px; }
   header.top .version, #status-text { display: none; }
   .page { padding: 14px 16px 40px; }
+  .cs-compose { flex-direction: column; }
+  .cs-compose .cs-actions { flex-direction: row; align-items: center; justify-content: space-between; }
 }
 .media-upload { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 
 .upload-progress { margin-top: 4px; }
 
 /* CLI sessions */
+.cs-project-selector { display: grid; grid-template-columns: minmax(160px, 0.4fr) minmax(0, 1fr); gap: 6px; }
 .cs-chat { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .cs-chat .detail-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .cs-chat .detail-head .spacer { flex: 1; }
@@ -340,6 +352,9 @@ dialog .detail { font-size: 13px; color: var(--muted); white-space: pre-line; }
 .cs-line.l-dim { color: var(--muted); }
 .cs-compose { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--panel); }
 .cs-compose textarea { flex: 1; min-height: 60px; }
-.cs-actions { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: 6px; }
+.cs-editor { flex: 1; min-width: 0; }
+.cs-editor textarea { width: 100%; min-height: 60px; }
+.cs-editor input[type="file"] { max-width: 100%; }
+.cs-actions { display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 6px; }
 .cs-actions .check { font-size: 12.5px; color: var(--muted); white-space: nowrap; cursor: pointer; }
 .cs-hint { padding: 4px 16px; color: var(--muted); font-size: 12px; }

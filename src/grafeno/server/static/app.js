@@ -22,6 +22,7 @@ const TASK_COL_MIN = 160;  // px: same floor as the task cells (app.css)
 const TASK_COL_MAX = 4000; // px: caps absurd stored values
 const TASK_COL_STEP = 20;  // px per ArrowLeft/ArrowRight on the resize handle
 const CS_ENTER_KEY = "grafeno.csEnterSends";  // CLI session composer: Enter sends
+const CS_ATTACH_MAX_TOTAL = 4 * 1024 * 1024;
 
 // ---------------------------------------------------------------- helpers
 function tr(key, vars) {
@@ -653,6 +654,38 @@ function dirSuggestions(input) {
   input.addEventListener("focus", load);
 }
 
+// ---------------------------------------------------------------- project selector
+function projectSelector(projects) {
+  const items = projects.slice().sort((a, b) => {
+    const byName = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+    return byName || a.workdir.toLowerCase().localeCompare(b.workdir.toLowerCase());
+  });
+  const filter = h("input", { type: "search", placeholder: plain(tr("projects.filter.placeholder")) });
+  const select = h("select");
+  let selected = "";
+  const refresh = () => {
+    const needle = filter.value.trim().toLowerCase();
+    let shown = needle ? items.filter((item) => (item.name + " " + item.workdir).toLowerCase().includes(needle)) : items;
+    if (selected && !shown.some((item) => item.workdir === selected)) {
+      const current = items.find((item) => item.workdir === selected);
+      if (current) shown = [current].concat(shown);
+    }
+    let prompt = tr("cs.workdir.prompt");
+    if (!items.length) prompt = tr("projects.empty.no_projects");
+    else if (!shown.length && !selected) prompt = tr("projects.empty.filter");
+    select.replaceChildren(option(plain(prompt), "", !selected),
+      ...shown.map((item) => option(item.name + " (" + item.workdir + ")", item.workdir, item.workdir === selected)));
+    select.value = selected;
+  };
+  filter.addEventListener("input", refresh);
+  select.addEventListener("change", () => { selected = select.value; });
+  refresh();
+  return {
+    node: h("div", { class: "cs-project-selector" }, filter, select),
+    value: () => select.value.trim(),
+  };
+}
+
 // ---------------------------------------------------------------- list editors
 function listEditor(columns, rows, emptyText) {
   // columns: [{key, label, type?: "text"|"select"|"phases"|"dir"|"check", options?, placeholder?}]
@@ -752,7 +785,7 @@ function formatBytes(size) {
   if (size < 1024 * 1024) return (size / 1024).toFixed(1) + " KB";
   return (size / (1024 * 1024)).toFixed(1) + " MB";
 }
-function attachmentsCollector(targets) {
+function attachmentsCollector(targets, hint) {
   const files = [];
   const chips = h("div", { class: "chips" });
   const input = h("input", { type: "file", multiple: true });
@@ -794,7 +827,7 @@ function attachmentsCollector(targets) {
     });
   }
   return {
-    node: h("div", null, input, h("div", { class: "drop-hint", text: tr("web.ui.paste_hint") }), chips, progress),
+    node: h("div", null, input, h("div", { class: "drop-hint", text: hint || tr("web.ui.paste_hint") }), chips, progress),
     // Splits the files between the JSON request (base64) and raw streamed uploads.
     split() {
       const inline = [];
@@ -808,7 +841,7 @@ function attachmentsCollector(targets) {
     },
     async payload(list) {
       const out = [];
-      for (const file of list || files) out.push({ name: file.name, data: await fileBase64(file) });
+      for (const file of (list || files).slice()) out.push({ name: file.name, data: await fileBase64(file) });
       return out;
     },
     // Streams each file as a raw body (in sequence) with a progress line.
@@ -826,6 +859,8 @@ function attachmentsCollector(targets) {
       progress.textContent = "";
     },
     clear() { files.splice(0, files.length); render(); },
+    bytes: () => files.reduce((total, file) => total + file.size, 0),
+    setDisabled(value) { input.disabled = !!value; },
     count: () => files.length,
   };
 }
@@ -1747,11 +1782,16 @@ const projectsView = {
     return row;
   },
   async choose(item) {
-    const choice = await modal({ title: tr("projects.actions.title", { name: item.name }) }, (form, close) => {
+    const title = tr("projects.actions.title", { name: item.name });
+    const choice = await modal({}, (form, close) => {
       form.append(
+        h("div", { class: "project-actions-header" },
+          h("h3", { text: title }),
+          h("button", { type: "button", class: "icon project-actions-close", text: "×",
+            title: tr("common.close"), "aria-label": tr("common.close"),
+            onclick: () => close(undefined) })),
         h("div", { class: "detail mono", text: item.workdir }),
-        h("div", { class: "buttons" },
-          h("button", { type: "button", text: tr("common.cancel"), onclick: () => close(undefined) }),
+        h("div", { class: "buttons project-actions-buttons" },
           h("button", { type: "button", text: tr("web.editor.open"), disabled: !editorInfo().available,
             title: editorInfo().available ? editorInfo().name : tr("web.editor.none"),
             onclick: () => { openEditor({ workdir: item.workdir }); close(undefined); } }),
@@ -1843,13 +1883,21 @@ function saveEnterSends(on) {
     else localStorage.removeItem(CS_ENTER_KEY);
   } catch (e) { /* storage blocked */ }
 }
+function sessionPrompt(text, attachments) {
+  if (!attachments.length) return text;
+  const blocks = attachments.map((item) => {
+    const metadata = JSON.stringify({ name: item.name, encoding: "base64" });
+    return "--- GRAFENO ATTACHMENT ---\n" + metadata + "\n" + item.data + "\n--- END GRAFENO ATTACHMENT ---";
+  });
+  return text + "\n\n" + blocks.join("\n\n");
+}
 
 // ---------------------------------------------------------------- CLI sessions view
 // #/sessions -> every session; #/sessions/<folder> -> the sessions of a project;
 // #/sessions/<folder>/<id> -> the conversation. Everything goes through /api/v1/sessions.
 const sessionsView = {
   workdir: "", sessionId: "", data: null, entries: [], total: 0, session: null,
-  timers: [], polling: false, onLive: null, onKey: null, box: null, headNode: null, composer: null,
+  timers: [], polling: false, onLive: null, onKey: null, box: null, headNode: null, composer: null, files: null,
   mountSeq: 0, deleting: false, enterSends: false, sending: false,
   mount(params) {
     this.mountSeq += 1;  // invalidates async work started by a previous mount
@@ -1937,29 +1985,39 @@ const sessionsView = {
   },
   async newSession(preset) {
     preset = preset || { workdir: this.workdir };  // callable from other views: no mounted state
-    let options;
-    try { options = await store.getOptions(); } catch (err) { fail(err); return; }
+    const projectsRequest = preset.workdir ? Promise.resolve({ projects: [] }) : api("GET", "/api/v1/projects");
+    let options, projectData;
+    try {
+      [options, projectData] = await Promise.all([store.getOptions(), projectsRequest]);
+    } catch (err) { fail(err); return; }
     const clis = options.session_clis || ["claude", "opencode"];
     const implementer = options.defaults && options.defaults.roles && options.defaults.roles.implementer;
     const initial = implementer && clis.includes(implementer.cli) ? implementer : { cli: "claude", model: "", effort: "" };
     const values = await modal({ title: tr("cs.new.title"), wide: true }, (form, close) => {
-      const folder = h("input", { type: "text", value: preset.workdir || "", readOnly: !!preset.workdir, class: "mono" });
-      if (!preset.workdir) dirSuggestions(folder);
+      let folder;
+      if (preset.workdir) {
+        const input = h("input", { type: "text", value: preset.workdir, readOnly: true, class: "mono" });
+        folder = { node: input, value: () => input.value.trim() };
+      } else {
+        folder = projectSelector(projectData.projects || []);
+      }
       const name = h("input", { type: "text",
         placeholder: preset.task_id ? tr("cs.task_session_name", { name: preset.task_name }) : "" });
       const roles = rolesEditor({ session: initial }, { roles: ["session"], labels: { session: tr("cs.role") }, clis });
       const prompt = h("textarea", { rows: 3 });
       form.append(
-        h("label", { class: "field" }, h("span", { class: "lbl", text: tr("cs.field.workdir") }), folder),
+        h("label", { class: "field" }, h("span", { class: "lbl", text: tr("cs.field.workdir") }), folder.node),
         h("label", { class: "field" }, h("span", { class: "lbl", text: tr("cs.field.name") }), name),
         roles.node,
         h("label", { class: "field" }, h("span", { class: "lbl", text: tr("cs.field.prompt") }), prompt),
-        preset.task_id ? h("p", { class: "help", text: tr("cs.context.hint", { name: preset.task_name }) }) : null,
+        ...(preset.task_id ? [h("p", { class: "help", text: tr("cs.context.hint", { name: preset.task_name }) })] : []),
         h("div", { class: "buttons" },
           h("button", { type: "button", text: tr("common.cancel"), onclick: () => close(undefined) }),
           h("button", { type: "submit", class: "primary", text: tr("cs.new"), onclick: () => {
             const role = roles.values().session;
-            const result = { workdir: folder.value.trim(), name: name.value.trim(), cli: role.cli, model: role.model, effort: role.effort, prompt: prompt.value.trim() };
+            const workdir = folder.value();
+            if (!workdir) { toast(tr("cs.error.select_workdir"), "warn"); return; }
+            const result = { workdir, name: name.value.trim(), cli: role.cli, model: role.model, effort: role.effort, prompt: prompt.value.trim() };
             if (preset.task_id) Object.assign(result, { task_id: preset.task_id });
             close(result);
           } })));
@@ -2027,6 +2085,7 @@ const sessionsView = {
     // Created once per chat: later session changes only toggle `disabled`, so a draft survives.
     this.enterSends = loadEnterSends();
     const prompt = h("textarea");
+    this.files = attachmentsCollector([prompt], tr("cs.attachments_hint"));
     prompt.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" || event.isComposing) return;  // IME composition confirms with Enter
       const modifier = event.ctrlKey || event.metaKey;
@@ -2046,7 +2105,8 @@ const sessionsView = {
       this.applyEnterMode();
       this.prompt.focus();
     });
-    this.composer.replaceChildren(prompt, h("div", { class: "cs-actions" }, this.sendButton, enter.node));
+    const editor = h("div", { class: "cs-editor" }, prompt, this.files.node);
+    this.composer.replaceChildren(editor, h("div", { class: "cs-actions" }, this.sendButton, enter.node));
     this.applyEnterMode();
     this.updateComposer();
   },
@@ -2056,7 +2116,8 @@ const sessionsView = {
   updateComposer() {
     const item = this.session;
     this.prompt.disabled = item.state === "closed";
-    this.sendButton.disabled = item.state === "closed" || item.running;
+    this.sendButton.disabled = item.state === "closed" || item.running || this.sending;
+    this.files.setDisabled(item.state === "closed" || this.sending);
   },
   appendEntries(list) {
     if (!list.length) return;
@@ -2089,12 +2150,20 @@ const sessionsView = {
     if (this.sending) return;
     const text = this.prompt.value.trim();
     if (!text) { toast(tr("cs.error.empty_prompt"), "error"); return; }
+    if (this.files.bytes() > CS_ATTACH_MAX_TOTAL) {
+      toast(tr("cs.error.attachments_too_large"), "error");
+      return;
+    }
     this.sending = true;
+    this.updateComposer();
     try {
-      await api("POST", sessionPath(this.sessionId, "/send"), { prompt: text });
+      const attachments = await this.files.payload();
+      const prompt = sessionPrompt(text, attachments);
+      await api("POST", sessionPath(this.sessionId, "/send"), { prompt });
       this.prompt.value = "";
+      this.files.clear();
     } catch (err) { if (err && err.status === 409) toast(err.message, "error"); else fail(err); return; }
-    finally { this.sending = false; }
+    finally { this.sending = false; this.updateComposer(); }
     this.poll();
   },
   async action(name) {

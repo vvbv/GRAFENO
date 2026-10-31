@@ -313,7 +313,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   filtros y cadenas, detalle con todas las acciones del pipeline, pestañas
   de artefactos/medios (visor a pantalla completa con navegación anterior/siguiente por flechas de la GUI y del teclado)/log/tokens, editor de agentes, formulario completo
   de nueva tarea (con la carpeta predefinida vía `#/new/<carpeta codificada>`),
-  pestaña Proyectos (`#/projects`) (botón "Nuevo proyecto": modal con modo solo carpeta/git init/clonar que llama a `POST /api/v1/projects` usando las opciones `create` de `GET /api/v1/projects`; tras crear recarga y abre las acciones del proyecto), reportes y ajustes globales
+  pestaña Proyectos (`#/projects`) (el diálogo de acciones sustituye Cancelar por una X en la esquina superior derecha; botón "Nuevo proyecto": modal con modo solo carpeta/git init/clonar que llama a `POST /api/v1/projects` usando las opciones `create` de `GET /api/v1/projects`; tras crear recarga y abre las acciones del proyecto), reportes y ajustes globales
   (`#/settings/workspaces` abre desplazado a los directorios de trabajo);
   las consolas siguen siendo
   solo de la TUI; los adjuntos de hasta 25 MiB (cupo de 48 MiB) van en
@@ -611,7 +611,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   paralelo); el estado running vive solo en memoria (en disco solo
   `active`/`closed`). Se gestionan en la TUI (Proyectos -> "CLI sessions" o `s`;
   `s` en la lista de tareas abre todas), en el panel web
-  (`#/sessions[/<carpeta>[/<id>]]`, polling del transcript cada 1.5 s); el composer tiene un checkbox "Enviar con Enter" (Shift+Enter = salto de línea; preferencia en `localStorage` `grafeno.csEnterSends`; desactivado = botón o Ctrl+Enter) y por API:
+  (`#/sessions[/<carpeta>[/<id>]]`, polling del transcript cada 1.5 s); el alta global usa un selector de proyectos con filtro por nombre/ruta alimentado por `/api/v1/projects`, mientras los accesos con carpeta predefinida la mantienen fija; el composer tiene un checkbox "Enviar con Enter" (Shift+Enter = salto de línea; preferencia en `localStorage` `grafeno.csEnterSends`; desactivado = botón o Ctrl+Enter) y admite hasta 10 archivos por mensaje, 4 MiB en total, cuyos contenidos base64 se incorporan al prompt junto con el texto; y por API:
   rutas `/api/v1/sessions...`, métodos WS `sessions.*` y topic `sessions` con los
   eventos `session.changed`/`session.deleted` (las entradas del transcript se
   consultan con `after`). `SESSION_CLIS` es el único punto para añadir CLIs.
