@@ -200,17 +200,34 @@ def test_english_and_spanish_specs_differ_only_in_translations() -> None:
 def test_spanish_localization_covers_nested_spec_sections() -> None:
     english = _generated("openapi", "en")
     spanish = _generated("openapi", "es")
-    assert english["paths"]["/api/v1/status"]["get"]["summary"] != spanish["paths"]["/api/v1/status"]["get"]["summary"]
-    categories = {"parameters": False, "responses": False, "properties": False, "tags": False}
+    status_en = english["paths"]["/api/v1/status"]["get"]
+    status_es = spanish["paths"]["/api/v1/status"]["get"]
+    assert status_es["summary"] == "Metadatos del servidor (versión, tiempo de actividad, pid y ruta WS)."
+    assert status_es["summary"] != status_en["summary"]
+    assert status_es["responses"]["200"]["description"] == "Metadatos del servidor."
+    assert status_es["responses"]["200"]["description"] != status_en["responses"]["200"]["description"]
+
+    parameter_en = english["paths"]["/api/v1/ws"]["get"]["parameters"][0]
+    parameter_es = spanish["paths"]["/api/v1/ws"]["get"]["parameters"][0]
+    assert parameter_es["description"] == "Debe ser `websocket` (sin distinguir mayúsculas de minúsculas)."
+    assert parameter_es["description"] != parameter_en["description"]
+
+    property_en = english["components"]["schemas"]["CliSessionSummary"]["properties"]["cli"]
+    property_es = spanish["components"]["schemas"]["CliSessionSummary"]["properties"]["cli"]
+    assert property_es["description"] == (
+        "CLI de agente de la sesión (uno de opencode, kimi, codex, claude, cursor, minimax). "
+        "Se conserva tal como está guardado aunque ese CLI ya no esté instalado."
+    )
+    assert property_es["description"] != property_en["description"]
+
+    tag_en = next(tag for tag in english["tags"] if tag["name"] == "documentation")
+    tag_es = next(tag for tag in spanish["tags"] if tag["name"] == "documentation")
+    assert tag_es["description"] == "Recursos de documentación empaquetados para consumidores de la API y agentes."
+    assert tag_es["description"] != tag_en["description"]
+
     for path, node in _walk(spanish):
-        if not path or path[-1] not in TRANSLATABLE or not isinstance(node, str):
-            continue
-        for category in categories:
-            if category in path:
-                categories[category] = True
-        assert node.strip(), path
-    assert all(categories.values()), categories
-    assert english["tags"] != spanish["tags"]
+        if path and path[-1] in TRANSLATABLE and isinstance(node, str):
+            assert node.strip(), path
 
 
 def test_internal_references_resolve_in_both_languages() -> None:
