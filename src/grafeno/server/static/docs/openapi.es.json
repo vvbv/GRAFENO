@@ -2607,6 +2607,49 @@
         }
       }
     },
+    "/api/v1/quota": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Uso disponible (ventanas de cuota) de cada CLI de agente asignado en los roles generales o en un perfil de procesamiento.",
+        "description": "En vivo por defecto: cada petición consulta a los proveedores de los CLIs, pero dos peticiones en vivo dentro de live_min_interval segundos devuelven la última foto con throttled=true, un aviso y Retry-After en lugar de volver a llamar a los proveedores. cached=true devuelve la foto refrescada como mucho cada refresh_seconds (lo que usan la TUI y el panel web). Los valores son por instancia. Guía: docs/api/cli-quota.md.",
+        "operationId": "getCliQuota",
+        "parameters": [
+          {
+            "name": "cached",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Foto de cuota (en vivo o en caché).",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos de espera antes de la siguiente petición en vivo; solo aparece cuando throttled es true.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
     "/api/v1/settings": {
       "get": {
         "tags": [
@@ -8297,6 +8340,136 @@
                   "type": "string"
                 }
               }
+            }
+          }
+        }
+      },
+      "QuotaWindow": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "five_hour",
+              "seven_day",
+              "seven_day_opus",
+              "seven_day_sonnet",
+              "extra_usage",
+              "month_total",
+              "month_code",
+              "primary",
+              "secondary"
+            ]
+          },
+          "used_percent": {
+            "type": "number"
+          },
+          "remaining_percent": {
+            "type": "number"
+          },
+          "resets_at": {
+            "type": "string",
+            "description": "ISO 8601 con desfase; vacío cuando se desconoce."
+          },
+          "resets_in_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      },
+      "CliQuota": {
+        "type": "object",
+        "properties": {
+          "cli": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "unsupported",
+              "not_installed",
+              "no_credentials",
+              "auth_expired",
+              "no_data",
+              "error"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "api",
+              "stream",
+              "rollout",
+              ""
+            ]
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuotaWindow"
+            }
+          },
+          "message": {
+            "type": "string"
+          },
+          "fetched_at": {
+            "type": "string"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "used_by_default": {
+            "type": "boolean"
+          },
+          "profiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "QuotaResponse": {
+        "type": "object",
+        "properties": {
+          "instance_name": {
+            "type": "string"
+          },
+          "fetched_at": {
+            "type": "string"
+          },
+          "refresh_seconds": {
+            "type": "integer"
+          },
+          "live_min_interval": {
+            "type": "integer"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "live",
+              "cached"
+            ]
+          },
+          "throttled": {
+            "type": "boolean"
+          },
+          "retry_after": {
+            "type": "integer"
+          },
+          "warning": {
+            "type": "string"
+          },
+          "clis": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CliQuota"
             }
           }
         }
