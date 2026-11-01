@@ -17,7 +17,7 @@ import json
 import re
 import shutil
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import AsyncIterator, Callable
@@ -229,6 +229,25 @@ class RunResult:
 EventCallback = Callable[[RunEvent], None]
 
 
+def model_levels(variants: dict[str, list[str]] | None, model: str) -> list[str]:
+    """Effort levels of ``model`` in a ``{model: [levels]}`` catalogue.
+
+    Tolerates key mismatches: a ``#variant`` suffix in ``model`` and a
+    missing or extra provider prefix (``k3`` vs ``kimi-code/k3``) when the
+    bare name matches exactly one key. Empty list when nothing matches.
+    """
+    if not model or not isinstance(variants, dict):
+        return []
+    if model in variants:
+        return list(variants[model])
+    bare = model.split("#", 1)[0]
+    if bare in variants:
+        return list(variants[bare])
+    tail = bare.rsplit("/", 1)[-1]
+    matches = [key for key in variants if key.rsplit("/", 1)[-1] == tail]
+    return list(variants[matches[0]]) if len(matches) == 1 else []
+
+
 class CLIDriver:
     """Base class: implements the subprocess loop; subclasses implement the dialect."""
 
@@ -375,6 +394,39 @@ class CLIDriver:
             return {}
         return self.parse_variants(stdout.decode("utf-8", errors="replace"))
 
+    async def effort_levels_async(self, model: str) -> list[str] | None:
+        """Effort levels the CLI accepts for ``model`` at run time.
+
+        ``None`` (default) = no run-time check: ``RunRequest.effort`` reaches
+        ``build_command`` untouched. Drivers whose CLI fails on an unsupported
+        level (kimi, mcode) return the real list so ``run`` can drop it.
+        """
+        return None
+
+    async def _checked_effort(self, request: RunRequest) -> tuple[RunRequest, str]:
+        """Drop an effort the CLI does not accept for the model (with a notice).
+
+        Returns the request to run and the notice text ("" = nothing dropped).
+        A failing catalogue lookup counts as "no levels": an unsupported value
+        must never break the run.
+        """
+        if not request.effort:
+            return request, ""
+        try:
+            levels = await self.effort_levels_async(request.model)
+        except Exception:  # noqa: BLE001 - a catalogue lookup never aborts the run
+            levels = []
+        if levels is None or request.effort in levels:
+            return request, ""
+        notice = t(
+            "drv.effort_ignored",
+            effort=request.effort,
+            cli=self.display_name,
+            model=request.model or t("drv.default_model"),
+            levels=", ".join(levels) or "-",
+        )
+        return replace(request, effort=""), notice
+
     def build_agents_md_prompt(self) -> str:
         """Build the prompt for generating the project's AGENTS.md.
 
@@ -470,6 +522,9 @@ class CLIDriver:
         on_session: Callable[[str], None] | None = None,
     ) -> RunResult:
         """Run the CLI; ``on_session`` receives each new native session id as soon as it appears."""
+        request, effort_notice = await self._checked_effort(request)
+        if effort_notice and on_event:
+            on_event(RunEvent(EventKind.INFO, effort_notice))
         command = self.resolve_command(self.build_command(request))
         log_handle = request.log_path.open("a", encoding="utf-8") if request.log_path else None
         text_parts: list[str] = []

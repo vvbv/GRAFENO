@@ -41,6 +41,7 @@ async def _fake_variants(clis):
 
 def _setup(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("grafeno.drivers.available_clis", lambda: ["opencode", "claude"])
     ws = (tmp_path / "ws").resolve()
     (ws / "alpha").mkdir(parents=True)
     cfg = config_module.load()
@@ -83,7 +84,7 @@ def test_open_sessions_from_project_actions_and_create(tmp_path, monkeypatch):
             await _wait_for(pilot, app, CliSessionsScreen)
             assert app.screen.query_one("#cs-table", DataTable).row_count == 1
             sessions = clisessions.list_all(str(project))
-            assert len(sessions) == 1 and sessions[0].cli in SESSION_CLIS
+            assert len(sessions) == 1 and sessions[0].cli in ("opencode", "claude")
 
             await pilot.click("#cs-input")
             await pilot.press(*"hola")
@@ -188,5 +189,30 @@ def test_pasted_image_is_saved_in_the_session_and_its_path_inserted(tmp_path, mo
             monkeypatch.setattr(media, "read_clipboard_image_async", no_clipboard)
             await field.action_paste_media()
             assert len(clisessions.list_attachments(session.id)) == 1
+
+    asyncio.run(scenario())
+
+
+def test_no_detected_cli_blocks_new_session(tmp_path, monkeypatch):
+    project = _setup(tmp_path, monkeypatch)
+
+    async def scenario():
+        app = GrafenoApp()
+        monkeypatch.setattr(app.cli_sessions, "_driver_factory", lambda cli: FakeSessionDriver())
+        async with app.run_test(size=(140, 45)) as pilot:
+            await pilot.pause()
+            await pilot.press("p")
+            await _wait_for(pilot, app, ProjectsScreen)
+            await pilot.press("enter")
+            await _wait_for(pilot, app, ProjectActionsScreen)
+            await pilot.click("#pa-sessions")
+            await _wait_for(pilot, app, CliSessionsScreen)
+            assert isinstance(app.screen, CliSessionsScreen)
+            assert app.screen._workdir == str(project)
+            await pilot.click("#cs-table")
+            monkeypatch.setattr("grafeno.drivers.available_clis", lambda: [])
+            await pilot.press("n")
+            await pilot.pause(0.3)
+            assert isinstance(app.screen, CliSessionsScreen)
 
     asyncio.run(scenario())

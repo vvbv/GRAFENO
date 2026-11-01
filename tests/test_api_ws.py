@@ -237,6 +237,26 @@ def test_tasks_list_returns_empty() -> None:
     _run(scenario())
 
 
+def test_ws_projects_favorite(tmp_path) -> None:
+    async def scenario():
+        service, srv_task = await _start_service()
+        try:
+            reader, writer = await _ws_handshake(service.port)
+            try:
+                reply = await _rpc(
+                    reader, writer,
+                    {"id": 1, "method": "projects.favorite", "params": {"workdir": str(tmp_path)}},
+                )
+                assert reply["result"]["favorite"] is True
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+
 def test_tasks_list_with_results(tmp_path) -> None:
     async def scenario():
         task = Task.create("Alpha", "d", str(tmp_path), Config())

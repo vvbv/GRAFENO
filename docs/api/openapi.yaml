@@ -193,6 +193,9 @@ paths:
         level of the TUI cwd) with their state. In remote session mode no folder
         is discovered and `session` is true. Items also carry `sessions` (direct
         CLI sessions of the folder) and the root has `create` (creation options).
+        Items also carry `last_worked` (latest task update, empty without tasks)
+        and `favorite` (marked as favorite on the server, see
+        `POST /api/v1/projects/favorite`).
       operationId: listProjects
       responses:
         "200":
@@ -269,6 +272,38 @@ paths:
                 $ref: "#/components/schemas/Error"
         "504":
           description: git init or git clone timed out (code `timeout`); the whole git process tree was killed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/projects/favorite:
+    post:
+      tags: [projects]
+      summary: Mark or unmark a project as favorite.
+      description: |
+        Favorites are stored on the server (`~/.grafeno/project-favorites.toml`)
+        so every browser of the instance shares them. `workdir` is stored
+        normalized (expanded, no trailing slash); `favorite` defaults to true.
+      operationId: setProjectFavorite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectFavoriteRequest"
+      responses:
+        "200":
+          description: Favorite state saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectFavoriteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          description: The favorites file could not be written.
           content:
             application/json:
               schema:
@@ -2805,7 +2840,7 @@ components:
         name: {type: string}
         workdir: {type: string}
         project_name: {type: string}
-        cli: {type: string, enum: [claude, opencode]}
+        cli: {type: string, description: "Agent CLI of the session (one of opencode, kimi, codex, claude, cursor, minimax). Kept as stored even if that CLI is no longer installed."}
         model: {type: string}
         effort: {type: string}
         cli_session_id: {type: string, description: Native session id of the CLI (resume key).}
@@ -2841,6 +2876,7 @@ components:
         clis:
           type: array
           items: {type: string}
+          description: Supported session CLIs detected on the host (subset of opencode, kimi, codex, claude, cursor, minimax).
         available:
           type: boolean
           description: False in remote session mode.
@@ -2850,7 +2886,7 @@ components:
       properties:
         workdir: {type: string, description: "Absolute local project folder. Required unless `task_id` is given."}
         task_id: {type: string, description: "Open the session from this task: workdir defaults to the task folder, name to 'Task: <name>', and its latest summary.md (or its description) is sent as initial context with the first turn. 404 unknown task, 409 remote task."}
-        cli: {type: string, enum: [claude, opencode], default: claude}
+        cli: {type: string, enum: [opencode, kimi, codex, claude, cursor, minimax], description: "Default: claude when installed, else the first detected CLI (see `session_cli_default` of /api/v1/options). A supported CLI that is not installed is accepted; its turns fail with a CLI not installed error. 400 for an unknown CLI."}
         model: {type: string}
         effort: {type: string}
         name: {type: string}
@@ -3178,7 +3214,7 @@ components:
         project: {type: string}
         task_id: {type: string}
         name: {type: string}
-        cli: {type: string, enum: [claude, opencode]}
+        cli: {type: string, enum: [opencode, kimi, codex, claude, cursor, minimax], description: Default as in CliSessionCreateRequest.}
         model: {type: string}
         effort: {type: string}
         resume: {type: boolean, default: true}
@@ -3717,6 +3753,24 @@ components:
         workspace:
           type: string
           description: Resolved working directory where the folder was found; empty for workdirs only known from tasks.
+        last_worked:
+          type: string
+          description: Latest task activity of the folder (maximum task `updated_at`, falling back to `created_at`); empty when it has no tasks.
+        favorite:
+          type: boolean
+          description: True when the folder is a server-side favorite (shared by every browser of the instance).
+    ProjectFavoriteRequest:
+      type: object
+      required: [workdir]
+      properties:
+        workdir: {type: string, description: Project folder (`workdir` of a `ProjectItem`).}
+        favorite: {type: boolean, default: true, description: "True marks, false unmarks."}
+    ProjectFavoriteResponse:
+      type: object
+      properties:
+        workdir: {type: string, description: Normalized folder.}
+        favorite: {type: boolean}
+        favorites: {type: array, items: {type: string}, description: Every saved favorite (normalized folders).}
     ProjectCreateOptions:
       type: object
       description: What a client needs to offer project creation.
@@ -4164,6 +4218,10 @@ components:
         session_clis:
           type: array
           items: {type: string}
+          description: Session CLIs detected on the host, in supported order.
+        session_cli_default:
+          type: string
+          description: "CLI preselected for a new session: the implementer role CLI when detected, else claude, else the first detected."
         editor:
           type: object
           description: Web editor of the panel (startup command with `open_url`).

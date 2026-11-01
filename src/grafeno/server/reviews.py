@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .. import gitrepos, gitsync, remotesession
+from .. import clisessions, gitrepos, gitsync, remotesession
 from .. import reviews as reviews_module
 from ..clisession_runtime import SessionBusy, SessionClosed
 from ..i18n import t
@@ -242,7 +242,7 @@ async def start_review(service: "ServerService", payload: dict) -> tuple[int, di
         try:
             review = reviews_module.create(
                 workdir, name=_text(payload, "name"), task_id=task_id,
-                cli=_text(payload, "cli") or "claude", model=_text(payload, "model"),
+                cli=_text(payload, "cli") or clisessions.default_cli(), model=_text(payload, "model"),
                 effort=_text(payload, "effort"),
             )
         except ValueError as exc:

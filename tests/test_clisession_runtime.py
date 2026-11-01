@@ -274,3 +274,20 @@ def test_invalid_attachment_names_are_rejected_before_the_turn(tmp_path, names):
     session_id = asyncio.run(main())
     assert driver.requests == []
     assert clisessions.load(session_id).turns == 0
+
+
+@pytest.mark.parametrize("cli", clisessions.SESSION_CLIS)
+def test_every_session_cli_resumes_the_native_session(tmp_path, cli):
+    project = _project(tmp_path)
+    driver = FakeSessionDriver()
+
+    async def main():
+        manager = _manager(driver)
+        session = manager.create(str(project), cli)
+        manager.send(session.id, "one")
+        await manager.wait(session.id)
+        manager.send(session.id, "two")
+        await manager.wait(session.id)
+
+    asyncio.run(main())
+    assert driver.requests[1].session_id == "native-1"

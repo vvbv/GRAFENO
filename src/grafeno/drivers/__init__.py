@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from .base import CLIDriver, EventKind, RunEvent, RunRequest, RunResult
+from .base import CLIDriver, EventKind, RunEvent, RunRequest, RunResult, model_levels
 from .claude import ClaudeDriver
 from .codex import CodexDriver
 from .cursor import CursorDriver
@@ -21,6 +21,7 @@ __all__ = [
     "fetch_all_models",
     "fetch_all_variants",
     "get_driver",
+    "model_levels",
     "available_clis",
 ]
 

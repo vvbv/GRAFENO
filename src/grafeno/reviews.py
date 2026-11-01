@@ -88,7 +88,7 @@ class ReviewSession:
     name: str = ""
     task_id: str = ""         # optional task this review comes from (informative)
     state: str = STATE_ACTIVE
-    cli: str = "claude"       # agent CLI (SESSION_CLIS)
+    cli: str = "claude"       # agent CLI (clisessions.SESSION_CLIS)
     model: str = ""
     effort: str = ""
     agent_session_id: str = ""  # CliSession.id of the agent conversation ("" = not created yet)

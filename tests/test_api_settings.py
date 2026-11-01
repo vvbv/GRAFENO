@@ -24,6 +24,7 @@ class FakeService:
 
 def test_form_options_defaults_and_profiles(monkeypatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("grafeno.drivers.available_clis", lambda: ["opencode", "claude"])
     cfg = config_module.load()
     cfg.automode.test_command = "pytest -q"
     cfg.first_prompt = "first"
@@ -31,6 +32,9 @@ def test_form_options_defaults_and_profiles(monkeypatch, tmp_path) -> None:
     profiles.save_global([profiles.Profile(name="fast", planner=RoleConfig("claude", "sonnet", ""))])
     data = settings.form_options(FakeService())
     assert data["defaults"]["workdir"] == str(tmp_path)
+    assert data["session_clis"] == ["opencode", "claude"]
+    implementer_cli = cfg.role("implementer").cli
+    assert data["session_cli_default"] == (implementer_cli if implementer_cli in ("opencode", "claude") else "claude")
     assert data["defaults"]["test_command"] == "pytest -q"
     assert data["defaults"]["first_prompt"] == "first"
     assert data["profiles"][0]["name"] == "fast"
@@ -257,3 +261,24 @@ def test_startup_open_url_saved_and_editor_option() -> None:
     assert result["startup"][0]["open_url"] == "http://{host}:8080/?folder={folder}"
     assert config_module.load().startup[0].open_url == "http://{host}:8080/?folder={folder}"
     assert settings.form_options(FakeService())["editor"] == {"available": True, "name": "ed"}
+
+
+def test_models_catalog_does_not_cache_failed_cli(monkeypatch) -> None:
+    import grafeno.drivers as drivers
+
+    calls = []
+
+    async def fake_models(clis):
+        calls.append("models")
+        return {cli: ([] if cli == "kimi" else [cli + "/m"]) for cli in clis}
+
+    async def fake_variants(clis):
+        return {}
+
+    monkeypatch.setattr(drivers, "fetch_all_models", fake_models)
+    monkeypatch.setattr(drivers, "fetch_all_variants", fake_variants)
+    monkeypatch.setattr(drivers, "available_clis", lambda: ["kimi"])
+    service = FakeService()
+    asyncio.run(settings.models_catalog(service))
+    asyncio.run(settings.models_catalog(service))
+    assert calls == ["models", "models"]

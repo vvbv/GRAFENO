@@ -18,7 +18,8 @@ src/grafeno/
 ├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas); intercepta el comando CLI `grafeno update` antes del argparse; flag `--nostartup` (no lanza los comandos de inicio); el runner se asigna como `app.startup_runner` y se para en un `finally` tras `run()`; `_report_startup` notifica los resultados y a los 5 s los comandos que murieron; `--version`/`-v` imprime la versión; `--web` (+ `--web-host`/`--web-port`/`--no-auth`, que lo implican) activa el panel web solo para esa ejecución (`--no-auth`: sin autenticación); arranca el servidor API (worker `api-server`) si `cfg.api.enabled` o con `--web`; worker `models-check` al arrancar: avisa si los modelos de la config/perfiles ya no existen en su CLI (los de la tarea se muestran en una banda roja del detalle)
 ├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo (incluido `first` para el primer paso), automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), idioma de la GUI (`language`) y de los prompts internos (`prompt_language`, vacío = el de la GUI), prompt de primer paso (first step, opcional) y de pasos finales, sección [telegram] (TelegramConfig), sección [api] (ApiConfig: enabled/host/port/tokens + env GRAFENO_API_TOKEN), sección [web] (WebConfig: `instance_name`/`theme`/`favicon`, temas en `WEB_THEMES`)
 ├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict; incluye `failed_phase` (fase del pipeline que fallo, para reanudar)
-├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME; incluye `startup_dir()`, `api_log_path()`, `uploads_dir()` (spool de subidas binarias de la API) y `web_dir()` (favicon propio del panel)
+├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME; incluye `project_favorites_path()`, `startup_dir()`, `api_log_path()`, `uploads_dir()` (spool de subidas binarias de la API) y `web_dir()` (favicon propio del panel)
+├── favorites.py            # Proyectos favoritos del panel web (~/.grafeno/project-favorites.toml, workdirs normalizados; normalize() es la fuente de actions._norm_dir): load/save/set_favorite best effort
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs); además el idioma de los prompts internos (set_prompt_language/prompt_language, vacío = el de la GUI) y prompt_template() para elegir la variante de una plantilla por idioma
 ├── live_log.py             # Persistencia del log en vivo (Text -> logs/live.jsonl, carga al crear el runtime; best-effort)
 ├── mdnorm.py               # Normalización de Markdown: colapsa saltos de línea y compacta listas sueltas en los .md de cada etapa; `markdown_outline` da el esquema de encabezados con offsets
@@ -40,7 +41,7 @@ src/grafeno/
 ├── references.py           # Modelo `Reference` y niveles global/proyecto/tarea con `resolve()`
 ├── profiles.py             # Perfiles de procesamiento con nombre: Profile (5 RoleConfig), ~/.grafeno/profiles.toml, find() por nombre y helper roles_summary() (formato compacto cli/model compartido por Profile.summary, /api/v1/options y la línea de ayuda del selector del panel web)
 ├── consoles.py             # Consolas del proyecto: ConsoleSpec (nombre/comando/color), paleta CONSOLE_COLORS y persistencia por proyecto bajo ~/.grafeno/consoles/<slug>-<hash8>.toml (migra el [[consoles]] legacy del .grafeno.toml)
-├── clisessions.py          # Sesiones CLI directas (conversaciones con Claude Code u OpenCode en la carpeta de un proyecto, sin tarea): `CliSession`, `SESSION_CLIS` (único punto para ampliar los CLIs), almacén en `~/.grafeno/cli-sessions/<id>/` (`session.toml`, `transcript.jsonl` best effort, `logs/turn-NNN.jsonl`), ids validados contra path traversal y transcript incremental con `seq` global
+├── clisessions.py          # Sesiones CLI directas (conversaciones con cualquier CLI de agente soportado y detectado en la carpeta de un proyecto, sin tarea): `CliSession`, `SESSION_CLIS` (= `config.KNOWN_CLIS`, único punto de verdad; `session_clis()` filtra los detectados con `drivers.available_clis()` y `default_cli()` elige el preseleccionado: implementer, claude o el primero), almacén en `~/.grafeno/cli-sessions/<id>/` (`session.toml`, `transcript.jsonl` best effort, `logs/turn-NNN.jsonl`), ids validados contra path traversal y transcript incremental con `seq` global
 ├── clisession_runtime.py   # `CliSessionManager` (vive en `GrafenoApp.cli_sessions`): un turno a la vez por sesión, turnos como workers de la App, listeners (`changed`/`entry`/`deleted`), estado running solo en memoria; usa `CLIDriver.run(on_session=...)` para persistir pronto el id nativo
 ├── gitrepos.py             # Núcleo git multirrepositorio para la revisión asistida: descubrimiento recursivo de repos anidados a cualquier profundidad (`discover`/`discover_all`, presupuesto MAX_SCAN_DIRS), upstream/ahead/behind, status porcelain v2 con repo propietario inequívoco, diff por archivo y commit explícito `git commit --only` con rutas literales (stage ajeno preservado, lock por repo); `GitReviewError(code, message)`
 ├── gitsync.py              # Operaciones de rama por repo (push/pull de la rama actual, switch a rama local existente, abort de merge/rebase) y resumen de cambios pendientes por proyecto con caché (pending_summary/invalidate); push/pull sin TTY vía projectsetup._run_process
@@ -71,11 +72,11 @@ src/grafeno/
 │   ├── reviews.py          #   Operaciones REST/WS de la revisión asistida y mapa `code` -> status (`GitReviewError`); `ApiError` lleva `code` opcional
 │   ├── projectgit.py       #   Operaciones REST/WS de git por proyecto: indicador de pendientes (projects/changes), ramas, push, pull, checkout y abort; mapa code -> status
 │   ├── settings.py         #   Operaciones REST/WS de catálogo, reportes y ajustes (incluye comandos de inicio: `startup` + `startup_presets`): opciones del formulario, modelos+variantes (caché 10 min), autocompletado de directorios, issues de gh, reporte de uso y ajustes globales (secretos de solo escritura)
-│   ├── static/             #   Panel web (paquete de datos en pyproject): index.html (shell + JSON de arranque no ejecutable), app.css, app.js (SPA vanilla sin dependencias ni CDN: lista, detalle, nueva tarea, reportes, ajustes)
+│   ├── static/             #   Panel web (paquete de datos en pyproject): index.html (shell + JSON de arranque no ejecutable), app.css, app.js (SPA vanilla sin dependencias ni CDN: lista, detalle, nueva tarea, reportes, ajustes; componente reutilizable searchSelect (selector buscable tipo Select2: botón + panel con búsqueda, teclado y cierre al perder el foco) usado en los filtros de proyecto y estado y en el alta de sesiones CLI)
 │   └── ws.py               #   RFC 6455: handshake (accept key), frames enmascarados de cliente, comandos JSON-RPC {"id","method","params"} y eventos {"event":...,...} con suscripción por topic
 ├── drivers/                # Abstracción de CLIs de agentes
 │   ├── base.py             #   CLIDriver: ciclo de subproceso asyncio, eventos JSONL (`run` acepta el callback `on_session` con el id nativo de sesión en cuanto aparece); expone variantes de esfuerzo por modelo (variants_command/parse_variants/list_variants_async)
-│   ├── opencode.py, kimi.py, codex.py, claude.py, cursor.py, minimax.py#   Dialectos concretos (opencode detecta la versión mayor con `--version`: en 2.x sin `--dir`/`--variant`, el esfuerzo va como sufijo `#variante` del modelo, el directorio se pasa vía `PWD` con `run_env()` y las variantes salen de `opencode api model.list`; minimax = MiniMax Code, ejecutable `mcode`; el esfuerzo se mapea a la variante de thinking como sufijo `#variante` del modelo)
+│   ├── opencode.py, kimi.py, codex.py, claude.py, cursor.py, minimax.py#   Dialectos concretos (opencode detecta la versión mayor con `--version`: en 2.x sin `--dir`/`--variant`, el esfuerzo va como sufijo `#variante` del modelo, el directorio se pasa vía `PWD` con `run_env()` y las variantes salen de `opencode api model.list`; minimax = MiniMax Code, ejecutable `mcode`: catálogo de modelos y esfuerzos leído de `~/.minimax/config.yaml` (`MINIMAX_DATA_DIR`/`MAVIS_DATA_DIR`; lector YAML mínimo `parse_block_yaml`, PyYAML opcional; estático como fallback): `thinking.effortOptions` van por `--effort` y las `variants` como sufijo `#variante` (nunca ambos; los modelos `forced_on` no ofrecen variantes); kimi: niveles = `supportEfforts` de `kimi provider list --json`, aplicados con la variable de entorno `KIMI_MODEL_THINKING_EFFORT` vía `run_env()`)
 │   └── __init__.py         #   Registro: get_driver(), available_clis(), fetch_all_models(), fetch_all_variants()
 ├── pipeline/
 │   ├── orchestrator.py     # Orquestador de fases (first opcional/plan/implementar/revisar/final, automode, ciclos); `_mark_failed` registra la fase fallida, `_review_fix_loop` es el bucle compartido, `run_automode_resume` reanuda desde la fase fallida reaprovechando artefactos (resetea el presupuesto de iteracion solo si estaba agotado) y `run_continue` hace lo mismo desde estados transitorios huérfanos (tarea interrumpida por TUI matada, apagón o crash del CLI) usando el mapa `INTERRUPTED_PHASE`
@@ -104,7 +105,7 @@ install.sh, install.ps1     # instaladores de usuario (Linux/macOS y Windows), v
 
 Los datos en runtime viven en `~/.grafeno/` (`tasks/<fecha>-<slug>/` con
 `task.toml`, `first/`, `plan/`, `review/`, `final/`, `media/`, `attachments.toml`, `logs/live.jsonl`, `logs/*.jsonl`; `cli-sessions/<id>/` con `session.toml`, `transcript.jsonl`, `context.md` (contexto inicial pendiente), `media/` + `attachments.toml` (archivos adjuntos a los mensajes) y `logs/turn-NNN.jsonl`; `reviews/<id>/` con `review.toml` y `commits.jsonl`;
-además `config.toml`, `references.toml`, `triggers.toml`, `profiles.toml` (con backup rotativo `profiles.toml.bak` best-effort en cada guardado), `consoles/`, `web/`,
+además `config.toml`, `references.toml`, `triggers.toml`, `project-favorites.toml`, `profiles.toml` (con backup rotativo `profiles.toml.bak` best-effort en cada guardado), `consoles/`, `web/`,
 `mounts/`, `telegram-state.toml`, `api.log`); no
 en el repo.
 
@@ -157,7 +158,17 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   en Windows cmd.exe corta los argumentos citados en el primer salto de
   línea, y los prompts multi-línea llegaban truncados al CLI (kimi no
   documenta stdin y sigue usando `-p` por argv). El nivel de
-  trabajo del modelo viaja en `RunRequest.effort`;; los CLIs sin soporte
+  trabajo del modelo viaja en `RunRequest.effort`; `CLIDriver.run` lo valida antes de lanzar el CLI con
+  `effort_levels_async(model)` (defecto `None` = sin validación; kimi y minimax devuelven la lista real
+  porque su CLI falla con un nivel no soportado: HTTP 400 en kimi, exit 2 o `Invalid model variant` en
+  mcode) y, si el nivel no está en la lista (o el modelo es el de por defecto del CLI), lo descarta y
+  emite un `RunEvent` INFO `drv.effort_ignored` en el log de la fase o de la sesión CLI; nunca rompe el
+  run. `model_levels` (en `drivers/base.py`, espejo `modelLevels` en `app.js`) resuelve los niveles de un
+  modelo tolerando el prefijo de proveedor y el sufijo `#variante`; `RolesForm` y `rolesEditor` lo usan
+  y, con el catálogo cargado y sin niveles para el modelo, muestran un texto
+  (`cfg.effort.none`/`cfg.effort.pick_model`) en vez de un selector de una sola opción. `/api/v1/models`
+  no cachea un resultado en el que un CLI instalado devolvió la lista de modelos vacía, y el panel
+  caduca su copia a los 10 min. Los CLIs sin soporte
   exponen `variants_command() -> []` y `parse_variants -> {}` (defecto de
   la base) e ignoran el campo en `build_command`. Cada driver puede
   exponer además `update_command()` (defecto `[]` en la base = CLI sin
@@ -271,7 +282,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `/{id}/media?name=`, `/{id}/attachments` (GET lista con metadatos, POST JSON
   base64 o cuerpo binario con `?name=` y `?cycle=` opcional, sin arrancar ciclo; DELETE `?file=`,
   409 si corre; WS `tasks.attachments`/`tasks.attach`/`tasks.detach`), projects, options, models, fs/dirs, issues,
-  `POST /editor/open`, `POST /projects` (crear proyecto; guía en `docs/api/project-create.md`; `GET /projects` devuelve además `sessions` por item y `create` con las opciones de creación), `GET /projects/changes` (indicador de cambios pendientes por proyecto, recursivo en repos anidados, caché 15 s), `GET /projects/branches` y `POST /projects/push|pull|checkout|abort` (guía en `docs/api/project-git.md`), projects/docs y projects/doc (documentos README.md/AGENTS.md/GRAFENO.md de un proyecto; guía en `docs/api/project-docs.md`; métodos WS `projects.docs`/`projects.doc`; 409 en proyectos remotos y modo sesión remota), `projects/files`, `projects/file`, `projects/file/text` y `projects/file/raw` (explorador de archivos de un proyecto para Grafoide; guía en `docs/api/project-files.md`; métodos WS `projects.files`/`projects.file`/`projects.file_text`/`projects.file_raw` (este con tope de 16 MiB); 409 en proyectos remotos y modo sesión remota), `GET /projects/repos` y `/api/v1/reviews...` (revisión asistida multirrepositorio; guía en `docs/api/reviews.md`; topic WS `reviews` con `review.changed`/`review.deleted`; los errores pueden llevar un campo `code` opcional), reports, settings (GET/POST) y `/audio/speech` (síntesis
+  `POST /editor/open`, `POST /projects` (crear proyecto; guía en `docs/api/project-create.md`; `GET /projects` devuelve además `sessions` por item y `create` con las opciones de creación), `POST /projects/favorite` (marca/desmarca un proyecto como favorito en el servidor; método WS `projects.favorite`), `GET /projects/changes` (indicador de cambios pendientes por proyecto, recursivo en repos anidados, caché 15 s), `GET /projects/branches` y `POST /projects/push|pull|checkout|abort` (guía en `docs/api/project-git.md`), projects/docs y projects/doc (documentos README.md/AGENTS.md/GRAFENO.md de un proyecto; guía en `docs/api/project-docs.md`; métodos WS `projects.docs`/`projects.doc`; 409 en proyectos remotos y modo sesión remota), `projects/files`, `projects/file`, `projects/file/text` y `projects/file/raw` (explorador de archivos de un proyecto para Grafoide; guía en `docs/api/project-files.md`; métodos WS `projects.files`/`projects.file`/`projects.file_text`/`projects.file_raw` (este con tope de 16 MiB); 409 en proyectos remotos y modo sesión remota), `GET /projects/repos` y `/api/v1/reviews...` (revisión asistida multirrepositorio; guía en `docs/api/reviews.md`; topic WS `reviews` con `review.changed`/`review.deleted`; los errores pueden llevar un campo `code` opcional), reports, settings (GET/POST) y `/audio/speech` (síntesis
   TTS bajo demanda con el proveedor configurado: WAV por defecto u OGG/OPUS
   cuando `format=ogg` y hay `ffmpeg` instalado en el host). WebSocket en `/api/v1/ws` con
   handshake RFC 6455 (cliente enmascarado obligatorio; servidor sin
@@ -313,7 +324,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   filtros y cadenas, detalle con todas las acciones del pipeline, pestañas
   de artefactos/medios (visor a pantalla completa con navegación anterior/siguiente por flechas de la GUI y del teclado)/log/tokens, editor de agentes, formulario completo
   de nueva tarea (con la carpeta predefinida vía `#/new/<carpeta codificada>`),
-  pestaña Proyectos (`#/projects`) (el diálogo de acciones sustituye Cancelar por una X en la esquina superior derecha; botón "Nuevo proyecto": modal con modo solo carpeta/git init/clonar que llama a `POST /api/v1/projects` usando las opciones `create` de `GET /api/v1/projects`; tras crear recarga y abre las acciones del proyecto), reportes y ajustes globales
+  pestaña Proyectos (`#/projects`) (favoritos con estrella y columnas ordenables, incluida Last worked; el diálogo de acciones sustituye Cancelar por una X en la esquina superior derecha; botón "Nuevo proyecto": modal con modo solo carpeta/git init/clonar que llama a `POST /api/v1/projects` usando las opciones `create` de `GET /api/v1/projects`; tras crear recarga y abre las acciones del proyecto), reportes y ajustes globales
   (`#/settings/workspaces` abre desplazado a los directorios de trabajo);
   las consolas siguen siendo
   solo de la TUI; los adjuntos de hasta 25 MiB (cupo de 48 MiB) van en
@@ -484,8 +495,8 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   de la TUI (`tui/screens/projects.py`, tecla `p`) y la pestaña Proyectos
   del panel web (`#/projects`) listan esas carpetas con su nº de tareas y
   desde un proyecto se crea una tarea con el directorio predefinido
-  (`NewTaskScreen(workdir)` / `#/new/<carpeta codificada>`).
-  `GET /api/v1/projects` fusiona los workdirs por ruta normalizada, devuelve por item `workdir`, `count`, `sessions`, `name` y
+  (`NewTaskScreen(workdir)` / `#/new/<carpeta codificada>`). En el panel web cada proyecto tiene una estrella para marcarlo como favorito (persistido en el servidor vía `POST /api/v1/projects/favorite`, compartido entre navegadores); los favoritos aparecen en un grupo Favoritos encima de la agrupación por raíz, y las cabeceras Project/Tasks/Last worked ordenan (asc/desc) por separado dentro de favoritos y de cada raíz, compatibles con el filtro de texto.
+  `GET /api/v1/projects` fusiona los workdirs por ruta normalizada, devuelve por item `workdir`, `count`, `sessions`, `last_worked` (máximo `updated_at` de sus tareas, con respaldo `created_at`; vacío sin tareas), `favorite`, `name` y
   `workspace` (raíz donde se encontró; vacío para workdirs que solo vienen
   de tareas) más `workspaces` (raíces con `entry`/`path`/`exists`) y
   `session`; en modo sesión remota no se descubre nada (las raíces viven en
@@ -601,20 +612,29 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   CLI directa enlazada a la revisión (`CliSessionManager`, visible en
   `/sessions`); el mensaje de commit asistido es un one-shot que no comitea.
   Deshabilitado en modo sesión remota y para proyectos SSH.
-- **Sesiones CLI directas**: conversaciones con Claude Code u OpenCode abiertas
-  en la carpeta de un proyecto, SIN crear una tarea del pipeline (`clisessions.py`
+- **Sesiones CLI directas**: conversaciones con cualquier CLI de agente soportado (opencode, kimi, codex,
+  claude, cursor, minimax) que esté instalado, abiertas en la carpeta de un proyecto, SIN crear una tarea del pipeline (`clisessions.py`
   + `clisession_runtime.py`). No usan PTY: cada turno ejecuta el CLI en modo no
   interactivo (`CLIDriver.run` con `RunRequest.session_id` = id nativo del CLI,
-  `--resume`/`--session`), de modo que el contexto se conserva entre turnos;
+  `--resume` (claude, cursor), `--session` (opencode, minimax), `-S` (kimi),
+  `exec resume` (codex)), de modo que el contexto se conserva entre turnos;
   `on_session` persiste pronto el id nativo (sobrevive a una cancelación). Un
   turno a la vez por sesión (varias sesiones, también del mismo proyecto, en
   paralelo); el estado running vive solo en memoria (en disco solo
   `active`/`closed`). Se gestionan en la TUI (Proyectos -> "CLI sessions" o `s`;
   `s` en la lista de tareas abre todas), en el panel web
-  (`#/sessions[/<carpeta>[/<id>]]`, polling del transcript cada 1.5 s); el alta global usa un selector de proyectos con filtro por nombre/ruta alimentado por `/api/v1/projects`, mientras los accesos con carpeta predefinida la mantienen fija; el composer tiene un checkbox "Enviar con Enter" (Shift+Enter = salto de línea; preferencia en `localStorage` `grafeno.csEnterSends`; desactivado = botón o Ctrl+Enter) y admite hasta 10 archivos por mensaje (500 MiB máx. cada uno), que se suben en binario (`uploadRaw`, sin base64) a `POST /api/v1/sessions/{id}/attachments?name=` y se envían por nombre (`attachments` de `/send`); en la TUI, Ctrl+V con una imagen en el portapapeles la guarda en la sesión e inserta su ruta absoluta en el prompt (`SessionPromptInput`); y por API:
+  (`#/sessions[/<carpeta>[/<id>]]`, polling del transcript cada 1.5 s); el alta global usa el selector buscable `searchSelect` (todos los proyectos de `/api/v1/projects`, filtro por nombre/ruta), mientras los accesos con carpeta predefinida la mantienen fija; el composer tiene un checkbox "Enviar con Enter" (Shift+Enter = salto de línea; preferencia en `localStorage` `grafeno.csEnterSends`; desactivado = botón o Ctrl+Enter) y admite hasta 10 archivos por mensaje (500 MiB máx. cada uno), que se suben en binario (`uploadRaw`, sin base64) a `POST /api/v1/sessions/{id}/attachments?name=` y se envían por nombre (`attachments` de `/send`); en la TUI, Ctrl+V con una imagen en el portapapeles la guarda en la sesión e inserta su ruta absoluta en el prompt (`SessionPromptInput`); y por API:
   rutas `/api/v1/sessions...`, métodos WS `sessions.*` y topic `sessions` con los
   eventos `session.changed`/`session.deleted` (las entradas del transcript se
-  consultan con `after`). `SESSION_CLIS` es el único punto para añadir CLIs.
+  consultan con `after`). `SESSION_CLIS` es el único punto de verdad: todos los drivers
+  reanudan sesión, así que se ofrecen todos los detectados (`session_clis()`;
+  `/api/v1/options` `session_clis` + `session_cli_default`, `/api/v1/sessions`
+  `clis`); un CLI que no pudiera reanudar de forma fiable se quitaría ahí con su
+  motivo. Crear acepta cualquier CLI soportado aunque no esté instalado (el turno
+  avisa con `cs.cli_missing`) y las sesiones con un CLI desinstalado se siguen
+  cargando; sin CLIs detectados, TUI y panel avisan con `det.no_clis` y no abren
+  el alta. kimi solo informa su id al final del turno (`session.resume_hint`): un
+  turno cancelado antes no deja id y el siguiente empieza sesión nueva.
   Quedan deshabilitadas en modo sesión remota y para proyectos SSH. El uso se
   registra en `usage.toml` con fase `session` y `task_id` vacío (suma tokens y
   tiempo al proyecto sin contar como tarea). Las herramientas se ejecutan

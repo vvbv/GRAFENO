@@ -80,6 +80,7 @@ def test_roundtrip_and_store(tmp_path):
     assert other.name == "Review 2"
     assert {r.id for r in reviews.list_all(str(tmp_path))} == {review.id, other.id}
     assert reviews.delete(review.id) and not reviews.delete(review.id)
+    assert reviews.create(str(tmp_path), cli="codex").cli == "codex"
     with pytest.raises(ValueError):
         reviews.create(str(tmp_path), cli="nope")
 

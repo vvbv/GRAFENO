@@ -338,6 +338,7 @@ function modal(options, build) {
       resolve(value);
     };
     dialog.addEventListener("cancel", (event) => {
+      if (Date.now() - searchSelectEscapeAt < 100) { event.preventDefault(); return; }  // Escape closed a searchSelect panel
       if (options.sticky) { event.preventDefault(); return; }
       event.preventDefault();
       close(undefined);
@@ -459,18 +460,21 @@ const viewer = {
 };
 
 // ---------------------------------------------------------------- shared data
+const MODELS_TTL_MS = 10 * 60 * 1000;  // same lifetime as the server cache
 const store = {
   options: null,
   models: null,
+  modelsAt: 0,
   modelsPromise: null,
   async getOptions(force) {
     if (!this.options || force) this.options = await api("GET", "/api/v1/options");
     return this.options;
   },
   getModels(refresh) {
-    if (refresh || (!this.models && !this.modelsPromise)) {
+    const stale = this.models && Date.now() - this.modelsAt > MODELS_TTL_MS;
+    if (refresh || (!this.models && !this.modelsPromise) || (stale && !this.modelsPromise)) {
       this.modelsPromise = api("GET", "/api/v1/models" + (refresh ? "?refresh=1" : ""))
-        .then((data) => { this.models = data; return data; })
+        .then((data) => { this.models = data; this.modelsAt = Date.now(); return data; })
         .finally(() => { this.modelsPromise = null; });
     }
     return this.modelsPromise || Promise.resolve(this.models);
@@ -543,6 +547,19 @@ const live = {
 };
 
 // ---------------------------------------------------------------- roles editor
+// Effort levels of a model in a {model: [levels]} catalogue (mirror of
+// drivers.model_levels): tolerates a "#variant" suffix and a missing or
+// extra provider prefix when the bare name matches exactly one key.
+function modelLevels(map, model) {
+  if (!model || !map) return [];
+  if (map[model]) return map[model].slice();
+  const bare = model.split("#")[0];
+  if (map[bare]) return map[bare].slice();
+  const tail = bare.split("/").pop();
+  const matches = Object.keys(map).filter((key) => key.split("/").pop() === tail);
+  return matches.length === 1 ? map[matches[0]].slice() : [];
+}
+
 // Rows of cli + model (with filter) + effort per role, fed by /api/v1/models.
 function rolesEditor(initial, opts) {
   opts = opts || {};
@@ -565,6 +582,9 @@ function rolesEditor(initial, opts) {
     const filter = h("input", { type: "search", placeholder: plain(tr("cfg.model.filter")) });
     const model = h("select");
     const effort = h("select");
+    const effortHint = h("span", { class: "help effort-hint" });
+    effortHint.hidden = true;
+    const effortCell = h("div", { class: "effort-cell" }, effort, effortHint);
     rows[role] = { cli, filter, model, effort };
     const refreshModels = () => {
       const current = values[role];
@@ -582,10 +602,16 @@ function rolesEditor(initial, opts) {
     };
     const refreshEffort = () => {
       const current = values[role];
-      const levels = catalog && catalog.variants ? ((catalog.variants[catalogCli()] || {})[current.model] || []).slice() : [];
+      const cliVariants = catalog && catalog.variants ? catalog.variants[catalogCli()] : undefined;
+      const levels = modelLevels(cliVariants, current.model);
       if (current.effort && !levels.includes(current.effort)) {
         if (levels.length) current.effort = ""; else levels.push(current.effort);
       }
+      // Loaded catalogue without levels: a text explains it instead of a one-option selector.
+      const fixed = cliVariants !== undefined && !levels.length;
+      effort.hidden = fixed;
+      effortHint.hidden = !fixed;
+      effortHint.textContent = fixed ? plain(current.model ? tr("cfg.effort.none") : tr("cfg.effort.pick_model")) : "";
       effort.replaceChildren(option(plain(tr("cfg.effort.prompt")), ""), ...levels.map((level) => option(level, level, level === current.effort)));
       effort.value = current.effort;
     };
@@ -603,7 +629,7 @@ function rolesEditor(initial, opts) {
     rows[role].refresh = refreshModels;
     const label = (opts.labels && opts.labels[role]) || tr("cfg.role." + role);
     grid.append(h("span", { class: "role-name", text: plain(label) }), cli,
-      h("div", { class: "model-cell" }, filter, model), effort);
+      h("div", { class: "model-cell" }, filter, model), effortCell);
     refreshModels();
   }
   const reload = h("button", { type: "button", class: "small", text: tr("web.ui.reload_models"), onclick: () => load(true) });
@@ -653,36 +679,152 @@ function dirSuggestions(input) {
   input.addEventListener("focus", load);
 }
 
+// ---------------------------------------------------------------- searchable select
+// Select2-like single choice: a trigger button opens a panel with a search
+// field and the filtered option list (arrows, Enter, Escape and mouse). The
+// panel exists only while open (modal() never focuses a hidden field) and
+// closes when the focus leaves the control.
+let searchSelectSeq = 0;
+let searchSelectEscapeAt = 0;  // modal() ignores the Escape that closed a panel
+function foldText(text) {
+  return String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+function searchSelect(opts) {
+  // opts: {items: [{value, label, detail?}], value?, emptyLabel?, placeholder?, noItems?,
+  //        searchPlaceholder?, noMatches?, ariaLabel?, className?, onChange?(value)}
+  const uid = "ss-" + (++searchSelectSeq);
+  let items = (opts.items || []).slice();
+  let current = opts.value || "";
+  let shown = [], active = -1, panel = null, search = null, list = null, empty = null;
+  const label = h("span", { class: "ss-label" });
+  const trigger = h("button", { type: "button", class: "ss-trigger", "aria-haspopup": "listbox",
+    "aria-expanded": "false", "aria-label": opts.ariaLabel || null }, label);
+  const root = h("div", { class: "ss" + (opts.className ? " " + opts.className : "") }, trigger);
+  // The optional empty entry ("All projects", "Any state") is always listed first.
+  const entries = () => (opts.emptyLabel ? [{ value: "", label: opts.emptyLabel, empty: true }] : []).concat(items);
+  const textOf = (item) => (item.detail ? item.label + " (" + item.detail + ")" : item.label);
+  const syncLabel = () => {
+    const item = entries().find((entry) => entry.value === current);
+    let text = item ? textOf(item) : opts.emptyLabel;
+    if (!text) text = (items.length ? opts.placeholder : opts.noItems || opts.placeholder) || "";
+    label.textContent = text;
+    trigger.title = text;
+    trigger.classList.toggle("placeholder", !item && !opts.emptyLabel);
+  };
+  const setActive = (index, noScroll) => {
+    const nodes = list.children;
+    if (!nodes.length) { active = -1; search.removeAttribute("aria-activedescendant"); return; }
+    active = Math.max(0, Math.min(nodes.length - 1, index));
+    for (let i = 0; i < nodes.length; i++) nodes[i].classList.toggle("active", i === active);
+    search.setAttribute("aria-activedescendant", nodes[active].id);
+    if (!noScroll) nodes[active].scrollIntoView({ block: "nearest" });  // hover never scrolls
+  };
+  const renderList = () => {
+    const needle = foldText(search.value.trim());
+    shown = entries().filter((item) => item.empty || !needle
+      || foldText(item.label + " " + (item.detail || "") + " " + item.value).includes(needle));
+    list.replaceChildren(...shown.map((item, index) => h("li", {
+      id: uid + "-" + index, role: "option", class: "ss-option" + (item.value === current ? " selected" : ""),
+      "aria-selected": item.value === current ? "true" : "false",
+      onmousedown: (event) => event.preventDefault(),  // keep the focus in the search field
+      onclick: (event) => { event.preventDefault(); choose(item.value); },
+      onmousemove: () => { if (active !== index) setActive(index, true); },
+    }, h("span", { class: "ss-text", text: item.label }),
+      item.detail ? h("span", { class: "ss-detail", text: item.detail }) : null)));
+    empty.hidden = shown.some((item) => !item.empty);
+    empty.textContent = items.length ? (opts.noMatches || tr("web.ui.no_matches")) : (opts.noItems || tr("web.ui.no_matches"));
+  };
+  const close = (refocus) => {
+    if (!panel) return;
+    const node = panel;
+    panel = search = list = empty = null;
+    shown = [];
+    active = -1;
+    root.classList.remove("open");
+    trigger.setAttribute("aria-expanded", "false");
+    if (refocus) trigger.focus();  // before removing: the focus never leaves the control
+    node.remove();
+  };
+  const choose = (value) => {
+    const changed = value !== current;
+    current = value;
+    syncLabel();
+    close(true);
+    if (changed && opts.onChange) opts.onChange(value);
+  };
+  const onKey = (event) => {
+    if (event.key === "ArrowDown") { event.preventDefault(); setActive(active + 1); }
+    else if (event.key === "ArrowUp") { event.preventDefault(); setActive(active - 1); }
+    else if (event.key === "Enter") {
+      event.preventDefault();  // inside a <dialog> form Enter would submit it
+      if (active >= 0 && shown[active]) choose(shown[active].value);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();  // neither the dialog nor the task detail handle this Escape
+      searchSelectEscapeAt = Date.now();
+      close(true);
+    }
+  };
+  const open = () => {
+    if (panel) return;
+    search = h("input", { type: "search", class: "ss-search", autocomplete: "off", role: "combobox",
+      placeholder: opts.searchPlaceholder || "", "aria-label": opts.searchPlaceholder || opts.ariaLabel || null,
+      "aria-expanded": "true", "aria-controls": uid + "-list", "aria-autocomplete": "list" });
+    list = h("ul", { class: "ss-list", id: uid + "-list", role: "listbox" });
+    empty = h("div", { class: "ss-empty", hidden: true });
+    panel = h("div", { class: "ss-panel", tabindex: "-1" }, search, list, empty);
+    search.addEventListener("input", () => {
+      renderList();
+      // With a query, skip the always-first empty entry so Enter picks the first match.
+      const first = search.value.trim() ? shown.findIndex((item) => !item.empty) : -1;
+      setActive(first >= 0 ? first : 0);
+    });
+    panel.addEventListener("keydown", onKey);
+    // Clicks inside the panel never reach a wrapping <label> (it would re-click the trigger).
+    panel.addEventListener("click", (event) => { if (event.target !== search) event.preventDefault(); });
+    root.appendChild(panel);
+    root.classList.add("open");
+    trigger.setAttribute("aria-expanded", "true");
+    renderList();
+    setActive(Math.max(0, shown.findIndex((item) => item.value === current)));
+    search.focus();
+  };
+  trigger.addEventListener("mousedown", (event) => { if (panel) event.preventDefault(); });
+  trigger.addEventListener("click", () => (panel ? close(true) : open()));
+  trigger.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); open(); }
+  });
+  root.addEventListener("focusout", (event) => {
+    if (panel && !root.contains(event.relatedTarget)) close(false);
+  });
+  syncLabel();
+  return {
+    node: root,
+    value: () => current,
+    setValue(value) { current = value || ""; syncLabel(); if (panel) renderList(); },
+    setItems(nextItems, value) {
+      items = nextItems.slice();
+      if (value !== undefined) current = value || "";
+      syncLabel();
+      if (panel) { renderList(); setActive(active); }  // keeps the typed query
+    },
+    close: () => close(false),
+  };
+}
+
 // ---------------------------------------------------------------- project selector
 function projectSelector(projects) {
+  // Every project of /api/v1/projects, searchable by name or path (searchSelect).
   const items = projects.slice().sort((a, b) => {
     const byName = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
     return byName || a.workdir.toLowerCase().localeCompare(b.workdir.toLowerCase());
+  }).map((item) => ({ value: item.workdir, label: item.name || item.workdir, detail: item.workdir }));
+  const picker = searchSelect({
+    items, className: "cs-project-selector", ariaLabel: tr("cs.field.workdir"),
+    placeholder: plain(tr("cs.workdir.prompt")), noItems: plain(tr("projects.empty.no_projects")),
+    searchPlaceholder: plain(tr("projects.filter.placeholder")), noMatches: plain(tr("projects.empty.filter")),
   });
-  const filter = h("input", { type: "search", placeholder: plain(tr("projects.filter.placeholder")) });
-  const select = h("select");
-  let selected = "";
-  const refresh = () => {
-    const needle = filter.value.trim().toLowerCase();
-    let shown = needle ? items.filter((item) => (item.name + " " + item.workdir).toLowerCase().includes(needle)) : items;
-    if (selected && !shown.some((item) => item.workdir === selected)) {
-      const current = items.find((item) => item.workdir === selected);
-      if (current) shown = [current].concat(shown);
-    }
-    let prompt = tr("cs.workdir.prompt");
-    if (!items.length) prompt = tr("projects.empty.no_projects");
-    else if (!shown.length && !selected) prompt = tr("projects.empty.filter");
-    select.replaceChildren(option(plain(prompt), "", !selected),
-      ...shown.map((item) => option(item.name + " (" + item.workdir + ")", item.workdir, item.workdir === selected)));
-    select.value = selected;
-  };
-  filter.addEventListener("input", refresh);
-  select.addEventListener("change", () => { selected = select.value; });
-  refresh();
-  return {
-    node: h("div", { class: "cs-project-selector" }, filter, select),
-    value: () => select.value.trim(),
-  };
+  return { node: picker.node, value: () => picker.value().trim() };
 }
 
 // ---------------------------------------------------------------- list editors
@@ -1044,12 +1186,19 @@ const tasksView = {
     const f = this.filters;
     const search = h("input", { type: "search", placeholder: tr("web.ui.search"), value: f.search });
     search.addEventListener("input", () => { f.search = search.value; this.renderList(); });
-    this.projectSelect = h("select");
-    this.projectSelect.addEventListener("change", () => { f.project = this.projectSelect.value; this.renderList(); });
+    this.projectPicker = searchSelect({
+      emptyLabel: tr("web.ui.all_projects"), value: f.project, ariaLabel: tr("web.ui.all_projects"),
+      searchPlaceholder: plain(tr("projects.filter.placeholder")), noMatches: plain(tr("projects.empty.filter")),
+      onChange: (value) => { f.project = value; this.renderList(); },
+    });
     const done = h("select", null, ["all", "hide", "only"].map((mode) => option(tr("tasks.done." + mode), mode, f.done === mode)));
     done.addEventListener("change", () => { f.done = done.value; this.renderList(); });
-    const state = h("select", null, option(tr("web.ui.any_state"), ""), BOOT.states.map((value) => option(tr("state." + value), value, f.state === value)));
-    state.addEventListener("change", () => { f.state = state.value; this.renderList(); });
+    const statePicker = searchSelect({
+      items: BOOT.states.map((value) => ({ value, label: tr("state." + value) })),
+      emptyLabel: tr("web.ui.any_state"), value: f.state, ariaLabel: tr("web.ui.any_state"),
+      searchPlaceholder: tr("web.ui.filter_states"),
+      onChange: (value) => { f.state = value; this.renderList(); },
+    });
     const date = h("input", { type: "date", value: f.date, title: tr("tasks.bind.date") });
     const today = h("button", { type: "button", class: "small" });
     const syncToday = () => { today.textContent = tr(f.date ? "tasks.date.all_dates" : "tasks.date.today"); };
@@ -1076,9 +1225,9 @@ const tasksView = {
         h("th", { class: "num col-opt", text: tr("tasks.col.duration") }), h("th", { class: "col-opt", text: tr("tasks.col.updated") }),
         h("th", { class: "col-opt", text: tr("tasks.col.workdir") }))),
       this.rows);
-    this.tableWrap = h("div", { class: "table-wrap" }, table, this.listEmpty);
+    this.tableWrap = h("div", { class: "table-wrap" }, h("div", { class: "task-table-container" }, table), this.listEmpty);
     const list = h("section", { id: "list-pane" },
-      h("div", { class: "filters" }, search, this.projectSelect, done, state, date, today, reload),
+      h("div", { class: "filters" }, search, this.projectPicker.node, done, statePicker.node, date, today, reload),
       this.tableWrap, this.summary);
     this.detailNode = h("div", { id: "detail" });
     return h("div", { class: "screens" }, list, h("section", { id: "detail-pane" }, this.detailNode));
@@ -1105,7 +1254,6 @@ const tasksView = {
     if (task.id === this.selected) this.loadDetail(false).catch(fail);
   },
   renderProjects() {
-    const select = this.projectSelect;
     const current = this.filters.project;
     const seen = new Set();
     const names = [];
@@ -1115,8 +1263,8 @@ const tasksView = {
       const key = projectOf(task);
       if (!seen.has(key)) { seen.add(key); names.push([key, null]); }
     }
-    select.replaceChildren(option(tr("web.ui.all_projects"), ""), ...names.map(([name, count]) => option(count === null ? name : name + " (" + count + ")", name, name === current)));
-    select.value = seen.has(current) ? current : "";
+    // An unknown current project shows "All projects", like the former <select>.
+    this.projectPicker.setItems(names.map(([name, count]) => ({ value: name, label: count === null ? name : name + " (" + count + ")" })), current);
   },
   visible() {
     const f = this.filters;
@@ -1154,23 +1302,14 @@ const tasksView = {
     this.listEmpty.hidden = tasks.length > 0;
     if (!this.tasks.length) this.listEmpty.textContent = tr("web.ui.no_tasks");
     else this.listEmpty.textContent = tr("web.ui.empty");
-    // Totals of the visible tasks: tokens by CLI+model and time (TUI footer).
-    const totals = {};
+    // Total time of the visible tasks (TUI footer).
     let seconds = 0;
-    for (const task of tasks) {
-      seconds += task.duration_seconds || 0;
-      for (const [label, pair] of Object.entries(task.tokens_by_agent || {})) {
-        const entry = totals[label] || (totals[label] = [0, 0]);
-        entry[0] += pair[0];
-        entry[1] += pair[1];
-      }
-    }
-    const parts = Object.entries(totals).sort((a, b) => (b[1][0] + b[1][1]) - (a[1][0] + a[1][1]) || a[0].localeCompare(b[0]))
-      .map(([label, pair]) => label + ": " + tokenPair(pair[0], pair[1]));
-    this.summary.replaceChildren(
-      parts.length ? h("div", { text: tr("tasks.tokens.summary", { summary: parts.join(" · ") }) }) : null,
+    for (const task of tasks) seconds += task.duration_seconds || 0;
+    // Native replaceChildren() renders null as the text "null", so optional nodes are filtered out.
+    this.summary.replaceChildren(...[
       seconds ? h("div", { text: tr("tasks.time.summary", { duration: formatDuration(seconds) }) }) : null,
-      h("div", { text: tr("web.ui.count", { shown: tasks.length, total: this.tasks.length }) }));
+      h("div", { text: tr("web.ui.count", { shown: tasks.length, total: this.tasks.length }) }),
+    ].filter(Boolean));
   },
 
   // ------------------------------------------------------------ detail
@@ -1716,13 +1855,31 @@ const tasksView = {
 };
 
 // ---------------------------------------------------------------- projects view
+// Projects table order: name (case-insensitive), task count or latest task
+// activity. Projects without activity always go last; ties fall back to the
+// name and then the folder.
+function compareProjects(a, b, key, dir) {
+  const byName = a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.workdir.localeCompare(b.workdir);
+  if (key === "last_worked" && !a.last_worked !== !b.last_worked) return a.last_worked ? -1 : 1;
+  let result = 0;
+  if (key === "tasks") result = Number(a.count || 0) - Number(b.count || 0);
+  else if (key === "last_worked") result = String(a.last_worked || "").localeCompare(String(b.last_worked || ""));
+  else result = byName;
+  if (dir === "desc") result = -result;
+  return result || byName;
+}
+
 // Projects found in the working directories (first-level subfolders of each
-// root, like the TUI projects screen): grouped by root, with a text filter and
-// the task count of each folder. A click (or Enter) on a project offers to
+// root, like the TUI projects screen): server-side favorites (star) in a
+// Favorites group above the per-root groups, sortable Project/Tasks/Last
+// worked headers (sorted separately within favorites and each root), a text
+// filter and the task count of each folder. A click (or Enter) on a project offers to
 // create a task in it: the new-task form opens with the folder preset.
 const projectsView = {
   data: null,
   filter: "",
+  sortKey: "name",
+  sortDir: "asc",
   mount() {
     this.data = null;
     this.search = h("input", { type: "search", placeholder: tr("projects.filter.placeholder"), value: this.filter });
@@ -1749,6 +1906,38 @@ const projectsView = {
     try { await store.getOptions(); } catch (err) { /* the editor button stays disabled */ }
     this.render();
   },
+  sortBy(key) {
+    if (this.sortKey === key) this.sortDir = this.sortDir === "asc" ? "desc" : "asc";
+    else {
+      this.sortKey = key;
+      this.sortDir = key === "name" ? "asc" : "desc";
+    }
+    this.render();
+  },
+  sortHeader(key, label, className) {
+    const active = this.sortKey === key;
+    const sort = active ? (this.sortDir === "asc" ? "ascending" : "descending") : "none";
+    const arrow = active ? (this.sortDir === "asc" ? " \u25B2" : " \u25BC") : "";
+    return h("th", { class: className || null, "aria-sort": sort },
+      h("button", { type: "button", class: "sort", text: label + arrow,
+        title: tr("projects.sort.by", { column: label }), onclick: () => this.sortBy(key) }));
+  },
+  sorted(items) {
+    return items.slice().sort((a, b) => compareProjects(a, b, this.sortKey, this.sortDir));
+  },
+  async toggleFavorite(item) {
+    const favorite = !item.favorite;
+    item.favorite = favorite;  // optimistic: the star and the groups change at once
+    this.render();
+    try {
+      const result = await api("POST", "/api/v1/projects/favorite", { workdir: item.workdir, favorite });
+      item.favorite = !!result.favorite;
+    } catch (err) {
+      item.favorite = !favorite;
+      fail(err);
+    }
+    this.render();
+  },
   render() {
     const data = this.data;
     if (!data) return;
@@ -1760,12 +1949,17 @@ const projectsView = {
     const all = (data.projects || []).filter((item) => item.workspace);
     const needle = this.filter.trim().toLowerCase();
     const shown = all.filter((item) => !needle || (item.name + " " + item.workdir).toLowerCase().includes(needle));
+    const favorites = this.sorted(shown.filter((item) => item.favorite));
     const rows = [];
+    if (favorites.length) {
+      rows.push(h("tr", { class: "root favorites" }, h("td", { colspan: "5", text: tr("projects.group.favorites") })));
+      for (const item of favorites) rows.push(this.row(item));
+    }
     for (const root of roots) {
-      const items = shown.filter((item) => item.workspace === root.path)
-        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-      if (needle && !items.length) continue;  // filtering: hide roots without matches
-      rows.push(h("tr", { class: "root" }, h("td", { colspan: "3" },
+      const inRoot = all.filter((item) => item.workspace === root.path);
+      const items = this.sorted(shown.filter((item) => item.workspace === root.path && !item.favorite));
+      if (!items.length && (needle || inRoot.length)) continue;  // filtered out, or every project is a favorite
+      rows.push(h("tr", { class: "root" }, h("td", { colspan: "5" },
         h("span", { class: "mono", text: root.entry }),
         root.exists ? null : h("span", { class: "badge failed", text: tr("projects.root_missing") }))));
       for (const item of items) rows.push(this.row(item));
@@ -1776,16 +1970,27 @@ const projectsView = {
     this.body.replaceChildren(
       h("div", { class: "card" }, h("div", { class: "table-wrap" }, h("table", { id: "project-table" },
         h("thead", null, h("tr", null,
-          h("th", { text: tr("projects.col.name") }),
-          h("th", { class: "num", text: tr("projects.col.tasks") }),
+          h("th", { class: "favorite", "aria-label": tr("projects.col.favorite"), title: tr("projects.col.favorite") }),
+          this.sortHeader("name", tr("projects.col.name")),
+          this.sortHeader("tasks", tr("projects.col.tasks"), "num"),
+          this.sortHeader("last_worked", tr("projects.col.last_worked")),
           h("th", { text: tr("projects.col.path") }))),
         h("tbody", null, rows)))),
       h("p", { class: "muted small-text", text: note }));
   },
   row(item) {
+    const action = tr(item.favorite ? "projects.favorite.remove" : "projects.favorite.add", { name: item.name });
+    const star = h("button", { type: "button", class: "project-favorite" + (item.favorite ? " active" : ""),
+      text: item.favorite ? "\u2605" : "\u2606", title: action, "aria-label": action,
+      "aria-pressed": item.favorite ? "true" : "false",
+      onclick: (event) => { event.stopPropagation(); this.toggleFavorite(item); } });
+    // Enter/Space on the star must not also open the project actions (row keydown).
+    star.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") event.stopPropagation(); });
     const row = h("tr", { class: "project", tabindex: "0" },
+      h("td", { class: "favorite" }, star),
       h("td", { class: "name", text: item.name }),
       h("td", { class: "num", text: String(item.count || 0) }),
+      h("td", { class: "when", text: when(item.last_worked) || "\u2014" }),
       h("td", { class: "path mono", text: item.workdir }));
     row.addEventListener("click", () => this.choose(item));
     row.addEventListener("keydown", (event) => {
@@ -1994,9 +2199,11 @@ const sessionsView = {
     try {
       [options, projectData] = await Promise.all([store.getOptions(), projectsRequest]);
     } catch (err) { fail(err); return; }
-    const clis = options.session_clis || ["claude", "opencode"];
+    const clis = options.session_clis || [];
+    if (!clis.length) { toast(tr("det.no_clis"), "warn"); return; }
     const implementer = options.defaults && options.defaults.roles && options.defaults.roles.implementer;
-    const initial = implementer && clis.includes(implementer.cli) ? implementer : { cli: "claude", model: "", effort: "" };
+    const cliDefault = clis.includes(options.session_cli_default) ? options.session_cli_default : clis[0];
+    const initial = implementer && implementer.cli === cliDefault ? implementer : { cli: cliDefault, model: "", effort: "" };
     const values = await modal({ title: tr("cs.new.title"), wide: true }, (form, close) => {
       let folder;
       if (preset.workdir) {
@@ -2070,7 +2277,8 @@ const sessionsView = {
     const running = item.running;
     const closed = item.state === "closed";
     const button = (label, cls, fn, disabled) => h("button", { type: "button", class: "small " + cls, text: label, disabled: !!disabled, onclick: fn });
-    this.headNode.replaceChildren(
+    // Native replaceChildren() renders null as the text "null", so the optional Stop button is filtered out.
+    this.headNode.replaceChildren(...[
       h("button", { type: "button", class: "small", text: tr("common.back"), onclick: () => this.back() }),
       h("strong", { text: item.name }),
       h("span", { class: "muted", text: (item.cli + " " + (item.model || "")).trim() }),
@@ -2080,7 +2288,8 @@ const sessionsView = {
       running ? button(tr("cs.stop"), "", () => this.action("cancel")) : null,
       button(tr("cs.rename"), "", () => this.rename()),
       button(tr(closed ? "cs.reopen" : "cs.close"), "", () => this.action(closed ? "reopen" : "close"), running),
-      button(tr("cs.delete"), "danger", () => this.remove()));
+      button(tr("cs.delete"), "danger", () => this.remove()),
+    ].filter(Boolean));
     const hint = $("cs-hint");
     if (hint) hint.textContent = closed ? tr("cs.closed_notice")
       : (item.initial_context ? tr("cs.context.pending") + " " : "") + tr("cs.hint.auto", { workdir: item.workdir });
@@ -2183,7 +2392,7 @@ const sessionsView = {
   },
   async rename() {
     const name = await modal({ title: tr("cs.rename") }, (form, close) => {
-      const input = h("input", { type: "text", value: this.session.name });
+      const input = h("input", { type: "text", value: this.session.name || "" });
       form.append(h("label", { class: "field" }, input),
         h("div", { class: "buttons" },
           h("button", { type: "button", text: tr("common.cancel"), onclick: () => close(undefined) }),

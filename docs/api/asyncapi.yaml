@@ -25,6 +25,7 @@ info:
     | tasks.get           | `task_id`                                        | GET /api/v1/tasks/{id}             |
     | projects.list       | -                                                | GET /api/v1/projects               |
     | projects.create     | `name?`, `url?`, `mode?`, `workspace?`           | POST /api/v1/projects              |
+    | projects.favorite   | `workdir`, `favorite?` (default true)            | POST /api/v1/projects/favorite     |
     | projects.docs       | `workdir?`, `project?`                           | GET /api/v1/projects/docs          |
     | projects.doc        | `workdir?`, `project?`, `name`, `offset?`, `max_chars?` | GET /api/v1/projects/doc    |
     | projects.files      | `workdir?`, `project?`, `path?`, `hidden?`, `limit?`, `offset?` | GET /api/v1/projects/files |
@@ -201,6 +202,7 @@ components:
         - tasks.get
         - projects.list
         - projects.create
+        - projects.favorite
         - projects.docs
         - projects.doc
         - projects.files

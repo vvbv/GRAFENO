@@ -106,6 +106,7 @@ def test_page_strings_exist_in_both_languages():
     from importlib import resources
 
     script = resources.files("grafeno.server").joinpath("static/app.js").read_text(encoding="utf-8")
+    assert "options.session_cli_default" in script and '["claude", "opencode"]' not in script
     keys = set(re.findall(r'tr\("([a-z_.]+)"', script))
     assert keys
     for key in keys:
@@ -125,6 +126,18 @@ def test_new_task_link_immediately_follows_tasks_in_navigation():
     nav = html.split('<nav id="nav">', 1)[1].split("</nav>", 1)[0]
     routes = re.findall(r'data-route="([^"]+)"', nav)
     assert routes == ["tasks", "new", "projects", "sessions", "reports", "settings"]
+
+
+def test_cli_model_totals_are_in_reports_not_task_footer():
+    """CLI/model token totals live in Reports, not in the web task-list footer."""
+    script = resources.files("grafeno.server").joinpath("static/app.js").read_text(encoding="utf-8")
+    assert '"tasks.tokens.summary"' not in script
+    assert "task.tokens_by_agent" not in script
+    assert 'tr("tasks.time.summary",' in script
+    assert 'tr("web.ui.count",' in script
+    assert "d.tokens_by_agent" in script
+    assert 'section(tr("reports.section.by_model")' in script
+    assert "data.by_model.map" in script
 
 
 def test_task_column_defaults_to_60vw_and_keeps_the_resized_width():
@@ -152,6 +165,20 @@ def test_task_column_defaults_to_60vw_and_keeps_the_resized_width():
     assert "th.style.minWidth" in script
 
 
+def test_task_table_has_lateral_padding():
+    """The task table sits in its own padded container inside the scroll area."""
+    from importlib import resources
+
+    static = resources.files("grafeno.server").joinpath("static")
+    script = static.joinpath("app.js").read_text(encoding="utf-8")
+    css = static.joinpath("app.css").read_text(encoding="utf-8")
+    assert 'h("div", { class: "task-table-container" }, table)' in script
+    assert ".task-table-container { width: max-content; min-width: 100%; padding: 0 16px; }" in css
+    # The scroll area and the 60vw task column are untouched.
+    assert ".table-wrap { flex: 1; overflow: auto; }" in css
+    assert "#task-table th.name { width: 60vw; min-width: 60vw; }" in css
+
+
 def test_projects_tab_and_preset_new_task_route():
     """The panel has a Projects tab that opens the new-task form with the folder preset."""
     from importlib import resources
@@ -164,6 +191,29 @@ def test_projects_tab_and_preset_new_task_route():
     assert '"#/new/" + enc(item.workdir)' in script
     assert 'api("GET", "/api/v1/projects")' in script
     assert "build(options, tasks, preset)" in script
+
+
+def test_projects_favorites_sorting_and_last_worked():
+    """Projects: server-side favorites group above the root groups, sortable headers, Last worked."""
+    static = resources.files("grafeno.server").joinpath("static")
+    script = static.joinpath("app.js").read_text(encoding="utf-8")
+    css = static.joinpath("app.css").read_text(encoding="utf-8")
+    for fragment in (
+        'api("POST", "/api/v1/projects/favorite"', "function compareProjects(", "aria-sort", "aria-pressed",
+        "item.last_worked", 'tr("projects.group.favorites")', '"root favorites"',
+        "item.workspace === root.path", 'sortHeader("last_worked"',
+    ):
+        assert fragment in script
+    # Favorites live on the server, not in the browser.
+    assert "projectFavorites" not in script
+    for fragment in (".project-favorite", "#project-table td.when", "th button.sort"):
+        assert fragment in css
+    for language in ("en", "es"):
+        for key in (
+            "projects.col.favorite", "projects.col.last_worked", "projects.group.favorites",
+            "projects.favorite.add", "projects.favorite.remove", "projects.sort.by",
+        ):
+            assert key in i18n._MESSAGES[language]
 
 
 def test_project_actions_have_corner_close_button():
@@ -227,15 +277,20 @@ def test_new_cli_session_uses_searchable_project_selector():
     ):
         assert needle in method
     assert "dirSuggestions(folder)" not in method
-    assert 'const needle = filter.value.trim().toLowerCase();' in selector
-    assert '(item.name + " " + item.workdir).toLowerCase()' in selector
-    assert "if (selected && !shown.some((item) => item.workdir === selected))" in selector
+    assert "searchSelect({" in selector
+    assert 'className: "cs-project-selector"' in selector
+    assert "detail: item.workdir" in selector
+    assert 'h("select")' not in selector
+    assert 'type: "search"' not in selector  # the search field lives inside searchSelect
+    assert 'byName || a.workdir.toLowerCase().localeCompare(b.workdir.toLowerCase())' in selector
+    assert "return { node: picker.node, value: () => picker.value().trim() };" in selector
     for needle in ('tr("cs.workdir.prompt")', 'tr("cs.error.select_workdir")'):
         assert needle in script
     for language in ("en", "es"):
         assert "cs.workdir.prompt" in i18n._MESSAGES[language]
         assert "cs.error.select_workdir" in i18n._MESSAGES[language]
-    assert ".cs-project-selector" in css
+    assert ".cs-project-selector { width: 100%; }" in css
+    assert "grid-template-columns: minmax(160px, 0.4fr)" not in css
 
 
 def test_new_cli_session_does_not_append_null_task_context():
@@ -246,6 +301,27 @@ def test_new_cli_session_does_not_append_null_task_context():
     method = script.split("  async newSession(preset) {", 1)[1].split("  async openChat() {", 1)[0]
     assert '...(preset.task_id ? [h("p", { class: "help", text: tr("cs.context.hint", { name: preset.task_name }) })] : []),' in method
     assert 'preset.task_id ? h("p", { class: "help", text: tr("cs.context.hint", { name: preset.task_name }) }) : null' not in method
+
+
+def test_cli_session_header_does_not_render_null():
+    """The session header filters the optional Stop button instead of passing null to replaceChildren."""
+    from importlib import resources
+
+    script = resources.files("grafeno.server").joinpath("static/app.js").read_text(encoding="utf-8")
+    method = script.split("  renderHead() {", 2)[2].split("  buildComposer() {", 1)[0]
+    assert "this.headNode.replaceChildren(...[" in method
+    assert "].filter(Boolean));" in method
+
+
+def test_task_list_footer_does_not_render_null():
+    """Without accumulated time the list footer omits the time line instead of rendering null."""
+    from importlib import resources
+
+    script = resources.files("grafeno.server").joinpath("static/app.js").read_text(encoding="utf-8")
+    start = script.index("this.summary.replaceChildren(")
+    block = script[start:script.index(";", start)]
+    assert block.startswith("this.summary.replaceChildren(...[")
+    assert "].filter(Boolean)" in block
 
 
 def test_working_directories_use_the_list_editor():
@@ -594,3 +670,115 @@ def test_task_session_button_wiring_in_script():
         "sessionsView.newSession({ workdir: task.workdir, task_id: task.id", 'tr("cs.context.pending")',
     ):
         assert needle in script
+
+
+def _search_select_source():
+    from importlib import resources
+
+    script = resources.files("grafeno.server").joinpath("static/app.js").read_text(encoding="utf-8")
+    body = script.split("function searchSelect(opts) {", 1)[1].split(
+        "// ---------------------------------------------------------------- project selector", 1)[0]
+    return script, body
+
+
+def test_search_select_is_a_single_searchable_keyboard_control():
+    """searchSelect: one trigger, a search panel, keyboard and mouse, closes on blur."""
+    script, body = _search_select_source()
+    assert "function foldText(text)" in script
+    for needle in (
+        'class: "ss-trigger"', 'role: "combobox"', 'role: "listbox"', 'role: "option"',
+        '"aria-activedescendant"', '"aria-expanded"',
+        '"ArrowDown"', '"ArrowUp"', '"Enter"', '"Escape"',
+        "event.stopPropagation()", "searchSelectEscapeAt = Date.now()",
+        'root.addEventListener("focusout"', "!root.contains(event.relatedTarget)",
+        "onmousedown: (event) => event.preventDefault()",
+        "node.remove()", "setItems(nextItems, value)",
+        "shown.findIndex((item) => !item.empty)",
+    ):
+        assert needle in body, needle
+    assert "innerHTML" not in body
+    assert "<select" not in body and 'h("select"' not in body
+    # Escape that closed a panel never closes the surrounding dialog.
+    modal = script.split("function modal(options, build) {", 1)[1].split("function confirmDialog(", 1)[0]
+    assert "Date.now() - searchSelectEscapeAt < 100" in modal
+
+
+def test_task_filters_use_search_select_and_keep_the_filter_logic():
+    """'All projects' and 'States' are searchSelect controls; visible() is unchanged."""
+    script, _ = _search_select_source()
+    build = script.split("const tasksView = {", 1)[1].split("  async refresh(quiet) {", 1)[0]
+    assert "this.projectPicker = searchSelect({" in build
+    assert "const statePicker = searchSelect({" in build
+    assert 'emptyLabel: tr("web.ui.all_projects")' in build
+    assert 'emptyLabel: tr("web.ui.any_state")' in build
+    assert 'searchPlaceholder: tr("web.ui.filter_states")' in build
+    assert "search, this.projectPicker.node, done, statePicker.node, date, today, reload" in build
+    assert "this.projectSelect" not in script
+    assert "this.projectPicker.setItems(" in script
+    assert "if (f.project && projectOf(task) !== f.project && task.workdir !== f.project) return false;" in script
+    assert "if (f.state && task.state !== f.state) return false;" in script
+
+
+def test_search_select_arrow_keeps_padding_from_the_right_edge():
+    """The down arrow is a themed CSS chevron 12px away from the right border."""
+    from importlib import resources
+
+    css = resources.files("grafeno.server").joinpath("static/app.css").read_text(encoding="utf-8")
+    assert ".ss-trigger { position: relative;" in css
+    assert "padding: 6px 32px 6px 10px" in css
+    arrow = css.split(".ss-trigger::after {", 1)[1].split("}", 1)[0]
+    assert "right: 12px" in arrow
+    assert "var(--muted)" in arrow
+    assert ".filters .ss { flex: 1 1 160px; }" in css
+    # Direct children only: the panel search field must not inherit the 180px flex-basis.
+    assert ".filters > input[type=search]" in css and ".filters input[type=search]" not in css
+    assert ".ss-panel {" in css and "z-index: 30" in css
+
+
+def test_search_select_strings_exist_in_both_languages():
+    from grafeno import i18n
+
+    for language in ("en", "es"):
+        for key in ("web.ui.filter_states", "web.ui.no_matches"):
+            assert i18n._MESSAGES[language][key], (language, key)
+
+
+def test_roles_editor_effort_uses_model_levels_and_hint():
+    static = resources.files("grafeno.server").joinpath("static")
+    script = static.joinpath("app.js").read_text(encoding="utf-8")
+    css = static.joinpath("app.css").read_text(encoding="utf-8")
+    for needle in (
+        "function modelLevels(",
+        "modelLevels(cliVariants, current.model)",
+        'tr("cfg.effort.none")',
+        'tr("cfg.effort.pick_model")',
+        "effortCell",
+        "MODELS_TTL_MS",
+    ):
+        assert needle in script, needle
+    assert ".effort-hint" in css
+
+
+def test_model_levels_js_matches_python():
+    import re
+    import shutil
+    import subprocess
+
+    from grafeno.drivers import model_levels
+
+    node = shutil.which("node") or pytest.skip("node not installed")
+    script = resources.files("grafeno.server").joinpath("static/app.js").read_text(encoding="utf-8")
+    fn = re.search(r"function modelLevels\(.*?\n}\n", script, re.S).group(0)
+    cases = [
+        ({"kimi-code/k3": ["low", "high"]}, "kimi-code/k3"),
+        ({"kimi-code/k3": ["low", "high"]}, "k3"),
+        ({"kimi-code/k3": ["low", "high"]}, "kimi-code/k3#x"),
+        ({"a/m": ["x"], "b/m": ["y"]}, "m"),
+        ({"kimi-code/k3": ["low"]}, ""),
+        (None, "k3"),
+    ]
+    code = fn + "\nconsole.log(JSON.stringify(%s.map(([m, n]) => modelLevels(m, n))))" % json.dumps(
+        [list(case) for case in cases]
+    )
+    out = subprocess.run([node, "-e", code], capture_output=True, text=True, timeout=30, check=True)
+    assert json.loads(out.stdout) == [model_levels(m, n) for m, n in cases]

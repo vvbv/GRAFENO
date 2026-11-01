@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from .. import clisessions, media, paths, remotesession
 from ..clisession_runtime import CliSessionManager, SessionBusy, SessionClosed
-from ..clisessions import SESSION_CLIS, CliSession
+from ..clisessions import CliSession
 from ..i18n import t
 from .actions import ApiError
 from .actions import _load_or_404 as load_task_or_404
@@ -75,7 +75,7 @@ def list_sessions(service: "ServerService", workdir: str = "") -> dict:
     sessions = clisessions.list_all(workdir)
     return {
         "sessions": [_summary(service, s) for s in sessions],
-        "clis": list(SESSION_CLIS),
+        "clis": clisessions.session_clis(),
         "available": not remotesession.active(),
     }
 
@@ -119,7 +119,7 @@ def create_session(service: "ServerService", payload: dict) -> tuple[int, dict]:
     try:
         session = manager.create(
             workdir,
-            _text(payload, "cli") or "claude",
+            _text(payload, "cli") or clisessions.default_cli(),
             model=_text(payload, "model"),
             effort=_text(payload, "effort"),
             name=name,

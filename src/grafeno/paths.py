@@ -38,6 +38,11 @@ def profiles_path() -> Path:
     return home() / "profiles.toml"
 
 
+def project_favorites_path() -> Path:
+    """Favorite projects of the web panel (normalized workdirs)."""
+    return home() / "project-favorites.toml"
+
+
 def usage_path() -> Path:
     """Dated usage ledger (tokens/time records for the reports screen)."""
     return home() / "usage.toml"

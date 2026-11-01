@@ -441,7 +441,53 @@ def test_list_projects_empty_folder_has_zero_counts(tmp_path, monkeypatch) -> No
     ws = _ws_config(tmp_path, monkeypatch)
     data = actions.list_projects(FakeService(None))
     [item] = [p for p in data["projects"] if p["workdir"] == str(ws / "alpha")]
-    assert (item["count"], item["sessions"]) == (0, 0)
+    assert (item["count"], item["sessions"], item["last_worked"], item["favorite"]) == (0, 0, "", False)
+
+
+def _set_task_stamps(task: Task, created_at: str, updated_at: str) -> None:
+    from grafeno import _toml
+
+    task.created_at = created_at
+    task.updated_at = updated_at
+    paths.task_meta_path(task.id).write_text(_toml.dumps(task.to_dict()), encoding="utf-8")
+
+
+def _alpha(ws) -> dict:
+    data = actions.list_projects(FakeService(None))
+    [item] = [p for p in data["projects"] if p["workdir"] == str(ws / "alpha")]
+    return item
+
+
+def test_list_projects_last_worked_uses_latest_update(tmp_path, monkeypatch) -> None:
+    ws = _ws_config(tmp_path, monkeypatch)
+    _set_task_stamps(_task(ws / "alpha", name="A"), "2026-01-01T10:00:00", "2026-01-03T10:00:00")
+    _set_task_stamps(_task(ws / "alpha", name="B"), "2026-01-01T10:00:00", "2026-01-02T10:00:00")
+    assert _alpha(ws)["last_worked"] == "2026-01-03T10:00:00"
+
+
+def test_list_projects_last_worked_falls_back_to_created_at(tmp_path, monkeypatch) -> None:
+    ws = _ws_config(tmp_path, monkeypatch)
+    _set_task_stamps(_task(ws / "alpha", name="A"), "2026-01-01T10:00:00", "")
+    assert _alpha(ws)["last_worked"] == "2026-01-01T10:00:00"
+
+
+def test_set_project_favorite_marks_and_unmarks(tmp_path, monkeypatch) -> None:
+    ws = _ws_config(tmp_path, monkeypatch)
+    result = actions.set_project_favorite(FakeService(None), {"workdir": str(ws / "alpha") + "/"})
+    assert result["favorite"] is True and result["workdir"] == str(ws / "alpha")
+    assert _alpha(ws)["favorite"] is True
+    actions.set_project_favorite(FakeService(None), {"workdir": str(ws / "alpha"), "favorite": False})
+    assert _alpha(ws)["favorite"] is False
+    actions.set_project_favorite(FakeService(None), {"workdir": str(ws / "alpha")})
+    actions.set_project_favorite(FakeService(None), {"workdir": str(ws / "alpha"), "favorite": "false"})
+    assert _alpha(ws)["favorite"] is False
+
+
+def test_set_project_favorite_requires_workdir() -> None:
+    for params in ({}, {"workdir": "  "}):
+        with pytest.raises(ApiError) as info:
+            actions.set_project_favorite(FakeService(None), params)
+        assert info.value.status == 400
 
 
 def test_list_projects_counts_sessions(tmp_path, monkeypatch) -> None:
@@ -461,14 +507,16 @@ def test_list_projects_counts_sessions(tmp_path, monkeypatch) -> None:
 
 def test_list_projects_trailing_slash_does_not_duplicate(tmp_path, monkeypatch) -> None:
     ws = _ws_config(tmp_path, monkeypatch)
-    _task(ws / "alpha", name="A")
+    _set_task_stamps(_task(ws / "alpha", name="A"), "2026-01-01T10:00:00", "2026-01-02T10:00:00")
     task = _task(ws / "alpha", name="B")
     task.workdir = str(ws / "alpha") + "/"
     models.save(task)
+    _set_task_stamps(task, "2026-01-01T10:00:00", "2026-01-04T10:00:00")
     data = actions.list_projects(FakeService(None))
     items = [p for p in data["projects"] if actions._norm_dir(p["workdir"]) == str(ws / "alpha")]
     assert len(items) == 1
     assert items[0]["count"] == 2
+    assert items[0]["last_worked"] == "2026-01-04T10:00:00"
 
 
 def test_list_projects_create_options(tmp_path, monkeypatch) -> None:

@@ -18,8 +18,8 @@ from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .. import clisessions
 from .. import config as config_module
-from ..clisessions import SESSION_CLIS
 from .. import editor as editor_module
 from .. import gh as gh_module
 from .. import paths
@@ -75,6 +75,7 @@ def form_options(service: "ServerService") -> dict:
     from ..drivers import available_clis
 
     cfg = config_module.load()
+    session_clis = clisessions.session_clis()
     return {
         "defaults": {
             "workdir": os.getcwd(),
@@ -90,7 +91,8 @@ def form_options(service: "ServerService") -> dict:
         "profiles": [_profile_dict(profile) for profile in profiles_module.load_global()],
         "hook_stages": list(HOOK_STAGES),
         "known_clis": list(KNOWN_CLIS),
-        "session_clis": list(SESSION_CLIS),
+        "session_clis": session_clis,
+        "session_cli_default": clisessions.default_cli(cfg.role("implementer").cli, session_clis),
         "available_clis": available_clis(),
         "editor": editor_info(cfg),
         "session": {
@@ -109,7 +111,7 @@ def editor_info(cfg) -> dict:
 
 async def models_catalog(service: "ServerService", refresh: bool = False) -> dict:
     """Models and effort variants per CLI (cached; the CLIs are slow)."""
-    from ..drivers import fetch_all_models, fetch_all_variants
+    from ..drivers import available_clis, fetch_all_models, fetch_all_variants
 
     cached = getattr(service, "_models_cache", None)
     if cached and not refresh and time.monotonic() - cached[0] < MODELS_TTL_SECONDS:
@@ -117,7 +119,9 @@ async def models_catalog(service: "ServerService", refresh: bool = False) -> dic
     models_map = await fetch_all_models(KNOWN_CLIS)
     variants_map = await fetch_all_variants(KNOWN_CLIS)
     result = {"models": models_map, "variants": variants_map}
-    service._models_cache = (time.monotonic(), result)
+    # A failed listing of an installed CLI is not cached: the next request retries it.
+    if all(models_map.get(cli) for cli in available_clis() if cli in models_map):
+        service._models_cache = (time.monotonic(), result)
     return result
 
 

@@ -24,12 +24,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import _toml, media, paths, remote, remotesession
+from .config import KNOWN_CLIS
 from .i18n import prompt_template, t
 
 if TYPE_CHECKING:
     from .models import Task
 
-SESSION_CLIS = ("claude", "opencode")  # CLIs offered for direct sessions
+# Every supported driver can resume its native session (claude/cursor --resume,
+# opencode/minimax --session, kimi -S, codex exec resume): all of them are
+# offered. A CLI that cannot resume reliably must be removed here with its reason.
+SESSION_CLIS = KNOWN_CLIS  # CLIs supported by direct sessions (single source of truth)
+DEFAULT_SESSION_CLI = "claude"  # preferred CLI when it is installed
 STATE_ACTIVE = "active"
 STATE_CLOSED = "closed"
 STATES = (STATE_ACTIVE, STATE_CLOSED)
@@ -60,7 +65,7 @@ def _to_int(value: Any) -> int:
 class CliSession:
     id: str
     workdir: str              # absolute, resolved local path of the project
-    cli: str                  # one of SESSION_CLIS
+    cli: str                  # one of SESSION_CLIS (may no longer be installed)
     name: str = ""
     model: str = ""           # empty = CLI default
     effort: str = ""          # empty = CLI default
@@ -114,6 +119,31 @@ def new_id() -> str:
 def valid_id(session_id: str) -> bool:
     """Whether the id has the generated shape (protects against path traversal)."""
     return bool(_ID_PATTERN.fullmatch(session_id or ""))
+
+
+def session_clis() -> list[str]:
+    """Session CLIs detected on this system, in ``SESSION_CLIS`` order."""
+    from .drivers import available_clis  # lazy: drivers is heavy and patched in tests
+
+    detected = set(available_clis())
+    return [cli for cli in SESSION_CLIS if cli in detected]
+
+
+def default_cli(preferred: str = "", offered: list[str] | None = None) -> str:
+    """CLI preselected for a new session.
+
+    ``preferred`` when it is offered, else ``DEFAULT_SESSION_CLI`` when
+    offered, else the first offered one; ``DEFAULT_SESSION_CLI`` when no
+    CLI is detected (the turn then reports ``cs.cli_missing``). ``offered``
+    reuses an already computed ``session_clis()`` list.
+    """
+    if offered is None:
+        offered = session_clis()
+    if preferred and preferred in offered:
+        return preferred
+    if DEFAULT_SESSION_CLI in offered or not offered:
+        return DEFAULT_SESSION_CLI
+    return offered[0]
 
 
 def resolve_workdir(raw: str) -> Path:

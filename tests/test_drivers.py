@@ -8,12 +8,12 @@ import time
 from pathlib import Path
 
 from grafeno.drivers import available_clis, get_driver
-from grafeno.drivers.base import CLIDriver, EventKind, RunRequest, read_lines
+from grafeno.drivers.base import CLIDriver, EventKind, RunRequest, model_levels, read_lines
 from grafeno.drivers.claude import ClaudeDriver
 from grafeno.drivers.codex import CodexDriver
 from grafeno.drivers.cursor import CursorDriver
 from grafeno.drivers.kimi import KimiDriver
-from grafeno.drivers.minimax import MiniMaxDriver
+from grafeno.drivers.minimax import MiniMaxDriver, parse_block_yaml
 from grafeno.drivers.opencode import OpenCodeDriver
 
 
@@ -218,15 +218,6 @@ def test_kimi_command_minimal():
     assert "-S" not in cmd
 
 
-def test_kimi_command_ignores_effort():
-    """Kimi does not support an effort level: its command does not add any new flag."""
-    base = KimiDriver().build_command(_request())
-    with_effort = KimiDriver().build_command(_request(effort="high"))
-    assert base == with_effort
-    assert "high" not in with_effort
-    assert "--variant" not in with_effort
-
-
 def test_opencode_parse_variants_real_output():
     """Parsing of the real output of ``opencode models --verbose``.
 
@@ -255,15 +246,6 @@ def test_opencode_parse_variants_real_output():
 
 def test_opencode_parse_variants_empty_output():
     assert OpenCodeDriver().parse_variants("") == {}
-
-
-def test_kimi_variants_command_empty():
-    """Kimi does not expose a variants command."""
-    assert KimiDriver().variants_command() == []
-
-
-def test_kimi_parse_variants_returns_empty():
-    assert KimiDriver().parse_variants("cualquier cosa") == {}
 
 
 def test_kimi_decode_real_event_shapes():
@@ -794,14 +776,14 @@ def test_cursor_variants_use_base_defaults():
 # ---------------------------------------------------------------------- #
 def test_minimax_command_full():
     driver = MiniMaxDriver()
-    cmd = driver.build_command(_request(model="minimax/MiniMax-M2.7", session_id="mvs_1"))
+    cmd = driver.build_command(_request(model="minimax/MiniMax-M3", session_id="mvs_1"))
     assert cmd[:2] == ["mcode", "exec"]
     assert "hola" not in cmd  # the prompt travels via stdin, not argv
     assert cmd[cmd.index("--input") + 1] == "-"
     assert cmd[cmd.index("--output-format") + 1] == "stream-json"
     assert cmd[cmd.index("--permission") + 1] == "full"
     assert cmd[cmd.index("--cwd") + 1] == str(Path("/tmp/x"))
-    assert cmd[cmd.index("--model") + 1] == "minimax/MiniMax-M2.7"
+    assert cmd[cmd.index("--model") + 1] == "minimax/MiniMax-M3"
     assert cmd[cmd.index("--session") + 1] == "mvs_1"
     assert "--effort" not in cmd
 
@@ -810,20 +792,6 @@ def test_minimax_command_minimal():
     cmd = MiniMaxDriver().build_command(_request())
     assert "--model" not in cmd
     assert "--session" not in cmd
-
-
-def test_minimax_effort_maps_to_known_variant_only():
-    """Effort becomes a ``#variant`` suffix only when the model declares it:
-    ``--effort`` is rejected by the built-in models and an unknown suffix
-    fails the run ("Invalid model variant")."""
-    driver = MiniMaxDriver()
-    cmd = driver.build_command(_request(model="minimax/MiniMax-M3", effort="none-thinking"))
-    assert cmd[cmd.index("--model") + 1] == "minimax/MiniMax-M3#none-thinking"
-    cmd = driver.build_command(_request(model="minimax/MiniMax-M3", effort="xhigh"))
-    assert cmd[cmd.index("--model") + 1] == "minimax/MiniMax-M3"
-    cmd = driver.build_command(_request(model="minimax/MiniMax-M2.7", effort="thinking"))
-    assert cmd[cmd.index("--model") + 1] == "minimax/MiniMax-M2.7"
-    assert driver.build_command(_request(effort="thinking")) == driver.build_command(_request())
 
 
 def test_minimax_decode_real_event_shapes():
@@ -911,8 +879,9 @@ def test_minimax_extract_usage_turn_completed_only():
     assert usage is None
 
 
-def test_minimax_list_models(monkeypatch):
-    """Built-in catalogue plus models of enabled custom providers."""
+def test_minimax_list_models(monkeypatch, tmp_path):
+    """Static catalogue (no config.yaml) plus models of enabled custom providers."""
+    monkeypatch.setenv("MINIMAX_DATA_DIR", str(tmp_path))
     driver = MiniMaxDriver()
     sample = json.dumps({
         "minimaxModelSource": "token_plan",
@@ -927,9 +896,8 @@ def test_minimax_list_models(monkeypatch):
     monkeypatch.setattr(driver, "_run_sync", lambda cmd: sample)
     assert driver.list_models() == [
         "acme/deep-1",
-        "minimax/MiniMax-M2.7",
-        "minimax/MiniMax-M2.7-highspeed",
         "minimax/MiniMax-M3",
+        "minimax/MiniMax-M3.1-Flash",
     ]
 
 
@@ -938,15 +906,6 @@ def test_minimax_list_models_failure(monkeypatch):
     monkeypatch.setattr(driver, "_run_sync", lambda cmd: None)
     assert driver.list_models() == []
     assert driver.parse_models("no es json") == []
-
-
-def test_minimax_variants_are_static():
-    """mcode exposes no variants command: the thinking variants are static."""
-    driver = MiniMaxDriver()
-    assert driver.variants_command() == []
-    assert asyncio.run(driver.list_variants_async()) == {
-        "minimax/MiniMax-M3": ["none-thinking", "thinking"],
-    }
 
 
 # ---------------------------------------------------------------------- #
@@ -1435,11 +1394,6 @@ def test_list_variants_async_spawn_error(monkeypatch):
     assert asyncio.run(_opencode(1).list_variants_async()) == {}
 
 
-def test_list_variants_async_kimi_no_command():
-    """Kimi does not expose ``variants_command``: returns ``{}`` without spawning."""
-    assert asyncio.run(KimiDriver().list_variants_async()) == {}
-
-
 def test_update_commands():
     assert OpenCodeDriver().update_command() == ["opencode", "upgrade"]
     assert KimiDriver().update_command() == ["kimi", "update"]
@@ -1556,3 +1510,258 @@ def test_claude_session_id_format_and_rejection():
     assert driver.is_session_rejected("No conversation found with session ID: a08633f8-f8f7-4533-a2ad-d2248ed8caf6")
     assert driver.is_session_rejected("Error: --resume requires a valid session ID or session title when used with --print.")
     assert not driver.is_session_rejected("Claude Code CLI exited with code 1.")
+
+
+# ---------------------------------------------------------------------- #
+# Effort: kimi, mcode and the run-time validation
+# ---------------------------------------------------------------------- #
+def _capture_exec(monkeypatch, captured: dict) -> None:
+    """Fake subprocess that records ``cmd``/``env`` and finishes with one message."""
+    async def fake_exec(*cmd, **kwargs):
+        captured["cmd"] = list(cmd)
+        captured["env"] = kwargs.get("env")
+
+        class Proc:
+            returncode = 0
+            stdin = None
+            stdout = asyncio.StreamReader()
+            stderr = asyncio.StreamReader()
+            stdout.feed_data(b'{"role":"assistant","content":"ok"}\n')
+            stdout.feed_eof()
+            stderr.feed_eof()
+
+            async def wait(self):
+                return 0
+        return Proc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+
+_KIMI_PROVIDERS = json.dumps({"models": {
+    "kimi-code/k3": {"supportEfforts": ["low", "high", "max"], "defaultEffort": "high"},
+    "kimi-code/kimi-for-coding-highspeed": {"capabilities": []},
+}})
+
+
+def test_kimi_command_effort_not_in_argv():
+    base = KimiDriver().build_command(_request())
+    assert KimiDriver().build_command(_request(effort="high")) == base
+
+
+def test_kimi_variants_command_and_parse():
+    driver = KimiDriver()
+    assert driver.variants_command() == ["kimi", "provider", "list", "--json"]
+    assert driver.parse_variants(_KIMI_PROVIDERS) == {"kimi-code/k3": ["low", "high", "max"]}
+    assert driver.parse_variants("not json") == {}
+
+
+def test_kimi_run_env_sets_thinking_effort():
+    driver = KimiDriver()
+    assert driver.run_env(_request(effort="low"))["KIMI_MODEL_THINKING_EFFORT"] == "low"
+    assert driver.run_env(_request()) is None
+
+
+def test_kimi_effort_levels_uses_cache(monkeypatch):
+    calls = []
+
+    async def fake_list(self, timeout=30.0):
+        calls.append(1)
+        return {"kimi-code/k3": ["low", "high", "max"]}
+
+    monkeypatch.setattr(CLIDriver, "list_variants_async", fake_list)
+    driver = KimiDriver()
+    assert asyncio.run(driver.effort_levels_async("kimi-code/k3")) == ["low", "high", "max"]
+    assert asyncio.run(driver.effort_levels_async("kimi-code/k3")) == ["low", "high", "max"]
+    assert len(calls) == 1
+    assert asyncio.run(driver.effort_levels_async("")) == []
+    assert asyncio.run(driver.effort_levels_async("k3")) == ["low", "high", "max"]
+
+
+def test_kimi_run_drops_unsupported_effort(monkeypatch, tmp_path):
+    captured: dict = {}
+    _capture_exec(monkeypatch, captured)
+    driver = KimiDriver()
+    driver._efforts_cache = (time.monotonic(), {"kimi-code/k3": ["low", "high", "max"]})
+
+    events = []
+    asyncio.run(driver.run(
+        _request(workdir=tmp_path, model="kimi-code/k3", effort="xhigh"), on_event=events.append,
+    ))
+    assert captured["env"] is None
+    assert any(e.kind == EventKind.INFO and "xhigh" in e.text for e in events)
+
+    events = []
+    asyncio.run(driver.run(
+        _request(workdir=tmp_path, model="kimi-code/k3", effort="low"), on_event=events.append,
+    ))
+    assert captured["env"]["KIMI_MODEL_THINKING_EFFORT"] == "low"
+    assert not any(e.kind == EventKind.INFO for e in events)
+
+
+_MCODE_CONFIG = """\
+defaultModel: minimax/MiniMax-M3
+provider:
+  minimax:
+    name: MiniMax
+    baseURL: https://agent.minimax.io/x/v1
+    models:
+      MiniMax-M3:
+        variants:
+          none-thinking:
+            thinking:
+              type: disabled
+          thinking:
+            thinking:
+              type: adaptive
+        thinking_config:
+          mode: switchable
+          default_value: "true"
+      MiniMax-M3.1-Flash:
+        variants:
+          none-thinking:
+            thinking:
+              type: disabled
+          thinking:
+            thinking:
+              type: adaptive
+        thinking_config:
+          mode: forced_on
+        thinking:
+          effortOptions:
+            - default
+            - low
+            - medium
+            - high
+            - xhigh
+            - max
+          defaultEffort: default
+      MiniMax-Old:
+        variants:
+          thinking:
+            thinking:
+              type: adaptive
+    model_order:
+      - MiniMax-M3.1-Flash
+      - MiniMax-M3
+    whitelist:
+      - MiniMax-M3
+      - MiniMax-M3.1-Flash
+defaultModelVariant: thinking
+"""
+
+
+def test_parse_block_yaml_reads_mcode_config():
+    import yaml
+
+    text = _MCODE_CONFIG + (
+        "extra:\n"
+        '  "1000000": higher_usage\n'
+        "  # a comment\n"
+        "  rules:\n"
+        "    - name: a\n"
+        "      value: b\n"
+    )
+    parsed = parse_block_yaml(text)
+    expected = yaml.safe_load(text)
+    models = ("provider", "minimax", "models", "MiniMax-M3.1-Flash")
+    for path in (
+        (*models, "thinking", "effortOptions"),
+        (*models, "variants"),
+        (*models, "thinking_config", "mode"),
+        ("provider", "minimax", "whitelist"),
+        ("defaultModel",),
+        ("provider", "minimax", "baseURL"),
+    ):
+        got, want = parsed, expected
+        for key in path:
+            got, want = got[key], want[key]
+        assert got == want, path
+    assert parsed["provider"]["minimax"]["baseURL"] == "https://agent.minimax.io/x/v1"
+    assert parsed["extra"]["1000000"] == "higher_usage"
+
+
+def test_minimax_catalog_from_config_yaml(monkeypatch, tmp_path):
+    (tmp_path / "config.yaml").write_text(_MCODE_CONFIG, encoding="utf-8")
+    monkeypatch.setenv("MINIMAX_DATA_DIR", str(tmp_path))
+    assert asyncio.run(MiniMaxDriver().list_variants_async()) == {
+        "minimax/MiniMax-M3": ["none-thinking", "thinking"],
+        "minimax/MiniMax-M3.1-Flash": ["low", "medium", "high", "xhigh", "max"],
+    }
+
+
+def test_minimax_catalog_falls_back_to_static(monkeypatch, tmp_path):
+    monkeypatch.setenv("MINIMAX_DATA_DIR", str(tmp_path))
+    driver = MiniMaxDriver()
+    expected = {m: e.levels for m, e in MiniMaxDriver.STATIC_CATALOG.items()}
+    assert asyncio.run(driver.list_variants_async()) == expected
+    assert driver.parse_models(json.dumps({"providers": []})) == sorted(MiniMaxDriver.STATIC_MODELS)
+
+
+def test_minimax_build_command_effort_mechanisms(monkeypatch):
+    driver = MiniMaxDriver()
+    monkeypatch.setattr(driver, "load_catalog", lambda: None)
+
+    def build(model, effort):
+        cmd = driver.build_command(_request(model=model, effort=effort))
+        return (cmd[cmd.index("--model") + 1] if "--model" in cmd else None,
+                cmd[cmd.index("--effort") + 1] if "--effort" in cmd else None)
+
+    flash = "minimax/MiniMax-M3.1-Flash"
+    m3 = "minimax/MiniMax-M3"
+    assert build(flash, "low") == (flash, "low")
+    assert build(m3, "none-thinking") == (m3 + "#none-thinking", None)
+    assert build(m3, "low") == (m3, None)
+    assert build(flash, "none-thinking") == (flash, None)
+    assert build("", "low") == (None, None)
+    assert build("MiniMax-M3", "thinking") == ("MiniMax-M3#thinking", None)
+
+
+def test_minimax_run_drops_unsupported_effort(monkeypatch, tmp_path):
+    captured: dict = {}
+    _capture_exec(monkeypatch, captured)
+    driver = MiniMaxDriver()
+    monkeypatch.setattr(driver, "load_catalog", lambda: None)
+    events = []
+    asyncio.run(driver.run(
+        _request(workdir=tmp_path, model="minimax/MiniMax-M3", effort="xhigh"), on_event=events.append,
+    ))
+    assert "--effort" not in captured["cmd"]
+    assert not any("#" in part for part in captured["cmd"])
+    assert any(e.kind == EventKind.INFO and "xhigh" in e.text for e in events)
+
+
+def test_model_levels_tolerates_prefix_and_suffix():
+    catalog = {"kimi-code/k3": ["low", "high"]}
+    assert model_levels(catalog, "kimi-code/k3") == ["low", "high"]
+    assert model_levels(catalog, "k3") == ["low", "high"]
+    assert model_levels(catalog, "kimi-code/k3#x") == ["low", "high"]
+    assert model_levels({"a/m": ["x"], "b/m": ["y"]}, "m") == []
+    assert model_levels(None, "k3") == []
+    assert model_levels(catalog, "") == []
+
+
+def test_run_keeps_effort_without_runtime_check(monkeypatch, tmp_path):
+    captured: dict = {}
+
+    async def fake_exec(*cmd, **kwargs):
+        captured["cmd"] = list(cmd)
+
+        class Proc:
+            returncode = 0
+            stdin = None
+            stdout = asyncio.StreamReader()
+            stderr = asyncio.StreamReader()
+            stdout.feed_eof()
+            stderr.feed_eof()
+
+            async def wait(self):
+                return 0
+        return Proc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    events = []
+    asyncio.run(ClaudeDriver().run(
+        _request(workdir=tmp_path, model="sonnet", effort="high"), on_event=events.append,
+    ))
+    assert "--effort" in captured["cmd"] and "high" in captured["cmd"]
+    assert not any(e.kind == EventKind.INFO for e in events)

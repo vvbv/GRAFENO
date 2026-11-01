@@ -15,6 +15,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Input, Label, Select, Static
 
 from ..config import KNOWN_CLIS
+from ..drivers import model_levels
 from ..i18n import t
 
 # Pipeline roles (id, i18n key for the title).
@@ -210,6 +211,8 @@ class RolesForm(Static):
         list and the saved value does not belong to it, it is reset to
         empty only when there is a loaded catalogue for that CLI; in any
         other case the value is added to the options so it is not lost.
+        With a loaded catalogue and no levels for the model the selector is
+        disabled and its prompt explains why.
         """
         select = self.query_one(f"#{role}-effort", Select)
         current = select.value
@@ -217,13 +220,21 @@ class RolesForm(Static):
         cli = self._catalog_cli(role)
         model_value = self.query_one(f"#{role}-model", Select).value
         model = "" if model_value is Select.NULL else str(model_value)
-        levels = list(self.variants.get(cli, {}).get(model, []))
+        levels = model_levels(self.variants.get(cli, {}), model)
         if chosen and levels and chosen not in levels:
             chosen = ""
         if chosen and chosen not in levels:
             levels.append(chosen)
         select.set_options([(level, level) for level in levels])
         select.value = chosen if chosen else Select.NULL
+        # A loaded catalogue with no level for this model: explain it instead of
+        # offering a selector whose only option is the CLI default.
+        fixed = cli in self.variants and not levels
+        if fixed:
+            select.prompt = t("cfg.effort.none") if model else t("cfg.effort.pick_model")
+        else:
+            select.prompt = EFFORT_PROMPT
+        select.disabled = fixed
 
     def on_select_changed(self, event: Select.Changed) -> None:
         for role, _ in self.roles:

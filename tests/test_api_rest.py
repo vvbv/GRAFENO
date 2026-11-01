@@ -186,6 +186,12 @@ def test_list_projects(tmp_path) -> None:
     models.save(t1)
     models.save(t2)
     models.save(t3)
+    from grafeno import _toml
+
+    t1.updated_at = "2026-01-03T10:00:00"
+    paths.task_meta_path(t1.id).write_text(_toml.dumps(t1.to_dict()), encoding="utf-8")
+    t2.updated_at = "2026-01-02T10:00:00"
+    paths.task_meta_path(t2.id).write_text(_toml.dumps(t2.to_dict()), encoding="utf-8")
 
     async def scenario():
         service, srv_task = await _start_service()
@@ -195,6 +201,32 @@ def test_list_projects(tmp_path) -> None:
             counts = {item["workdir"]: item["count"] for item in payload["projects"]}
             assert counts[str(p1)] == 2
             assert counts[str(p2)] == 1
+            by_dir = {item["workdir"]: item for item in payload["projects"]}
+            assert by_dir[str(p1)]["last_worked"] == "2026-01-03T10:00:00"
+            assert by_dir[str(p1)]["favorite"] is False
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())
+
+
+def test_project_favorite_roundtrip(tmp_path) -> None:
+    from grafeno import models
+
+    p1 = tmp_path / "p1"
+    models.save(_make_task(p1, name="P1A"))
+
+    async def scenario():
+        service, srv_task = await _start_service()
+        try:
+            body = json.dumps({"workdir": str(p1), "favorite": True}).encode()
+            status, payload = await _request(service, "POST", "/api/v1/projects/favorite", body)
+            assert status == 200 and payload["favorite"] is True
+            status, payload = await _request(service, "GET", "/api/v1/projects")
+            [item] = [i for i in payload["projects"] if i["workdir"] == str(p1)]
+            assert item["favorite"] is True
+            status, _ = await _request(service, "POST", "/api/v1/projects/favorite", b"{}")
+            assert status == 400
         finally:
             _stop(service, srv_task)
 

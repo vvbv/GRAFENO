@@ -1,4 +1,4 @@
-"""Direct CLI sessions screen: talk to Claude Code or OpenCode in a project folder.
+"""Direct CLI sessions screen: talk to any detected agent CLI in a project folder.
 
 Lists the sessions (of one project or all of them) and shows the selected
 conversation. Turns run in the background through ``App.cli_sessions`` so
@@ -66,6 +66,7 @@ class NewCliSessionScreen(ModalScreen["dict | None"]):
     def __init__(self, workdir: str = "") -> None:
         super().__init__()
         self._workdir = workdir
+        self._clis = tuple(clisessions.session_clis()) or SESSION_CLIS  # detected; all when none (defensive)
 
     def compose(self) -> ComposeResult:
         with Vertical(id="cs-new-dialog"):
@@ -74,7 +75,7 @@ class NewCliSessionScreen(ModalScreen["dict | None"]):
             yield DirectoryPicker(self._workdir or os.getcwd(), input_id="cs-new-workdir")
             yield Label(t("cs.field.name"))
             yield Input(id="cs-new-name")
-            yield RolesForm(SESSION_ROLES, clis=SESSION_CLIS, id="cs-new-roles")
+            yield RolesForm(SESSION_ROLES, clis=self._clis, id="cs-new-roles")
             yield Static("", id="cs-new-status", markup=False)
             yield Label(t("cs.field.prompt"))
             yield Input(id="cs-new-prompt")
@@ -84,15 +85,14 @@ class NewCliSessionScreen(ModalScreen["dict | None"]):
 
     def on_mount(self) -> None:
         role = config_module.load().role("implementer")
-        cli, model, effort = (
-            (role.cli, role.model, role.effort) if role.cli in SESSION_CLIS else ("claude", "", "")
-        )
+        cli = clisessions.default_cli(role.cli)
+        model, effort = (role.model, role.effort) if cli == role.cli else ("", "")
         self.query_one(RolesForm).set_role("session", cli, model, effort)
         self.run_worker(self._load_models, exclusive=True, group="cs-new-models", exit_on_error=False)
 
     async def _load_models(self) -> None:
-        models_map = await fetch_all_models(SESSION_CLIS)
-        variants_map = await fetch_all_variants(SESSION_CLIS)
+        models_map = await fetch_all_models(self._clis)
+        variants_map = await fetch_all_variants(self._clis)
         form = self.query_one(RolesForm)
         form.set_models(models_map)
         form.set_variants(variants_map)
@@ -428,6 +428,9 @@ class CliSessionsScreen(Screen[None]):
             self._select(session.id)
             self.notify(t("cs.created"))
 
+        if not clisessions.session_clis():
+            self.notify(t("det.no_clis"), severity="warning")
+            return
         self.app.push_screen(NewCliSessionScreen(self._workdir or ""), created)
 
     def action_stop_turn(self) -> None:

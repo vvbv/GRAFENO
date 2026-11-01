@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from .. import clisessions as clisessions_module, media, models, paths, projectsetup, profiles as profiles_module, remote, remotesession, scheduler
 from .. import config as config_module
+from .. import favorites as favorites_module
 from .. import workspaces as workspaces_module
 from ..config import KNOWN_CLIS, RoleConfig
 from ..i18n import t
@@ -193,7 +194,7 @@ def _parse_states(raw: str | None) -> set[TaskState] | None:
 
 def _norm_dir(path: str) -> str:
     """Comparable form of a workdir (expanded, normalized, no trailing slash)."""
-    return os.path.normpath(os.path.expanduser(path.strip()))
+    return favorites_module.normalize(path)
 
 
 def _task_sort_key(task: Task, sort: str) -> str:
@@ -510,9 +511,12 @@ def list_projects(service: "ServerService") -> dict:
     (global + project level of the cwd) with its resolved path and whether
     it exists. Discovery is skipped in remote session mode, where the
     roots live on the remote host (``session`` is then true). ``create``
-    describes the project creation options.
+    describes the project creation options. Items also carry ``last_worked``
+    (latest task ``updated_at``, falling back to ``created_at``; empty
+    without tasks) and ``favorite`` (marked as favorite on the server).
     """
     counts: dict[str, int] = {}
+    last_worked: dict[str, str] = {}  # key -> latest task activity
     sessions: dict[str, int] = {}
     shown: dict[str, str] = {}  # key -> workdir as first seen
     for task in models.list_all():
@@ -520,6 +524,9 @@ def list_projects(service: "ServerService") -> dict:
             key = _norm_dir(task.workdir)
             shown.setdefault(key, task.workdir)
             counts[key] = counts.get(key, 0) + 1
+            stamp = task.updated_at or task.created_at
+            if stamp and stamp > last_worked.get(key, ""):
+                last_worked[key] = stamp
     for item in _all_sessions():
         if item.workdir:
             key = _norm_dir(item.workdir)
@@ -536,14 +543,18 @@ def list_projects(service: "ServerService") -> dict:
                 found[_norm_dir(str(project.path))] = project
         except Exception:  # noqa: BLE001 - workspaces discovery is best effort
             roots, found = [], {}
+    favorites = set(favorites_module.load())
     items: list[dict] = []
     for key in sorted(shown, key=lambda k: shown[k]):
         items.append(
-            _project_item(shown[key], counts.get(key, 0), found.pop(key, None), sessions.get(key, 0))
+            _project_item(
+                shown[key], counts.get(key, 0), found.pop(key, None), sessions.get(key, 0),
+                last_worked.get(key, ""), key in favorites,
+            )
         )
     for key in sorted(found, key=lambda k: str(found[k].path)):
         project = found[key]
-        items.append(_project_item(str(project.path), 0, project, 0))
+        items.append(_project_item(str(project.path), 0, project, 0, last_worked.get(key, ""), key in favorites))
     return {
         "projects": items,
         "workspaces": [
@@ -556,7 +567,8 @@ def list_projects(service: "ServerService") -> dict:
 
 
 def _project_item(
-    workdir: str, count: int, project: workspaces_module.Project | None, sessions: int = 0
+    workdir: str, count: int, project: workspaces_module.Project | None, sessions: int = 0,
+    last_worked: str = "", favorite: bool = False,
 ) -> dict:
     """One ``list_projects`` item; ``project`` is the discovered folder, if any."""
     return {
@@ -565,7 +577,26 @@ def _project_item(
         "sessions": sessions,
         "name": project.name if project is not None else Path(workdir).name,
         "workspace": str(project.workspace) if project is not None else "",
+        "last_worked": last_worked,
+        "favorite": favorite,
     }
+
+
+def set_project_favorite(service: "ServerService", params: dict) -> dict:
+    """Mark (``favorite`` true, default) or unmark a project as favorite.
+
+    Favorites live on the server (``project-favorites.toml``) so every
+    browser shares them; ``workdir`` is stored normalized.
+    """
+    workdir = params.get("workdir")
+    if not isinstance(workdir, str) or not workdir.strip():
+        raise ApiError(400, "workdir is required")
+    favorite = _coerce_bool(params.get("favorite"), True)
+    try:
+        saved = favorites_module.set_favorite(workdir, favorite)
+    except OSError as exc:
+        raise ApiError(500, "could not save favorites") from exc
+    return {"workdir": _norm_dir(workdir), "favorite": favorite, "favorites": saved}
 
 
 def get_logs(service: "ServerService", task_id: str, limit: int = 200) -> dict:

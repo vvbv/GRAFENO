@@ -104,6 +104,11 @@ async def _projects_create(service: "ServerService", request: Request, params: d
     return Response.json(status, body)
 
 
+@route("POST", "/api/v1/projects/favorite")
+async def _project_favorite(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
+    return actions.set_project_favorite(service, parse_json_body(request))
+
+
 @route("GET", "/api/v1/projects/docs")
 async def _project_docs(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
     query = request.query

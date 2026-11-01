@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
+import grafeno.drivers as drivers
 from grafeno import clisessions, paths, remotesession, usage
+from grafeno.config import KNOWN_CLIS
+from grafeno.drivers import get_driver
+from grafeno.drivers.base import RunRequest
 
 
 def _project(tmp_path, name="proj"):
@@ -31,7 +36,7 @@ def test_create_and_load_roundtrip(tmp_path):
 def test_create_rejects_bad_input(tmp_path):
     project = _project(tmp_path)
     for workdir, cli in (
-        (str(project), "kimi"),
+        (str(project), "nope"),
         ("relative/dir", "claude"),
         (str(tmp_path / "missing"), "claude"),
         ("user@host:/x", "claude"),
@@ -209,3 +214,54 @@ def test_task_context_lists_task_media_with_absolute_paths(tmp_path):
     context = clisessions.task_context(task)
     assert str(image) in context and str(doc.resolve()) in context
     assert context.endswith("First user message:\n")
+
+
+def _detected(monkeypatch, clis):
+    monkeypatch.setattr(drivers, "available_clis", lambda: list(clis))
+
+
+def test_session_clis_are_the_known_clis():
+    assert set(clisessions.SESSION_CLIS) == set(KNOWN_CLIS)
+
+
+@pytest.mark.parametrize("cli", KNOWN_CLIS)
+def test_every_session_cli_has_a_resuming_driver(cli):
+    driver = type(get_driver(cli))()  # fresh instance: never mutate the global registry
+    if hasattr(driver, "_major"):
+        driver._major = 1  # opencode: skip the --version spawn
+
+    def request(session_id):
+        return RunRequest(prompt="p", model="", workdir=Path("/tmp/x"), session_id=session_id, title="t")
+
+    assert "ses_1" in driver.build_command(request("ses_1"))
+    assert driver.build_command(request("ses_1")) != driver.build_command(request(None))
+
+
+def test_session_clis_only_detected(monkeypatch):
+    _detected(monkeypatch, ["kimi", "claude"])
+    assert clisessions.session_clis() == [c for c in KNOWN_CLIS if c in ("kimi", "claude")]
+
+
+def test_default_cli(monkeypatch):
+    _detected(monkeypatch, ["codex", "claude"])
+    assert clisessions.default_cli("codex") == "codex"
+    assert clisessions.default_cli("opencode") == "claude"
+    assert clisessions.default_cli() == "claude"
+    _detected(monkeypatch, ["kimi"])
+    assert clisessions.default_cli() == "kimi"
+    _detected(monkeypatch, [])
+    assert clisessions.default_cli("kimi") == "claude"
+
+
+@pytest.mark.parametrize("cli", clisessions.SESSION_CLIS)
+def test_create_accepts_every_supported_cli(tmp_path, cli):
+    assert clisessions.create(str(tmp_path), cli).cli == cli
+    with pytest.raises(ValueError):
+        clisessions.create(str(tmp_path), "nope")
+
+
+def test_session_with_uninstalled_cli_still_loads(tmp_path, monkeypatch):
+    session = clisessions.create(str(tmp_path), "cursor")
+    _detected(monkeypatch, [])
+    assert clisessions.load(session.id).cli == "cursor"
+    assert session.id in {s.id for s in clisessions.list_all()}

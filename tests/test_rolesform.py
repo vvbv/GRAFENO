@@ -114,3 +114,95 @@ def test_rolesform_restricts_offered_clis():
             assert [opt[1] for opt in select._options] == ["claude", "opencode"]
 
     asyncio.run(main())
+
+
+def _effort_host(models, variants, saved=None):
+    """Host app with one planner RolesForm preloaded with a catalogue."""
+    from textual.app import App
+
+    class Host(App):
+        def compose(self):
+            yield RolesForm((("planner", "cfg.role.planner"),), id="rf")
+
+    return Host(), models, variants, saved
+
+
+def test_rolesform_effort_levels_follow_cli_and_model():
+    from grafeno.i18n import t
+
+    models = {
+        "kimi": ["kimi-code/k3", "kimi-code/kimi-for-coding-highspeed"],
+        "minimax": ["minimax/MiniMax-M3"],
+    }
+    variants = {
+        "kimi": {"kimi-code/k3": ["low", "high", "max"]},
+        "minimax": {"minimax/MiniMax-M3": ["none-thinking", "thinking"]},
+    }
+
+    async def main():
+        app = _effort_host(models, variants)[0]
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            form = app.query_one("#rf", RolesForm)
+            form.set_models(models)
+            form.set_variants(variants)
+            cli = app.query_one("#planner-cli", Select)
+            model = app.query_one("#planner-model", Select)
+            effort = app.query_one("#planner-effort", Select)
+
+            cli.value = "kimi"
+            await pilot.pause()
+            model.value = "kimi-code/k3"
+            await pilot.pause()
+            assert _visible_values(effort) == ["low", "high", "max"]
+            assert effort.disabled is False
+
+            model.value = "kimi-code/kimi-for-coding-highspeed"
+            await pilot.pause()
+            assert effort.disabled is True
+            assert effort.prompt == t("cfg.effort.none")
+
+            model.clear()
+            await pilot.pause()
+            assert effort.prompt == t("cfg.effort.pick_model")
+
+            cli.value = "minimax"
+            await pilot.pause()
+            model.value = "minimax/MiniMax-M3"
+            await pilot.pause()
+            assert _visible_values(effort) == ["none-thinking", "thinking"]
+            assert effort.disabled is False
+
+    asyncio.run(main())
+
+
+def test_rolesform_effort_tolerates_provider_prefix():
+    models = {"kimi": ["k3"]}
+    variants = {"kimi": {"kimi-code/k3": ["low"]}}
+
+    async def main():
+        app = _effort_host(models, variants)[0]
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            form = app.query_one("#rf", RolesForm)
+            form.set_models(models)
+            form.set_role("planner", "kimi", "k3", "")
+            form.set_variants(variants)
+            await pilot.pause()
+            assert _visible_values(app.query_one("#planner-effort", Select)) == ["low"]
+
+    asyncio.run(main())
+
+
+def test_rolesform_keeps_saved_effort_without_catalogue():
+    async def main():
+        app = _effort_host({}, {})[0]
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            form = app.query_one("#rf", RolesForm)
+            form.set_role("planner", "kimi", "kimi-code/k3", "high")
+            await pilot.pause()
+            assert form.role_values("planner")[2] == "high"
+            assert app.query_one("#planner-effort", Select).disabled is False
+
+    asyncio.run(main())

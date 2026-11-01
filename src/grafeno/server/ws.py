@@ -345,6 +345,10 @@ async def _projects_create(service: "ServerService", params: dict, conn: "WsConn
     return (await projectcreate.create_project(service, params))[1]
 
 
+async def _projects_favorite(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return actions.set_project_favorite(service, params)
+
+
 async def _projects_docs(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
     return projectdocs.list_docs(
         service,
@@ -767,6 +771,7 @@ METHODS: dict[str, Callable] = {
     "tasks.get": _tasks_get,
     "projects.list": _projects_list,
     "projects.create": _projects_create,
+    "projects.favorite": _projects_favorite,
     "projects.docs": _projects_docs,
     "projects.doc": _projects_doc,
     "projects.files": _projects_files,

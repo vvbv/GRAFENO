@@ -145,7 +145,30 @@ def test_close_reopen_edit_delete(tmp_path) -> None:
     _run(scenario())
 
 
-def test_list_filters_by_workdir_and_validates_input(tmp_path) -> None:
+def test_create_defaults_to_detected_cli_and_accepts_supported(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("grafeno.drivers.available_clis", lambda: ["kimi"])
+
+    async def scenario():
+        service, srv = await _start(FakeApp())
+        try:
+            status, payload = await _request(service, "POST", "/api/v1/sessions", _body(workdir=str(tmp_path)))
+            assert status == 201 and payload["session"]["cli"] == "kimi"
+            status, payload = await _request(
+                service, "POST", "/api/v1/sessions", _body(workdir=str(tmp_path), cli="codex")
+            )
+            assert status == 201 and payload["session"]["cli"] == "codex"
+            status, _ = await _request(
+                service, "POST", "/api/v1/sessions", _body(workdir=str(tmp_path), cli="nope")
+            )
+            assert status == 400
+        finally:
+            _stop(service, srv)
+
+    _run(scenario())
+
+
+def test_list_filters_by_workdir_and_validates_input(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("grafeno.drivers.available_clis", lambda: ["claude", "kimi"])
     one = tmp_path / "one"
     two = tmp_path / "two"
     one.mkdir()
@@ -158,7 +181,7 @@ def test_list_filters_by_workdir_and_validates_input(tmp_path) -> None:
             await _create(service, two)
             _, everything = await _request(service, "GET", "/api/v1/sessions")
             assert len(everything["sessions"]) == 2
-            assert everything["available"] is True and "claude" in everything["clis"]
+            assert everything["available"] is True and everything["clis"] == ["kimi", "claude"]
             _, only = await _request(service, "GET", f"/api/v1/sessions?workdir={one}")
             assert [s["project_name"] for s in only["sessions"]] == ["one"]
             status, _ = await _request(

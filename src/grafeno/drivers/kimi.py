@@ -3,7 +3,7 @@
 Non-interactive mode:
     kimi -p "<prompt>" -m <alias> --output-format stream-json
 
-Notes verified against kimi 0.37:
+Notes verified against kimi 2.4.1:
 - ``-p/--prompt`` does NOT accept ``--auto`` or ``-y``; in prompt mode tools
   are auto-approved (no interaction is possible).
 - It has no directory flag: the workdir is passed as the subprocess ``cwd``.
@@ -14,7 +14,13 @@ Notes verified against kimi 0.37:
   ``{"role":"meta","type":"session.resume_hint","session_id":"..."}``.
 - Session continuation with ``-S <id>`` (best effort).
 - Models are obtained from ``kimi provider list --json``.
-- It has no model effort flag: ``effort`` is ignored.
+- It has no effort flag. The levels of each model are the ``supportEfforts``
+  of ``kimi provider list --json`` (models without it offer none) and the
+  chosen level is applied with the ``KIMI_MODEL_THINKING_EFFORT`` environment
+  variable (``run_env``). A value outside ``supportEfforts`` makes the run
+  fail with HTTP 400, so ``effort_levels_async`` validates it and
+  ``CLIDriver.run`` drops it with a notice. With an empty model (the CLI
+  default, unknown here) the effort is ignored.
 - The prompt travels in argv (``-p``): kimi does not document reading it
   from stdin, so it cannot use the stdin fallback of the base driver.
 """
@@ -22,9 +28,11 @@ Notes verified against kimi 0.37:
 from __future__ import annotations
 
 import json
+import os
+import time
 from typing import Any
 
-from .base import CLIDriver, EventKind, RunEvent, RunRequest, TokenUsage, format_error_message
+from .base import CLIDriver, EventKind, RunEvent, RunRequest, TokenUsage, format_error_message, model_levels
 
 
 class KimiDriver(CLIDriver):
@@ -33,6 +41,11 @@ class KimiDriver(CLIDriver):
     executable = "kimi"
     # kimi does not expose an init command in non-interactive mode: generic prompt.
     init_command = ""
+    # Environment variable kimi reads as the forced thinking effort of the run
+    # (verified against kimi 2.4.1; ``[thinking].forcedEffort`` in its config).
+    EFFORT_ENV = "KIMI_MODEL_THINKING_EFFORT"
+    EFFORTS_TTL_SECONDS = 600  # run-time cache of the per-model effort catalogue
+    _efforts_cache: tuple[float, dict[str, list[str]]] | None = None
 
     def build_command(self, request: RunRequest) -> list[str]:
         command = ["kimi", "-p", request.prompt, "--output-format", "stream-json"]
@@ -44,6 +57,54 @@ class KimiDriver(CLIDriver):
 
     def models_command(self) -> list[str]:
         return ["kimi", "provider", "list", "--json"]
+
+    def variants_command(self) -> list[str]:
+        return ["kimi", "provider", "list", "--json"]
+
+    def parse_variants(self, output: str) -> dict[str, list[str]]:
+        """``supportEfforts`` of each model alias (models without it are omitted)."""
+        try:
+            data = json.loads(output)
+        except json.JSONDecodeError:
+            return {}
+        models = data.get("models") if isinstance(data, dict) else None
+        if not isinstance(models, dict):
+            return {}
+        result: dict[str, list[str]] = {}
+        for alias, entry in models.items():
+            if not isinstance(entry, dict):
+                continue
+            efforts = entry.get("supportEfforts") or entry.get("support_efforts")
+            if not isinstance(efforts, list):
+                continue
+            levels = [
+                level.strip().lower() for level in efforts
+                if isinstance(level, str) and level.strip()
+            ]
+            if levels:
+                result[str(alias)] = levels
+        return result
+
+    async def list_variants_async(self, timeout: float = 30.0) -> dict[str, list[str]]:
+        """List the variants and refresh the run-time cache when the CLI answered."""
+        variants = await super().list_variants_async(timeout)
+        if variants:
+            self._efforts_cache = (time.monotonic(), variants)
+        return variants
+
+    async def effort_levels_async(self, model: str) -> list[str] | None:
+        if not model:
+            return []  # the CLI default model is unknown here: never guess a level
+        cached = self._efforts_cache
+        if cached is None or time.monotonic() - cached[0] >= self.EFFORTS_TTL_SECONDS:
+            await self.list_variants_async()
+            cached = self._efforts_cache
+        return model_levels(cached[1] if cached else {}, model)
+
+    def run_env(self, request: RunRequest) -> dict[str, str] | None:
+        if not request.effort:
+            return None
+        return {**os.environ, self.EFFORT_ENV: request.effort}
 
     def update_command(self) -> list[str]:
         return ["kimi", "update"]
