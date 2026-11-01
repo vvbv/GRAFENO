@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 dist/
 build/
+.DS_Store
 
 # Editor folders
 .idea/
