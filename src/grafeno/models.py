@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import re
 import shutil
 import tomllib
@@ -9,6 +10,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import _toml, live_log, paths
@@ -415,7 +417,9 @@ def save(task: Task) -> None:
     paths.review_dir(task.id)
     paths.final_dir(task.id)
     paths.logs_dir(task.id)
-    paths.task_meta_path(task.id).write_text(_toml.dumps(task.to_dict()), encoding="utf-8")
+    meta = paths.task_meta_path(task.id)
+    meta.write_text(_toml.dumps(task.to_dict()), encoding="utf-8")
+    _parsed_tasks.pop(str(meta), None)  # identical (mtime, size) must not serve stale data
 
 
 def reset_to_draft(task: Task) -> None:
@@ -453,15 +457,38 @@ def load(task_id: str) -> Task:
         return Task.from_dict(tomllib.load(handle))
 
 
+# Parsed task.toml by path, valid while (mtime_ns, size) match. Only list_all uses it:
+# load() always reads the disk, the pipeline depends on that.
+_parsed_tasks: dict[str, tuple[int, int, dict[str, Any]]] = {}
+
+
+def _load_listed(meta: Path) -> Task:
+    """Task from ``meta``, parsing the TOML only when the file changed."""
+    stat = meta.stat()  # before reading: a concurrent write leaves a key that no longer matches
+    key = str(meta)
+    cached = _parsed_tasks.get(key)
+    if cached is not None and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+        raw = cached[2]
+    else:
+        with meta.open("rb") as handle:
+            raw = tomllib.load(handle)
+        _parsed_tasks[key] = (stat.st_mtime_ns, stat.st_size, raw)
+    return Task.from_dict(copy.deepcopy(raw))  # callers mutate the tasks they receive
+
+
 def list_all() -> list[Task]:
     tasks: list[Task] = []
+    seen: set[str] = set()
     for entry in sorted(paths.tasks_dir().iterdir(), reverse=True):
         meta = entry / "task.toml"
         if entry.is_dir() and meta.exists():
+            seen.add(str(meta))
             try:
-                tasks.append(load(entry.name))
+                tasks.append(_load_listed(meta))
             except Exception:
                 continue  # corrupt task: ignored in the listing
+    for key in set(_parsed_tasks) - seen:  # deleted tasks or another GRAFENO_HOME
+        _parsed_tasks.pop(key, None)
     return tasks
 
 

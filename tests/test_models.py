@@ -545,3 +545,68 @@ def test_task_profile_field_persists(tmp_path):
     task.profile = "calidad"
     models.save(task)
     assert models.load(task.id).profile == "calidad"
+
+
+def _count_parses(monkeypatch) -> list[int]:
+    calls = [0]
+    real = models.tomllib.load
+
+    def counting(handle):
+        calls[0] += 1
+        return real(handle)
+
+    monkeypatch.setattr(models.tomllib, "load", counting)
+    return calls
+
+
+def test_list_all_parses_unchanged_tasks_once(monkeypatch):
+    for name in ("Uno", "Dos"):
+        models.save(Task.create(name, "d", "/tmp", Config()))
+    models._parsed_tasks.clear()
+    calls = _count_parses(monkeypatch)
+    assert len(models.list_all()) == 2
+    assert len(models.list_all()) == 2
+    assert calls[0] == 2
+
+
+def test_list_all_sees_save_with_identical_stat():
+    import os
+
+    task = Task.create("Aaaa", "d", "/tmp", Config())
+    models.save(task)
+    meta = paths.task_meta_path(task.id)
+    assert models.list_all()[0].name == "Aaaa"
+    before = meta.stat().st_mtime_ns
+    task.name = "Bbbb"
+    models.save(task)
+    os.utime(meta, ns=(before, before))
+    assert models.list_all()[0].name == "Bbbb"
+
+
+def test_list_all_detects_external_write():
+    task = Task.create("Externa", "d", "/tmp", Config())
+    models.save(task)
+    models.list_all()
+    meta = paths.task_meta_path(task.id)
+    meta.write_text(meta.read_text(encoding="utf-8").replace("Externa", "Externa modificada"), encoding="utf-8")
+    assert models.list_all()[0].name == "Externa modificada"
+
+
+def test_list_all_returns_independent_objects():
+    models.save(Task.create("Indep", "d", "/tmp", Config()))
+    first = models.list_all()
+    first[0].sessions["x"] = "y"
+    assert "x" not in models.list_all()[0].sessions
+
+
+def test_list_all_prunes_deleted_tasks():
+    import shutil
+
+    task = Task.create("Borrada", "d", "/tmp", Config())
+    models.save(task)
+    models.list_all()
+    meta = str(paths.task_meta_path(task.id))
+    assert meta in models._parsed_tasks
+    shutil.rmtree(paths.task_dir(task.id))
+    models.list_all()
+    assert meta not in models._parsed_tasks

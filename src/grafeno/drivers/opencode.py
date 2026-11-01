@@ -27,6 +27,7 @@ Session ids start with ``ses`` (the CLI validates it: ``Expected a string starti
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -54,6 +55,10 @@ class OpenCodeDriver(CLIDriver):
             match = re.search(r"(\d+)\.\d+", output)
             self._major = int(match.group(1)) if match else 1
         return self._major
+
+    async def prepare_async(self) -> None:
+        if self._major is None:
+            await asyncio.to_thread(self.major_version)  # spawns ``opencode --version``
 
     def stdin_prompt(self) -> bool:
         return True  # opencode run reads the prompt from stdin when omitted

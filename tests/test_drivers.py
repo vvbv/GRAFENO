@@ -1327,6 +1327,8 @@ def test_list_models_async_spawn_error(monkeypatch):
 
 
 def test_list_models_async_cancel_kills_process(monkeypatch):
+    from grafeno import projectsetup
+
     killed = False
 
     class _Proc:
@@ -1335,20 +1337,20 @@ def test_list_models_async_cancel_kills_process(monkeypatch):
         async def communicate(self):
             await asyncio.sleep(60)
 
-        def kill(self):
-            nonlocal killed
-            killed = True
-
-        async def wait(self):
-            return -9
-
     async def _fake_exec(*cmd, **kwargs):
         return _Proc()
 
+    async def _fake_kill_tree(process):
+        nonlocal killed
+        killed = True
+
     async def scenario():
         monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
-        task = asyncio.ensure_future(OpenCodeDriver().list_models_async(timeout=60))
-        await asyncio.sleep(0)
+        monkeypatch.setattr(projectsetup, "_kill_tree", _fake_kill_tree)
+        driver = OpenCodeDriver()
+        driver._major = 1  # skip the version probe
+        task = asyncio.ensure_future(driver.list_models_async(timeout=60))
+        await asyncio.sleep(0.05)
         task.cancel()
         try:
             await task
@@ -1765,3 +1767,125 @@ def test_run_keeps_effort_without_runtime_check(monkeypatch, tmp_path):
     ))
     assert "--effort" in captured["cmd"] and "high" in captured["cmd"]
     assert not any(e.kind == EventKind.INFO for e in events)
+
+
+class _ScriptDriver(CLIDriver):
+    """Driver whose listing/run command is an arbitrary python script."""
+
+    name = "script"
+    display_name = "Script"
+    executable = "python"
+
+    def __init__(self, script: str) -> None:
+        self.script = script
+
+    def _argv(self) -> list[str]:
+        import sys
+
+        return [sys.executable, "-c", self.script]
+
+    def resolve_command(self, command):
+        return command
+
+    def models_command(self) -> list[str]:
+        return self._argv()
+
+    def build_command(self, request) -> list[str]:
+        return self._argv()
+
+    def parse_models(self, output: str) -> list[str]:
+        return [line for line in output.splitlines() if line]
+
+    def decode_event(self, line):
+        return None
+
+    def extract_usage(self, *args, **kwargs):
+        return None
+
+
+_ORPHAN_SCRIPT = (
+    "import subprocess, sys, time\n"
+    "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+    "time.sleep(30)\n"
+)
+
+
+def test_listing_timeout_with_orphan_holding_pipe_is_bounded(monkeypatch):
+    import os
+
+    import pytest
+
+    from grafeno import projectsetup
+
+    if os.name == "nt":
+        pytest.skip("POSIX process groups")
+    monkeypatch.setattr(projectsetup, "KILL_GRACE", 0.3)
+    start = time.monotonic()
+    result = asyncio.run(_ScriptDriver(_ORPHAN_SCRIPT).list_models_async(timeout=0.3))
+    assert result == []
+    assert time.monotonic() - start < 5
+
+
+def test_listing_uses_devnull_stdin():
+    driver = _ScriptDriver("import sys; print(repr(sys.stdin.read()))")
+    start = time.monotonic()
+    assert asyncio.run(driver.list_models_async(timeout=10)) == ["''"]
+    assert time.monotonic() - start < 8
+
+
+def test_run_cancel_is_bounded_with_orphan(monkeypatch, tmp_path):
+    import os
+
+    import pytest
+
+    from grafeno import projectsetup
+
+    if os.name == "nt":
+        pytest.skip("POSIX process groups")
+    monkeypatch.setattr(projectsetup, "KILL_GRACE", 0.3)
+    driver = _ScriptDriver(_ORPHAN_SCRIPT)
+
+    async def scenario():
+        request = RunRequest(prompt="x", model="", workdir=tmp_path)
+        task = asyncio.ensure_future(driver.run(request))
+        await asyncio.sleep(0.5)
+        start = time.monotonic()
+        task.cancel()
+        try:
+            await asyncio.wait_for(task, 5)
+        except asyncio.CancelledError:
+            pass
+        return time.monotonic() - start
+
+    assert asyncio.run(scenario()) < 5
+
+
+def test_fetch_all_models_runs_in_parallel(monkeypatch):
+    from grafeno import drivers
+
+    class _Slow:
+        async def list_models_async(self):
+            await asyncio.sleep(0.2)
+            return ["m"]
+
+    monkeypatch.setattr(drivers, "get_driver", lambda name: _Slow())
+    start = time.monotonic()
+    result = asyncio.run(drivers.fetch_all_models(["c", "a", "b"]))
+    assert time.monotonic() - start < 0.5
+    assert list(result) == ["c", "a", "b"]
+
+
+def test_opencode_prepare_runs_off_loop(monkeypatch):
+    import threading
+
+    driver = OpenCodeDriver()
+    threads: list[threading.Thread] = []
+
+    def fake_run_sync(command):
+        threads.append(threading.current_thread())
+        return "2.1.0"
+
+    monkeypatch.setattr(driver, "_run_sync", fake_run_sync)
+    asyncio.run(driver.prepare_async())
+    assert driver._major == 2
+    assert threads and threads[0] is not threading.main_thread()

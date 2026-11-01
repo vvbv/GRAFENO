@@ -65,6 +65,7 @@ class ServerService:
         self._connection_topics: dict[int, set[str]] = {}
         self._last_states: dict[str, TaskState] = {}
         self._events_task: Optional[asyncio.Task] = None
+        self._models_inflight: Optional[asyncio.Task] = None  # shared models catalog load
         self._session_listener_on = None  # CliSessionManager we are subscribed to
         self._pending_broadcasts: set[asyncio.Task] = set()
         self._logger = logging.getLogger("grafeno.api")
@@ -96,8 +97,7 @@ class ServerService:
             manager.add_listener(self._on_session_event)
             self._session_listener_on = manager
         try:
-            async with self.server:
-                await self.server.serve_forever()
+            await self.http.wait_stopped()
         except asyncio.CancelledError:
             self._log("server cancelled")
             raise
@@ -112,6 +112,8 @@ class ServerService:
             self._events_task.cancel()
 
     async def _shutdown(self) -> None:
+        if self._models_inflight is not None and not self._models_inflight.done():
+            self._models_inflight.cancel()
         if self._session_listener_on is not None:
             self._session_listener_on.remove_listener(self._on_session_event)
             self._session_listener_on = None
@@ -123,6 +125,8 @@ class ServerService:
                 pass
         for conn in list(self._connections):
             await conn.send_close()
+        if self.http is not None:
+            self.http.close()  # also closes idle client connections
         self._connections.clear()
         self._connection_topics.clear()
         self._log("server stopped")
@@ -205,32 +209,22 @@ class ServerService:
         """
         from .actions import task_summary
 
-        # Take the initial snapshot at startup so the first poll detects
-        # any state that exists before the first tick; clients that connect
-        # later still receive every change that happens after startup.
-        self._last_signature: tuple[tuple[str, int, int], ...] = tasks_signature()
-        self._last_states = {task.id: task.state for task in models.list_all()}
+        # Off the loop: on a large store the first parse would freeze the TUI and the panel.
         try:
+            self._last_signature = await asyncio.to_thread(tasks_signature)
+            tasks = await asyncio.to_thread(models.list_all)
+            self._last_states = {task.id: task.state for task in tasks}
             while True:
+                await asyncio.sleep(POLL_SECONDS)
                 try:
-                    await asyncio.sleep(POLL_SECONDS)
-                except asyncio.CancelledError:
-                    return
-                try:
-                    signature = tasks_signature()
+                    signature = await asyncio.to_thread(tasks_signature)
+                    if signature == self._last_signature:
+                        continue
+                    tasks = models.list_all()  # on the loop: only the changed files are parsed
                 except Exception as exc:  # noqa: BLE001
                     self._log(f"signature poll failed: {exc}")
                     continue
-                if not self._connections:
-                    # Keep the snapshot fresh even when nobody is listening,
-                    # so the first subscriber does not get spammed with the
-                    # backlog.
-                    self._last_signature = signature
-                    self._last_states = {task.id: task.state for task in models.list_all()}
-                    continue
-                if signature != self._last_signature:
-                    self._last_signature = signature
-                tasks = models.list_all()
+                self._last_signature = signature
                 current = {task.id: task.state for task in tasks}
                 changed_ids = {
                     task_id
@@ -238,8 +232,8 @@ class ServerService:
                     if self._last_states.get(task_id) is not state
                 }
                 self._last_states = current
-                if not changed_ids:
-                    continue
+                if not self._connections:
+                    continue  # snapshot kept fresh: a late subscriber gets no backlog
                 for task in tasks:
                     if task.id in changed_ids:
                         await self._broadcast_event("tasks", {"event": "task.changed", "task": task_summary(task)})

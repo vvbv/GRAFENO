@@ -392,11 +392,11 @@ class Orchestrator:
         except Exception as exc:  # noqa: BLE001 - sync never breaks the pipeline
             self._info(t("remote.sync.push.fail", error=exc))
 
-    def _write_changes_md(self) -> None:
+    async def _write_changes_md(self) -> None:
         """Write final/changes.md with the task diff (best effort, never fails)."""
         try:
             workdir = remote.effective_workdir(self.task.remote, self.task.workdir)
-            content = gitops.changes_markdown(workdir, self.task.base_commit)
+            content = await asyncio.to_thread(gitops.changes_markdown, workdir, self.task.base_commit)
             if not content:
                 return
             changes_path = paths.final_dir(self.task.id, self.task.cycle) / "changes.md"
@@ -530,10 +530,10 @@ class Orchestrator:
 
     async def run_implement(self) -> None:
         await self._prepare_remote()
-        self._ensure_branch()
+        await self._ensure_branch()
         if not self.task.base_commit:
             workdir = remote.effective_workdir(self.task.remote, self.task.workdir)
-            head = gitops.current_head(workdir)
+            head = await asyncio.to_thread(gitops.current_head, workdir)
             if head:
                 self.task.base_commit = head
                 models.save(self.task)
@@ -617,7 +617,7 @@ class Orchestrator:
                 f"## Qué se hizo\n{result.text.strip()}\n"
             )
             summary_path.write_text(normalize_markdown(fallback), encoding="utf-8")
-        self._write_changes_md()
+        await self._write_changes_md()
 
     async def run_tests(self) -> bool:
         await self._prepare_remote()
@@ -789,16 +789,16 @@ class Orchestrator:
         await self.run_automode_resume()
 
     # ------------------------------------------------------------------ #
-    def _ensure_branch(self) -> None:
+    async def _ensure_branch(self) -> None:
         task = self.task
         if not task.create_branch or task.branch:
             return
         workdir = remote.effective_workdir(task.remote, task.workdir)
-        if not gitops.is_git_repo(workdir):
+        if not await asyncio.to_thread(gitops.is_git_repo, workdir):
             self._info(t("orch.not_git"))
             return
         branch = f"grafeno/{models.slugify(task.name)}"
-        ok, message = gitops.create_branch(workdir, branch)
+        ok, message = await asyncio.to_thread(gitops.create_branch, workdir, branch)
         self._info(message)
         if ok:
             task.branch = branch

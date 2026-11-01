@@ -17,7 +17,7 @@ CLIs de agentes instalados en el sistema (OpenCode, Kimi, Codex, Claude Code, Cu
 src/grafeno/
 ├── app.py                  # App Textual y entry point (comando `grafeno`); además lleva el tick del planificador (arranque desatendido de tareas programadas, encadenadas y repetitivas); intercepta el comando CLI `grafeno update` antes del argparse; flag `--nostartup` (no lanza los comandos de inicio); el runner se asigna como `app.startup_runner` y se para en un `finally` tras `run()`; `_report_startup` notifica los resultados y a los 5 s los comandos que murieron; `--version`/`-v` imprime la versión; `--web` (+ `--web-host`/`--web-port`/`--no-auth`, que lo implican) activa el panel web solo para esa ejecución (`--no-auth`: sin autenticación); arranca el servidor API (worker `api-server`) si `cfg.api.enabled` o con `--web`; worker `models-check` al arrancar: avisa si los modelos de la config/perfiles ya no existen en su CLI (los de la tarea se muestran en una banda roja del detalle)
 ├── config.py               # Config global (~/.grafeno/config.toml): roles CLI+modelo+esfuerzo (incluido `first` para el primer paso), automode, auto_update, self_update (auto-actualización de GRAFENO), workspaces raíz (lista de carpetas), paleta (tema), idioma de la GUI (`language`) y de los prompts internos (`prompt_language`, vacío = el de la GUI), prompt de primer paso (first step, opcional) y de pasos finales, sección [telegram] (TelegramConfig), sección [api] (ApiConfig: enabled/host/port/tokens + env GRAFENO_API_TOKEN), sección [web] (WebConfig: `instance_name`/`theme`/`favicon`, temas en `WEB_THEMES`)
-├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict; incluye `failed_phase` (fase del pipeline que fallo, para reanudar)
+├── models.py               # Dataclasses de dominio (Task, etc.) con to_dict/from_dict; incluye `failed_phase` (fase del pipeline que fallo, para reanudar); `list_all` cachea el TOML parseado por `mtime_ns`+tamaño (`save` invalida la entrada; `load` siempre lee disco)
 ├── paths.py                # Rutas de datos; base sobreescribible con GRAFENO_HOME; incluye `project_favorites_path()`, `startup_dir()`, `api_log_path()`, `uploads_dir()` (spool de subidas binarias de la API) y `web_dir()` (favicon propio del panel)
 ├── favorites.py            # Proyectos favoritos del panel web (~/.grafeno/project-favorites.toml, workdirs normalizados; normalize() es la fuente de actions._norm_dir): load/save/set_favorite best effort
 ├── i18n.py                 # Traducciones en/es; función t("clave", **kwargs); además el idioma de los prompts internos (set_prompt_language/prompt_language, vacío = el de la GUI) y prompt_template() para elegir la variante de una plantilla por idioma
@@ -58,7 +58,7 @@ src/grafeno/
 │   └── service.py          #   Bucle de polling (worker de la App), whitelist de chats, propuestas con botones inline, creación origin="telegram", notificación de fin
 ├── server/                 # Servidor remoto REST + WS sobre stdlib (asyncio)
 │   ├── service.py          #   Ciclo de vida: bind, eventos push por sondeo (signature) y registro de conexiones WS; logs a ~/.grafeno/api.log (cap 1 MiB) sin el token
-│   ├── httpcore.py         #   HTTP/1.1 parseo/serialización (límites 32 KiB head/8 MiB body; `body_policy`: rutas de subida autorizadas antes de leer el cuerpo, JSON+base64 hasta el base64 de un archivo de 500 MiB + 1 MiB y cuerpo binario de `POST .../attachments` (tareas y sesiones CLI) volcado a `~/.grafeno/uploads/` por bloques hasta 500 MiB; timeout por inactividad de 60 s; 413 si excede, 507 sin espacio, `Expect: 100-continue`; `Response.file` sirve archivos en streaming (con `file_offset`/`file_length` para respuestas parciales 206), keep-alive)
+│   ├── httpcore.py         #   HTTP/1.1 parseo/serialización (límites 32 KiB head/8 MiB body; `body_policy`: rutas de subida autorizadas antes de leer el cuerpo, JSON+base64 hasta el base64 de un archivo de 500 MiB + 1 MiB y cuerpo binario de `POST .../attachments` (tareas y sesiones CLI) volcado a `~/.grafeno/uploads/` por bloques hasta 500 MiB; timeout por inactividad de 60 s; 413 si excede, 507 sin espacio, `Expect: 100-continue`; `Response.file` sirve archivos en streaming (con `file_offset`/`file_length` para respuestas parciales 206), keep-alive); cada conexión se cierra siempre de forma explícita (depender del GC deja sockets zombi en Python <= 3.12), keep-alive inactivo de 75 s (`KEEP_ALIVE_IDLE_TIMEOUT`, anunciado con `Keep-Alive`), `HttpServer.close()` cierra también los clientes y `wait_stopped()` sustituye a `serve_forever` (que espera a todos los clientes al cancelar)
 │   ├── auth.py             #   Bearer/query token; denegar todo cuando no hay tokens
 │   ├── rest.py             #   Router con placeholders genéricos `{nombre}` (`{task_id}`, `{session_id}`) precompilados (regex fullmatch); dispatch a actions.py
 │   ├── actions.py          #   Operaciones compartidas REST/WS (read y write); ApiError(status, message) -> Response
@@ -74,7 +74,7 @@ src/grafeno/
 │   ├── cliquota.py         #   GET /api/v1/quota y método WS quota.get (en vivo con throttling o `cached=1`); monitor de la App o del servicio
 │   ├── reviews.py          #   Operaciones REST/WS de la revisión asistida y mapa `code` -> status (`GitReviewError`); `ApiError` lleva `code` opcional
 │   ├── projectgit.py       #   Operaciones REST/WS de git por proyecto: indicador de pendientes (projects/changes), ramas, push, pull, checkout y abort; mapa code -> status
-│   ├── settings.py         #   Operaciones REST/WS de catálogo, reportes y ajustes (incluye comandos de inicio: `startup` + `startup_presets`): opciones del formulario, modelos+variantes (caché 10 min), autocompletado de directorios, issues de gh, reporte de uso y ajustes globales (secretos de solo escritura)
+│   ├── settings.py         #   Operaciones REST/WS de catálogo, reportes y ajustes (incluye comandos de inicio: `startup` + `startup_presets`): opciones del formulario, modelos+variantes (caché 10 min), autocompletado de directorios, issues de gh, reporte de uso y ajustes globales (secretos de solo escritura); `models_catalog` es single-flight (peticiones concurrentes comparten una carga)
 │   ├── static/             #   Panel web (paquete de datos en pyproject): index.html (shell + JSON de arranque no ejecutable), app.css, app.js (SPA vanilla sin dependencias ni CDN: lista, detalle, nueva tarea, reportes, ajustes; componente reutilizable searchSelect (selector buscable tipo Select2: botón + panel con búsqueda, teclado y cierre al perder el foco) usado en los filtros de proyecto y estado y en el alta de sesiones CLI)
 │   └── ws.py               #   RFC 6455: handshake (accept key), frames enmascarados de cliente, comandos JSON-RPC {"id","method","params"} y eventos {"event":...,...} con suscripción por topic
 ├── drivers/                # Abstracción de CLIs de agentes
@@ -215,6 +215,13 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   Code un UUID) y, si el CLI rechaza la sesión
   (`CLIDriver.is_session_rejected`), la olvida y relanza la fase una sola vez
   con una sesión nueva, sin espera (mensaje `orch.session.rejected`).
+  Los listados de modelos/variantes y la cancelación de `run` matan el
+  árbol de procesos con `projectsetup._kill_tree` (espera acotada: en Windows
+  un huérfano tras un shim `.cmd` puede mantener las tuberías abiertas; en
+  POSIX estos procesos no tienen grupo propio, así que solo se garantiza la
+  muerte del hijo directo y los nietos pueden sobrevivir),
+  `CLIDriver.prepare_async` ejecuta fuera del loop las detecciones bloqueantes
+  (versión de opencode) y `fetch_all_*` listan los CLIs en paralelo.
 - **Auto-actualización de GRAFENO**: `selfupdate.py` consulta la última
   release de GitHub al arrancar la TUI (siempre, worker en segundo
   plano, fallos silenciosos). Con `Config.self_update` activado se
@@ -320,6 +327,10 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   `apidocs.render_skill` solo rellena al servirlo su entrada de ejemplo (`<served-instance-name>`/`<served-instance-url>`) con el nombre de la instancia y la cabecera `Host` validada. El skill exige resolver y verificar una instancia nombrada antes de operar; esa configuración (`[[instances]]`, `~/.config/grafeno/instances.toml`, sin tokens) es del cliente y GRAFENO no la lee.
   `tests/test_api_specs.py` garantiza que cada ruta REST y cada método WS del
   código estén documentados.
+  `_events_loop` solo recarga las tareas cuando cambia `tasks_signature`. No
+  muevas a hilos las lecturas de tareas ni de config mientras `save` no sea
+  atómico (en Windows `os.replace` falla con el destino abierto): solo
+  `tasks_signature`, la carga inicial y las llamadas a `git` salen del loop.
 - **Panel web**: `grafeno --web` arranca el servidor API para esa
   ejecución (sin tocar `config.toml`: `server/web.prepare` devuelve una
   copia de `ApiConfig` que la App usa en memoria) y sirve en `/` un panel
@@ -378,6 +389,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   descripción y re-encadenado validado con `scheduler.rechain_error`),
   `roles`, `artifact` y `media`; `discard`/`restart` esperan a que el
   worker cancelado termine para que su PAUSED no pise el estado final.
+  `api()` admite `{timeoutMs}`; Guardar ajustes lo usa (30 s) para no dejar el botón deshabilitado si el servidor no responde.
   La tarjeta del skill de los ajustes (`settingsView.skillCard`, id `cfg-skill`)
   descarga `GET /api/v1/skill.md` con `api()` (cabecera Bearer, nunca token en la
   URL) y muestra la nota de instalación `web.cfg.skill.install`, cuyas rutas deben

@@ -22,7 +22,7 @@ from enum import Enum
 from pathlib import Path
 from typing import AsyncIterator, Callable
 
-from .. import ratelimit
+from .. import projectsetup, ratelimit
 from ..i18n import prompt_template, t
 
 
@@ -321,30 +321,41 @@ class CLIDriver:
         output = self._run_sync(self.models_command())
         return self.parse_models(output) if output else []
 
-    async def list_models_async(self, timeout: float = 30.0) -> list[str]:
-        """Async and cancelable version: cancelling kills the subprocess."""
-        command = self.resolve_command(self.models_command())
+    async def prepare_async(self) -> None:
+        """Blocking one-time detection the driver needs, run off the event loop (default: none)."""
+
+    async def _listing_output(self, command: list[str], timeout: float) -> str | None:
+        """Stdout of a listing command; ``None`` on spawn failure, timeout or non-zero exit.
+
+        Cancelling kills the process tree. The wait is bounded: on Windows an orphan
+        behind a ``.cmd`` shim may keep the pipes open.
+        """
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
         except OSError:
-            return []
+            return None
         try:
             stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            return []
+            await projectsetup._kill_tree(process)
+            return None
         except asyncio.CancelledError:
-            process.kill()
-            await process.wait()
+            await projectsetup._kill_tree(process)
             raise
         if process.returncode != 0:
-            return []
-        return self.parse_models(stdout.decode("utf-8", errors="replace"))
+            return None
+        return stdout.decode("utf-8", errors="replace")
+
+    async def list_models_async(self, timeout: float = 30.0) -> list[str]:
+        """Async and cancelable version: cancelling kills the subprocess."""
+        await self.prepare_async()
+        output = await self._listing_output(self.resolve_command(self.models_command()), timeout)
+        return self.parse_models(output) if output is not None else []
 
     def variants_command(self) -> list[str]:
         """CLI command that lists the effort variants per model.
@@ -369,30 +380,12 @@ class CLIDriver:
 
     async def list_variants_async(self, timeout: float = 30.0) -> dict[str, list[str]]:
         """Async and cancelable version, mirror of ``list_models_async``."""
+        await self.prepare_async()
         command = self.resolve_command(self.variants_command())
         if not command:
             return {}
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-        except OSError:
-            return {}
-        try:
-            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            return {}
-        except asyncio.CancelledError:
-            process.kill()
-            await process.wait()
-            raise
-        if process.returncode != 0:
-            return {}
-        return self.parse_variants(stdout.decode("utf-8", errors="replace"))
+        output = await self._listing_output(command, timeout)
+        return self.parse_variants(output) if output is not None else {}
 
     async def effort_levels_async(self, model: str) -> list[str] | None:
         """Effort levels the CLI accepts for ``model`` at run time.
@@ -508,7 +501,8 @@ class CLIDriver:
         command = self.resolve_command(command)
         try:
             completed = subprocess.run(
-                command, capture_output=True, text=True, timeout=30, check=False
+                command, capture_output=True, text=True, timeout=30, check=False,
+                stdin=subprocess.DEVNULL,
             )
         except (OSError, subprocess.TimeoutExpired):
             return None
@@ -522,6 +516,7 @@ class CLIDriver:
         on_session: Callable[[str], None] | None = None,
     ) -> RunResult:
         """Run the CLI; ``on_session`` receives each new native session id as soon as it appears."""
+        await self.prepare_async()
         request, effort_notice = await self._checked_effort(request)
         if effort_notice and on_event:
             on_event(RunEvent(EventKind.INFO, effort_notice))
@@ -602,8 +597,7 @@ class CLIDriver:
             await asyncio.gather(pump_stdout(), pump_stderr(), feed_stdin())
             returncode = await process.wait()
         except asyncio.CancelledError:
-            process.kill()
-            await process.wait()
+            await projectsetup._kill_tree(process)
             raise
         finally:
             if log_handle:

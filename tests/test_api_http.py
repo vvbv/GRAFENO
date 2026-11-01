@@ -478,3 +478,132 @@ def test_partial_file_response_and_stream(tmp_path) -> None:
     writer = _Writer()
     assert asyncio.run(httpcore_module._stream_file(writer, path, 4, 3)) is True
     assert writer.data == b"3456"
+
+
+# ---------------------------------------------------------------------- #
+# Connection lifecycle (zombie sockets, keep-alive, shutdown)
+# ---------------------------------------------------------------------- #
+class _FakeWriter:
+    def __init__(self) -> None:
+        self.data = bytearray()
+        self.closed = False
+
+    def write(self, chunk: bytes) -> None:
+        self.data.extend(chunk)
+
+    async def drain(self) -> None:
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+
+    def can_write_eof(self) -> bool:
+        return False
+
+
+async def _ok_request(request):
+    return httpcore_module.Response.json(200, {"ok": True}), None
+
+
+def test_handle_connection_closes_writer_after_connection_close() -> None:
+    async def scenario():
+        reader = asyncio.StreamReader()
+        reader.feed_data(b"GET /x HTTP/1.1\r\nHost: a\r\nConnection: close\r\n\r\n")
+        writer = _FakeWriter()
+        await httpcore_module.HttpServer(_ok_request)._handle_connection(reader, writer)
+        assert writer.closed
+        assert bytes(writer.data).startswith(b"HTTP/1.1 200")
+
+    _run(scenario())
+
+
+def test_handle_connection_closes_writer_on_idle_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(httpcore_module, "KEEP_ALIVE_IDLE_TIMEOUT", 0.1)
+
+    async def scenario():
+        reader = asyncio.StreamReader()
+        reader.feed_data(b"GET /x HTTP/1.1\r\nHost: a\r\n\r\n")
+        writer = _FakeWriter()
+        await asyncio.wait_for(httpcore_module.HttpServer(_ok_request)._handle_connection(reader, writer), 3)
+        assert writer.closed
+
+    _run(scenario())
+
+
+def test_handle_connection_tolerates_aborted_reader() -> None:
+    class _AbortedReader:
+        async def readuntil(self, separator):
+            raise ConnectionAbortedError("aborted")
+
+    async def scenario():
+        writer = _FakeWriter()
+        await httpcore_module.HttpServer(_ok_request)._handle_connection(_AbortedReader(), writer)
+        assert writer.closed
+
+    _run(scenario())
+
+
+def test_keep_alive_survives_head_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(httpcore_module, "HEAD_READ_TIMEOUT", 0.2)
+    monkeypatch.setattr(httpcore_module, "KEEP_ALIVE_IDLE_TIMEOUT", 5.0)
+
+    async def scenario():
+        service, task = await _start_service()
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", service.port)
+            request = _build_request("GET", "/api/v1/status", {"Authorization": "Bearer t1"})
+            status, _, _ = await _exchange(reader, writer, request)
+            assert status == 200
+            await asyncio.sleep(0.5)
+            status, _, _ = await _exchange(reader, writer, request)
+            assert status == 200
+            writer.close()
+        finally:
+            _stop(service, task)
+
+    _run(scenario())
+
+
+def test_first_request_still_uses_head_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(httpcore_module, "HEAD_READ_TIMEOUT", 0.2)
+
+    async def scenario():
+        service, task = await _start_service()
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", service.port)
+            data = await asyncio.wait_for(reader.read(1), 3)
+            assert data == b""
+            writer.close()
+        finally:
+            _stop(service, task)
+
+    _run(scenario())
+
+
+def test_keep_alive_header_announced() -> None:
+    assert b"Keep-Alive: timeout=" in httpcore_module.Response(200).to_bytes(keep_alive=True)
+    assert b"Keep-Alive" not in httpcore_module.Response(200).to_bytes(keep_alive=False)
+
+
+def _open_client_scenario(finish):
+    async def scenario():
+        service, task = await _start_service()
+        reader, writer = await asyncio.open_connection("127.0.0.1", service.port)
+        request = _build_request("GET", "/api/v1/status", {"Authorization": "Bearer t1"})
+        status, _, _ = await _exchange(reader, writer, request)
+        assert status == 200
+        finish(service, task)
+        done, _ = await asyncio.wait({task}, timeout=3)
+        assert task in done
+        assert await asyncio.wait_for(reader.read(1), 3) == b""
+        writer.close()
+
+    _run(scenario())
+
+
+def test_service_cancel_with_open_client_finishes() -> None:
+    _open_client_scenario(lambda service, task: task.cancel())
+
+
+def test_service_stop_returns_with_open_client() -> None:
+    _open_client_scenario(lambda service, task: service.stop())

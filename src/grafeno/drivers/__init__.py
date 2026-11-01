@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Iterable
 
 from .base import CLIDriver, EventKind, RunEvent, RunRequest, RunResult, model_levels
@@ -46,27 +47,31 @@ def available_clis() -> list[str]:
 
 
 async def fetch_all_models(clis: Iterable[str]) -> dict[str, list[str]]:
-    """List the models of each CLI; a failing CLI returns an empty list.
+    """List the models of each CLI in parallel; a failing CLI returns an empty list.
 
     Cancelable: if the coroutine is cancelled, cancellation propagates to the
     in-flight ``list_models_async``, which kills the CLI's subprocess.
     """
-    result: dict[str, list[str]] = {}
-    for cli in clis:
+    names = list(clis)
+
+    async def one(cli: str) -> list[str]:
         try:
-            result[cli] = await get_driver(cli).list_models_async()
+            return await get_driver(cli).list_models_async()
         except (KeyError, NotImplementedError, OSError):
-            result[cli] = []
-    return result
+            return []
+
+    return dict(zip(names, await asyncio.gather(*(one(cli) for cli in names))))
 
 
 async def fetch_all_variants(clis: Iterable[str]) -> dict[str, dict[str, list[str]]]:
-    """Effort variants per model for each CLI; a failing CLI returns an
-    empty dict. Cancelable just like ``fetch_all_models``."""
-    result: dict[str, dict[str, list[str]]] = {}
-    for cli in clis:
+    """Effort variants per model for each CLI, in parallel; a failing CLI
+    returns an empty dict. Cancelable just like ``fetch_all_models``."""
+    names = list(clis)
+
+    async def one(cli: str) -> dict[str, list[str]]:
         try:
-            result[cli] = await get_driver(cli).list_variants_async()
+            return await get_driver(cli).list_variants_async()
         except (KeyError, NotImplementedError, OSError):
-            result[cli] = {}
-    return result
+            return {}
+
+    return dict(zip(names, await asyncio.gather(*(one(cli) for cli in names))))

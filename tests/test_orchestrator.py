@@ -2000,3 +2000,28 @@ def test_session_from_failed_resume_is_not_stored(tmp_path, monkeypatch):
     orch = Orchestrator(task, drivers={"fake-rev": rev})
     _run(orch.run_review())
     assert task.sessions.get("reviewer") != "ses_bogus"
+
+
+def test_git_calls_run_off_the_event_loop(tmp_path, monkeypatch):
+    """gitops.current_head must not block the event loop thread."""
+    import threading
+
+    from grafeno.pipeline import gitops
+
+    seen: list[threading.Thread] = []
+    loop_threads: list[threading.Thread] = []
+
+    def fake_head(workdir):
+        seen.append(threading.current_thread())
+        return ""
+
+    monkeypatch.setattr(gitops, "current_head", fake_head)
+    task = _make_task(tmp_path)
+    orch = Orchestrator(task, drivers={"fake-impl": FakeDriver("fake-impl", [_ok("v1")])})
+
+    async def scenario():
+        loop_threads.append(threading.current_thread())
+        await orch.run_implement()
+
+    _run(scenario())
+    assert seen and seen[0] is not loop_threads[0]

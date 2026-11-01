@@ -14,6 +14,7 @@ can be promoted to a WebSocket connection when the right path is hit
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import re
 import tempfile
@@ -36,6 +37,10 @@ READ_CHUNK = 1024 * 1024    # bytes per read/write when streaming bodies and fil
 _UPLOAD_PATH = re.compile(r"/api/v1/tasks(?:/[^/]+/(?:extend|attachments))?")
 _RAW_UPLOAD_PATH = re.compile(r"/api/v1/(?:tasks|sessions)/[^/]+/attachments")  # raw file bodies only
 HEAD_READ_TIMEOUT = 15.0  # seconds to receive the request head
+KEEP_ALIVE_IDLE_TIMEOUT = 75.0  # seconds an idle keep-alive connection waits for its next request
+KEEP_ALIVE_HINT = 70            # value announced to clients, below the real timeout to avoid races
+EARLY_RESPONSE_LINGER = 2.0     # seconds discarding a rejected upload so the answer survives
+EARLY_RESPONSE_LINGER_BYTES = 8 * READ_CHUNK  # bytes discarded at most while lingering
 REQUEST_TIMEOUT = 30.0    # seconds for any single read on the request
 
 # Reasons indexed by HTTP status code (a tiny subset is enough for the API).
@@ -119,6 +124,8 @@ class Response:
             merged["Content-Length"] = str(len(self.body))
         if "connection" not in caller_headers:
             merged["Connection"] = "keep-alive" if keep_alive else "close"
+            if keep_alive:
+                merged["Keep-Alive"] = f"timeout={KEEP_ALIVE_HINT}"
         lines = [f"HTTP/1.1 {self.status} {reason}"]
         lines.extend(f"{key}: {value}" for key, value in merged.items())
         return ("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + self.body
@@ -156,6 +163,8 @@ class HttpServer:
         self._authorize = authorize
         self._spool_dir = spool_dir
         self._sockets: list[asyncio.Server] = []
+        self._clients: set[asyncio.StreamWriter] = set()
+        self._stopped = asyncio.Event()
 
     async def serve(self, host: str, port: int) -> tuple[asyncio.AbstractServer, int]:
         """Bind to ``host:port`` (port 0 = ephemeral) and start serving.
@@ -169,9 +178,17 @@ class HttpServer:
         return server, resolved_port
 
     def close(self) -> None:
-        """Close every bound server. Safe to call multiple times."""
+        """Close every bound server and client connection. Safe to call multiple times."""
         for server in self._sockets:
             server.close()
+        for writer in list(self._clients):
+            with contextlib.suppress(Exception):
+                writer.close()
+        self._stopped.set()
+
+    async def wait_stopped(self) -> None:
+        """Wait until :meth:`close` is called."""
+        await self._stopped.wait()
 
     async def wait_closed(self) -> None:
         """Wait for every bound server to finish closing."""
@@ -182,15 +199,29 @@ class HttpServer:
     # Connection loop
     # ------------------------------------------------------------------ #
     async def _handle_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        """Serve one client socket; the socket is always closed on the way out."""
+        self._clients.add(writer)
+        try:
+            await self._serve_connection(reader, writer)
+        except OSError:
+            pass  # the client reset or aborted the connection (common on Windows)
+        finally:
+            self._clients.discard(writer)
+            with contextlib.suppress(Exception):
+                writer.close()
+
+    async def _serve_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        head_timeout = HEAD_READ_TIMEOUT  # read at run time: tests patch it
         while True:
             try:
-                request = await _read_request(reader, writer, self._authorize, self._spool_dir)
+                request = await _read_request(reader, writer, self._authorize, self._spool_dir, head_timeout)
             except asyncio.IncompleteReadError:
                 return  # client closed without sending a request
             except asyncio.TimeoutError:
                 return  # nothing arrived in time
             except EarlyResponse as exc:
                 await _safe_write(writer, exc.response.to_bytes(keep_alive=False))
+                await _linger(reader, writer)
                 return
             except BadRequest as exc:
                 await _safe_write(writer, Response(400, body=json.dumps({"error": str(exc)}).encode("utf-8")).to_bytes(keep_alive=False))
@@ -225,14 +256,33 @@ class HttpServer:
                 return
             if not keep_alive:
                 return
+            head_timeout = KEEP_ALIVE_IDLE_TIMEOUT
 
 
 async def _safe_write(writer: asyncio.StreamWriter, data: bytes) -> None:
     try:
         writer.write(data)
         await writer.drain()
-    except (ConnectionResetError, BrokenPipeError):
+    except OSError:
         return
+
+
+async def _linger(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Half-close and discard a rejected upload (bounded) so a TCP reset does not destroy the early answer."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + EARLY_RESPONSE_LINGER
+    discarded = 0
+    with contextlib.suppress(OSError, RuntimeError):
+        if writer.can_write_eof():
+            writer.write_eof()
+        while discarded < EARLY_RESPONSE_LINGER_BYTES:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return
+            chunk = await asyncio.wait_for(reader.read(READ_CHUNK), remaining)
+            if not chunk:
+                return
+            discarded += len(chunk)
 
 
 async def _stream_file(
@@ -264,9 +314,11 @@ async def _read_request(
     writer: asyncio.StreamWriter | None = None,
     authorize: Callable[["Request"], Optional["Response"]] | None = None,
     spool_dir: Callable[[], Path] | None = None,
+    head_timeout: float | None = None,
 ) -> Request | None:
+    timeout = HEAD_READ_TIMEOUT if head_timeout is None else head_timeout
     try:
-        raw_head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), HEAD_READ_TIMEOUT)
+        raw_head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout)
     except asyncio.LimitOverrunError as exc:
         raise BadRequest(f"head too large (>{MAX_HEAD} bytes)") from exc
     except asyncio.IncompleteReadError:

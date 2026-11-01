@@ -274,7 +274,7 @@ class ApiFailure extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 let tokenDialogOpen = false;
-async function api(method, path, body) {
+async function api(method, path, body, options) {
   const headers = {};
   if (auth.token) headers.Authorization = "Bearer " + auth.token;
   const init = { method, headers };
@@ -282,12 +282,19 @@ async function api(method, path, body) {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
+  const timeoutMs = options && options.timeoutMs;
+  const controller = timeoutMs ? new AbortController() : null;
+  if (controller) init.signal = controller.signal;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   let response;
   try {
     response = await fetch(path, init);
   } catch (err) {
+    if (controller && controller.signal.aborted) throw new ApiFailure(0, tr("web.ui.timeout"));
     setStatus("offline");
     throw new ApiFailure(0, String(err));
+  } finally {
+    if (timer) clearTimeout(timer);
   }
   if (response.status === 401) {
     askToken();
@@ -2744,6 +2751,7 @@ const reportsView = {
 
 // ---------------------------------------------------------------- settings view
 const SKILL_PATH = "/api/v1/skill.md";
+const SETTINGS_SAVE_TIMEOUT_MS = 30000;  // saving only writes local files: longer means the server is stuck
 const SKILL_FILE = "skill.md";
 
 const settingsView = {
@@ -2963,7 +2971,7 @@ const settingsView = {
       payload.web = webSection;
       save.disabled = true;
       try {
-        const saved = await api("POST", "/api/v1/settings", payload);
+        const saved = await api("POST", "/api/v1/settings", payload, { timeoutMs: SETTINGS_SAVE_TIMEOUT_MS });
         BOOT.web = { instance_name: saved.web.instance_name, theme: saved.web.theme, favicon_version: saved.web.favicon_version };
         applyBranding(BOOT.web);
         store.options = null;

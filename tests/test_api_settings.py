@@ -282,3 +282,54 @@ def test_models_catalog_does_not_cache_failed_cli(monkeypatch) -> None:
     asyncio.run(settings.models_catalog(service))
     asyncio.run(settings.models_catalog(service))
     assert calls == ["models", "models"]
+
+
+def test_models_catalog_single_flight(monkeypatch) -> None:
+    import grafeno.drivers as drivers
+
+    calls = []
+
+    async def fake_models(clis):
+        calls.append("models")
+        await asyncio.sleep(0.05)
+        return {cli: [cli + "/m"] for cli in clis}
+
+    async def fake_variants(clis):
+        return {}
+
+    monkeypatch.setattr(drivers, "fetch_all_models", fake_models)
+    monkeypatch.setattr(drivers, "fetch_all_variants", fake_variants)
+
+    async def scenario():
+        service = FakeService()
+        return await asyncio.gather(settings.models_catalog(service), settings.models_catalog(service))
+
+    first, second = asyncio.run(scenario())
+    assert first is second and calls == ["models"]
+
+
+def test_models_catalog_retries_after_failure(monkeypatch) -> None:
+    import grafeno.drivers as drivers
+
+    calls = []
+
+    async def fake_models(clis):
+        calls.append("models")
+        if len(calls) == 1:
+            raise RuntimeError("boom")
+        return {cli: [cli + "/m"] for cli in clis}
+
+    async def fake_variants(clis):
+        return {}
+
+    monkeypatch.setattr(drivers, "fetch_all_models", fake_models)
+    monkeypatch.setattr(drivers, "fetch_all_variants", fake_variants)
+
+    async def scenario():
+        service = FakeService()
+        with pytest.raises(RuntimeError):
+            await settings.models_catalog(service)
+        return await settings.models_catalog(service)
+
+    result = asyncio.run(scenario())
+    assert calls == ["models", "models"] and result["models"]

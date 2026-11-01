@@ -585,3 +585,28 @@ def test_time_method_returns_server_clock() -> None:
             _stop(service, srv_task)
 
     _run(scenario())
+
+
+def test_events_loop_does_not_reload_without_changes(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("grafeno.server.service.POLL_SECONDS", 0.01)
+    calls = [0]
+    real = models_module.list_all
+
+    def counting():
+        calls[0] += 1
+        return real()
+
+    monkeypatch.setattr(models_module, "list_all", counting)
+
+    async def scenario():
+        service, srv_task = await _start_service()
+        try:
+            await asyncio.sleep(0.2)
+            assert calls[0] <= 1
+            models_module.save(Task.create("Nueva", "d", str(tmp_path), Config()))
+            await asyncio.sleep(0.2)
+            assert calls[0] >= 2
+        finally:
+            _stop(service, srv_task)
+
+    _run(scenario())

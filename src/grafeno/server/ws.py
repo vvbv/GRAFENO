@@ -171,7 +171,7 @@ class WsConnection:
         try:
             self.writer.write(write_frame(opcode, payload))
             await self.writer.drain()
-        except (ConnectionResetError, BrokenPipeError):
+        except OSError:
             self.closed = True
 
     async def send_json(self, obj: object) -> None:
@@ -188,7 +188,7 @@ class WsConnection:
         try:
             self.writer.write(write_frame(OP_CLOSE, b""))
             await self.writer.drain()
-        except (ConnectionResetError, BrokenPipeError):
+        except OSError:
             return
 
 

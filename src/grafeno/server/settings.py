@@ -109,13 +109,9 @@ def editor_info(cfg) -> dict:
     return {"available": available, "name": action.name if action else ""}
 
 
-async def models_catalog(service: "ServerService", refresh: bool = False) -> dict:
-    """Models and effort variants per CLI (cached; the CLIs are slow)."""
+async def _load_models_catalog(service: "ServerService") -> dict:
     from ..drivers import available_clis, fetch_all_models, fetch_all_variants
 
-    cached = getattr(service, "_models_cache", None)
-    if cached and not refresh and time.monotonic() - cached[0] < MODELS_TTL_SECONDS:
-        return cached[1]
     models_map = await fetch_all_models(KNOWN_CLIS)
     variants_map = await fetch_all_variants(KNOWN_CLIS)
     result = {"models": models_map, "variants": variants_map}
@@ -123,6 +119,22 @@ async def models_catalog(service: "ServerService", refresh: bool = False) -> dic
     if all(models_map.get(cli) for cli in available_clis() if cli in models_map):
         service._models_cache = (time.monotonic(), result)
     return result
+
+
+async def models_catalog(service: "ServerService", refresh: bool = False) -> dict:
+    """Models and effort variants per CLI (cached; the CLIs are slow).
+
+    Concurrent requests share one load: a reloaded page must not spawn another
+    round of CLI processes on top of the previous one.
+    """
+    cached = getattr(service, "_models_cache", None)
+    if cached and not refresh and time.monotonic() - cached[0] < MODELS_TTL_SECONDS:
+        return cached[1]
+    inflight = getattr(service, "_models_inflight", None)
+    if inflight is None or inflight.done():
+        inflight = asyncio.create_task(_load_models_catalog(service))
+        service._models_inflight = inflight
+    return await asyncio.shield(inflight)  # a client that disconnects does not stop the shared load
 
 
 def list_dirs(service: "ServerService", raw_path: str) -> dict:
