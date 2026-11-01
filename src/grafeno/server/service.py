@@ -154,9 +154,12 @@ class ServerService:
     # Request dispatch
     # ------------------------------------------------------------------ #
     async def _handle_request(self, request):
-        from . import web
+        from . import apidocs, web
         from .auth import AuthError, check
 
+        if apidocs.is_docs_request(request):
+            # Documentation contains no task data and is safe to serve publicly.
+            return apidocs.docs_response(request), None
         if web.is_page_request(request):
             # Static page without task data: it asks for the token itself.
             return web.page_response(request), None

@@ -1,0 +1,273 @@
+- source: "GRAFENO Remote WebSocket API"
+  translation: "API WebSocket remota de GRAFENO"
+- source: |
+    Bidirectional JSON-RPC channel exposed on `/api/v1/ws` (implemented by
+    hand on RFC 6455, see `src/grafeno/server/ws.py`). The HTTP GET upgrade
+    uses the same OPTIONAL token as the REST endpoints (`Authorization:
+    Bearer <token>` or `?token=`); when no tokens are configured (the
+    default) the upgrade is anonymous. The credential is dedicated to this
+    server and never shared with the Telegram bot. Client frames must be
+    masked; server frames are unmasked; text frames carry UTF-8 JSON.
+    Messages over 1 MiB close the socket. Ping is answered with Pong by
+    the server itself. `GET /api/v1/skill.md` is a REST-only Markdown
+    download: it has no JSON-RPC method and is intentionally absent from
+    the table below.
+
+    Commands are JSON-RPC style requests `{"id","method","params"}` and
+    each gets exactly one response: `{"id","result":...}` on success or
+    `{"id","error":{"message","status?","code?"}}` on failure (`id` echoes the
+    request id, `null` when the input was not valid JSON). The available
+    methods mirror the REST endpoints one to one:
+    | Method              | Params                                           | REST equivalent                    |
+    | status              | -                                                | GET /api/v1/status                 |
+    | time                | -                                                | GET /api/v1/time                   |
+    | tasks.list          | `state?`, `workdir?`, `project?`, `sort?`, ...    | GET /api/v1/tasks                  |
+    | tasks.get           | `task_id`                                        | GET /api/v1/tasks/{id}             |
+    | projects.list       | -                                                | GET /api/v1/projects               |
+    | projects.create     | `name?`, `url?`, `mode?`, `workspace?`           | POST /api/v1/projects              |
+    | projects.favorite   | `workdir`, `favorite?` (default true)            | POST /api/v1/projects/favorite     |
+    | projects.docs       | `workdir?`, `project?`                           | GET /api/v1/projects/docs          |
+    | projects.doc        | `workdir?`, `project?`, `name`, `offset?`, `max_chars?` | GET /api/v1/projects/doc    |
+    | projects.files      | `workdir?`, `project?`, `path?`, `hidden?`, `limit?`, `offset?` | GET /api/v1/projects/files |
+    | projects.file       | `workdir?`, `project?`, `path`                   | GET /api/v1/projects/file          |
+    | projects.file_text  | `workdir?`, `project?`, `path`, `line?`, `max_lines?` | GET /api/v1/projects/file/text |
+    | projects.file_raw   | `workdir?`, `project?`, `path` (result: `{path, name, mime, size, etag, data}` base64; files above 16 MiB return a 413 error: use GET /api/v1/projects/file/raw) | GET /api/v1/projects/file/raw |
+    | editor.open         | `workdir?`, `project?`, `task_id?`, `host?` | POST /api/v1/editor/open |
+    | tasks.logs          | `task_id`, `limit?` (1..1000, default 200)      | GET /api/v1/tasks/{id}/logs        |
+    | tasks.artifacts     | `task_id`, `kind`, `cycle?` (default 1)         | GET /api/v1/tasks/{id}/artifacts   |
+    | tasks.create        | `name`, `workdir`, `description?`, `automode?`, `parent_id?`, `scheduled_at?`, `origin?`, `profile?`, `attachments?` (optional list of {name, data-base64}, max 10; limited by the 1 MiB message cap) | POST /api/v1/tasks |
+    | tasks.start         | `task_id`                                        | POST /api/v1/tasks/{id}/start      |
+    | tasks.resume        | `task_id` (FAILED only)                          | POST /api/v1/tasks/{id}/resume     |
+    | tasks.restart       | `task_id`                                        | POST /api/v1/tasks/{id}/restart    |
+    | tasks.pause         | `task_id`                                        | POST /api/v1/tasks/{id}/pause      |
+    | tasks.discard       | `task_id`                                        | POST /api/v1/tasks/{id}/discard    |
+    | tasks.mark_done     | `task_id`                                        | POST /api/v1/tasks/{id}/mark-done  |
+    | tasks.extend        | `task_id`, `request`, `attachments?`             | POST /api/v1/tasks/{id}/extend     |
+    | tasks.reset         | `task_id`                                        | POST /api/v1/tasks/{id}/reset      |
+    | tasks.run           | `task_id`, `phase` (plan/implement/review/fix/final/tests/automode) | POST /api/v1/tasks/{id}/run |
+    | tasks.continue      | `task_id`                                        | POST /api/v1/tasks/{id}/continue   |
+    | tasks.approve_plan  | `task_id`                                        | POST /api/v1/tasks/{id}/approve-plan |
+    | tasks.edit          | `task_id`, `name?`, `description?`, `parent_id?` | POST /api/v1/tasks/{id}/edit       |
+    | tasks.roles         | `task_id`, `roles?`, `profile?`                  | POST /api/v1/tasks/{id}/roles      |
+    | tasks.artifact      | `task_id`, `kind`, `path`                        | GET /api/v1/tasks/{id}/artifact    |
+    | tasks.media         | `task_id`, `name` (result: `{name, mime, data}` base64; files above 16 MiB return a 413 error: use GET /api/v1/tasks/{id}/media) | GET /api/v1/tasks/{id}/media |
+    | tasks.attachments   | `task_id`                                        | GET /api/v1/tasks/{id}/attachments |
+    | tasks.attach        | `task_id`, `attachments` (base64; 1 MiB per WS message, for larger files use the REST raw upload) | POST /api/v1/tasks/{id}/attachments |
+    | tasks.detach        | `task_id`, `file`                                | DELETE /api/v1/tasks/{id}/attachments |
+    | sessions.list       | `workdir?`                                       | GET /api/v1/sessions               |
+    | sessions.get        | `session_id`                                     | GET /api/v1/sessions/{id}          |
+    | sessions.transcript | `session_id`, `after?`, `limit?`                 | GET /api/v1/sessions/{id}/transcript |
+    | sessions.create     | `workdir?`, `cli?`, `model?`, `effort?`, `name?`, `prompt?`, `task_id?` | POST /api/v1/sessions    |
+    | sessions.send       | `session_id`, `prompt`, `attachments?`           | POST /api/v1/sessions/{id}/send    |
+    | sessions.attachments | `session_id`                                    | GET /api/v1/sessions/{id}/attachments |
+    | sessions.cancel     | `session_id`                                     | POST /api/v1/sessions/{id}/cancel  |
+    | sessions.edit       | `session_id`, `name`                             | POST /api/v1/sessions/{id}/edit    |
+    | sessions.close      | `session_id`                                     | POST /api/v1/sessions/{id}/close   |
+    | sessions.reopen     | `session_id`                                     | POST /api/v1/sessions/{id}/reopen  |
+    | sessions.delete     | `session_id`                                     | DELETE /api/v1/sessions/{id}       |
+    | projects.repos      | `workdir?`, `project?` | GET /api/v1/projects/repos |
+    | projects.changes    | `workdir?`, `project?`, `refresh?` | GET /api/v1/projects/changes |
+    | projects.branches   | `workdir?`, `project?`, `repo?` | GET /api/v1/projects/branches |
+    | projects.push       | `workdir?`, `project?`, `repo?`, `set_upstream?`, `remote?` | POST /api/v1/projects/push |
+    | projects.pull       | `workdir?`, `project?`, `repo?`, `mode?` | POST /api/v1/projects/pull |
+    | projects.checkout   | `workdir?`, `project?`, `repo?`, `branch` | POST /api/v1/projects/checkout |
+    | projects.abort      | `workdir?`, `project?`, `repo?` | POST /api/v1/projects/abort |
+    | reviews.list        | `workdir?`, `state?` | GET /api/v1/reviews |
+    | reviews.start       | `workdir?`, `project?`, `task_id?`, `name?`, `cli?`, `model?`, `effort?`, `resume?` | POST /api/v1/reviews |
+    | reviews.get         | `review_id` | GET /api/v1/reviews/{id} |
+    | reviews.delete      | `review_id` | DELETE /api/v1/reviews/{id} |
+    | reviews.close       | `review_id` | POST /api/v1/reviews/{id}/close |
+    | reviews.reopen      | `review_id` | POST /api/v1/reviews/{id}/reopen |
+    | reviews.files       | `review_id`, `repo?`, `decision?` | GET /api/v1/reviews/{id}/files |
+    | reviews.diff        | `review_id`, `repo`+`path` or `key`, `max_bytes?` | GET /api/v1/reviews/{id}/diff |
+    | reviews.navigate    | `review_id`, `action`, `repo?`, `path?`, `key?`, `skip_decided?`, `diff?` | POST /api/v1/reviews/{id}/navigate |
+    | reviews.decide      | `review_id`, file, `decision`, `note?`, `advance?` | POST /api/v1/reviews/{id}/decision |
+    | reviews.discuss     | `review_id`, `message`, file? | POST /api/v1/reviews/{id}/discuss |
+    | reviews.request_changes | `review_id`, file, `instructions` | POST /api/v1/reviews/{id}/request-changes |
+    | reviews.transcript  | `review_id`, `after?`, `limit?` | GET /api/v1/reviews/{id}/transcript |
+    | reviews.cancel      | `review_id` | POST /api/v1/reviews/{id}/cancel |
+    | reviews.commit_message | `review_id`, `files`, `hint?`, `cli?`, `model?`, `effort?` | POST /api/v1/reviews/{id}/commit-message |
+    | reviews.commit      | `review_id`, `files`, `message`, `include_unstaged?`, `allow_multi_repo?` | POST /api/v1/reviews/{id}/commit |
+    | reviews.commits     | `review_id` | GET /api/v1/reviews/{id}/commits |
+    | options.get         | -                                                | GET /api/v1/options                |
+    | models.list         | `refresh?`                                       | GET /api/v1/models                 |
+    | fs.dirs             | `path?`                                          | GET /api/v1/fs/dirs                |
+    | issues.list         | `workdir`                                        | GET /api/v1/issues                 |
+    | reports.get         | `period?`, `from?`, `to?`                        | GET /api/v1/reports                |
+    | settings.get        | -                                                | GET /api/v1/settings               |
+    | settings.update     | settings sections                                | POST /api/v1/settings              |
+    | subscribe           | `topics` (list of strings, `tasks`, `sessions` and `reviews` supported)    | -                                  |
+    | unsubscribe         | -                                                | -                                  |
+
+    After `subscribe {"topics":["tasks"]}`, every task whose `state`
+    changes is pushed as a `task.changed` event carrying the same
+    `TaskSummary` shape as the REST list endpoint. The server polls the
+    on-disk task store every 2 s (signature of every `task.toml`: mtime +
+    size); the snapshot is kept fresh even with no subscribers, so a new
+    client is never spammed with the backlog.
+
+    After `subscribe {"topics":["sessions"]}`, direct CLI session changes
+    are pushed as `session.changed` (carrying the `CliSessionSummary`) and
+    `session.deleted` (carrying `session_id`) events. Transcript entries
+    are not pushed: poll `sessions.transcript` with `after`.
+
+    After `subscribe {"topics":["reviews"]}`, review changes are pushed as
+    `review.changed` (carrying the `ReviewSummary`) and `review.deleted`
+    (carrying `review_id`) events. Review errors carry a stable `code` in
+    the `error` object (e.g. `not_pending`, `stale`, `multi_repo`, `busy`).
+  translation: |
+    Canal JSON-RPC bidireccional expuesto en `/api/v1/ws` (implementado a
+    mano sobre RFC 6455, consulte `src/grafeno/server/ws.py`). La actualización
+    HTTP GET usa el mismo token OPCIONAL que los endpoints REST (`Authorization:
+    Bearer <token>` o `?token=`); cuando no hay tokens configurados (valor
+    predeterminado), la actualización es anónima. La credencial es exclusiva de
+    este servidor y nunca se comparte con el bot de Telegram. Los frames del
+    cliente deben estar enmascarados; los frames del servidor no llevan máscara;
+    los frames de texto transportan JSON UTF-8. Los mensajes de más de 1 MiB
+    cierran el socket. El propio servidor responde Ping con Pong.
+    `GET /api/v1/skill.md` es una descarga de Markdown exclusivamente REST: no
+    tiene método JSON-RPC y se omite intencionadamente de la tabla siguiente.
+
+    Los comandos son peticiones de estilo JSON-RPC `{"id","method","params"}` y
+    cada una recibe exactamente una respuesta: `{"id","result":...}` si tiene
+    éxito o `{"id","error":{"message","status?","code?"}}` si falla (`id` repite
+    el id de la petición y es `null` cuando la entrada no era JSON válido). Los
+    métodos disponibles reflejan uno a uno los endpoints REST:
+    | Método             | Parámetros                                       | Equivalente REST                   |
+    | status              | -                                                | GET /api/v1/status                 |
+    | time                | -                                                | GET /api/v1/time                   |
+    | tasks.list          | `state?`, `workdir?`, `project?`, `sort?`, ...    | GET /api/v1/tasks                  |
+    | tasks.get           | `task_id`                                        | GET /api/v1/tasks/{id}             |
+    | projects.list       | -                                                | GET /api/v1/projects               |
+    | projects.create     | `name?`, `url?`, `mode?`, `workspace?`           | POST /api/v1/projects              |
+    | projects.favorite   | `workdir`, `favorite?` (true de forma predeterminada)            | POST /api/v1/projects/favorite     |
+    | projects.docs       | `workdir?`, `project?`                           | GET /api/v1/projects/docs          |
+    | projects.doc        | `workdir?`, `project?`, `name`, `offset?`, `max_chars?` | GET /api/v1/projects/doc    |
+    | projects.files      | `workdir?`, `project?`, `path?`, `hidden?`, `limit?`, `offset?` | GET /api/v1/projects/files |
+    | projects.file       | `workdir?`, `project?`, `path`                   | GET /api/v1/projects/file          |
+    | projects.file_text  | `workdir?`, `project?`, `path`, `line?`, `max_lines?` | GET /api/v1/projects/file/text |
+    | projects.file_raw   | `workdir?`, `project?`, `path` (resultado: `{path, name, mime, size, etag, data}` base64; los archivos de más de 16 MiB devuelven un error 413: use GET /api/v1/projects/file/raw) | GET /api/v1/projects/file/raw |
+    | editor.open         | `workdir?`, `project?`, `task_id?`, `host?` | POST /api/v1/editor/open |
+    | tasks.logs          | `task_id`, `limit?` (1..1000, 200 de forma predeterminada)      | GET /api/v1/tasks/{id}/logs        |
+    | tasks.artifacts     | `task_id`, `kind`, `cycle?` (1 de forma predeterminada)         | GET /api/v1/tasks/{id}/artifacts   |
+    | tasks.create        | `name`, `workdir`, `description?`, `automode?`, `parent_id?`, `scheduled_at?`, `origin?`, `profile?`, `attachments?` (lista opcional de {name, data-base64}, máximo 10; limitada por el tope de 1 MiB por mensaje) | POST /api/v1/tasks |
+    | tasks.start         | `task_id`                                        | POST /api/v1/tasks/{id}/start      |
+    | tasks.resume        | `task_id` (solo FAILED)                          | POST /api/v1/tasks/{id}/resume     |
+    | tasks.restart       | `task_id`                                        | POST /api/v1/tasks/{id}/restart    |
+    | tasks.pause         | `task_id`                                        | POST /api/v1/tasks/{id}/pause      |
+    | tasks.discard       | `task_id`                                        | POST /api/v1/tasks/{id}/discard    |
+    | tasks.mark_done     | `task_id`                                        | POST /api/v1/tasks/{id}/mark-done  |
+    | tasks.extend        | `task_id`, `request`, `attachments?`             | POST /api/v1/tasks/{id}/extend     |
+    | tasks.reset         | `task_id`                                        | POST /api/v1/tasks/{id}/reset      |
+    | tasks.run           | `task_id`, `phase` (plan/implement/review/fix/final/tests/automode) | POST /api/v1/tasks/{id}/run |
+    | tasks.continue      | `task_id`                                        | POST /api/v1/tasks/{id}/continue   |
+    | tasks.approve_plan  | `task_id`                                        | POST /api/v1/tasks/{id}/approve-plan |
+    | tasks.edit          | `task_id`, `name?`, `description?`, `parent_id?` | POST /api/v1/tasks/{id}/edit       |
+    | tasks.roles         | `task_id`, `roles?`, `profile?`                  | POST /api/v1/tasks/{id}/roles      |
+    | tasks.artifact      | `task_id`, `kind`, `path`                        | GET /api/v1/tasks/{id}/artifact    |
+    | tasks.media         | `task_id`, `name` (resultado: `{name, mime, data}` base64; los archivos de más de 16 MiB devuelven un error 413: use GET /api/v1/tasks/{id}/media) | GET /api/v1/tasks/{id}/media |
+    | tasks.attachments   | `task_id`                                        | GET /api/v1/tasks/{id}/attachments |
+    | tasks.attach        | `task_id`, `attachments` (base64; 1 MiB por mensaje WS; para archivos mayores, use la subida en crudo de REST) | POST /api/v1/tasks/{id}/attachments |
+    | tasks.detach        | `task_id`, `file`                                | DELETE /api/v1/tasks/{id}/attachments |
+    | sessions.list       | `workdir?`                                       | GET /api/v1/sessions               |
+    | sessions.get        | `session_id`                                     | GET /api/v1/sessions/{id}          |
+    | sessions.transcript | `session_id`, `after?`, `limit?`                 | GET /api/v1/sessions/{id}/transcript |
+    | sessions.create     | `workdir?`, `cli?`, `model?`, `effort?`, `name?`, `prompt?`, `task_id?` | POST /api/v1/sessions    |
+    | sessions.send       | `session_id`, `prompt`, `attachments?`           | POST /api/v1/sessions/{id}/send    |
+    | sessions.attachments | `session_id`                                    | GET /api/v1/sessions/{id}/attachments |
+    | sessions.cancel     | `session_id`                                     | POST /api/v1/sessions/{id}/cancel  |
+    | sessions.edit       | `session_id`, `name`                             | POST /api/v1/sessions/{id}/edit    |
+    | sessions.close      | `session_id`                                     | POST /api/v1/sessions/{id}/close   |
+    | sessions.reopen     | `session_id`                                     | POST /api/v1/sessions/{id}/reopen  |
+    | sessions.delete     | `session_id`                                     | DELETE /api/v1/sessions/{id}       |
+    | projects.repos      | `workdir?`, `project?` | GET /api/v1/projects/repos |
+    | projects.changes    | `workdir?`, `project?`, `refresh?` | GET /api/v1/projects/changes |
+    | projects.branches   | `workdir?`, `project?`, `repo?` | GET /api/v1/projects/branches |
+    | projects.push       | `workdir?`, `project?`, `repo?`, `set_upstream?`, `remote?` | POST /api/v1/projects/push |
+    | projects.pull       | `workdir?`, `project?`, `repo?`, `mode?` | POST /api/v1/projects/pull |
+    | projects.checkout   | `workdir?`, `project?`, `repo?`, `branch` | POST /api/v1/projects/checkout |
+    | projects.abort      | `workdir?`, `project?`, `repo?` | POST /api/v1/projects/abort |
+    | reviews.list        | `workdir?`, `state?` | GET /api/v1/reviews |
+    | reviews.start       | `workdir?`, `project?`, `task_id?`, `name?`, `cli?`, `model?`, `effort?`, `resume?` | POST /api/v1/reviews |
+    | reviews.get         | `review_id` | GET /api/v1/reviews/{id} |
+    | reviews.delete      | `review_id` | DELETE /api/v1/reviews/{id} |
+    | reviews.close       | `review_id` | POST /api/v1/reviews/{id}/close |
+    | reviews.reopen      | `review_id` | POST /api/v1/reviews/{id}/reopen |
+    | reviews.files       | `review_id`, `repo?`, `decision?` | GET /api/v1/reviews/{id}/files |
+    | reviews.diff        | `review_id`, `repo`+`path` or `key`, `max_bytes?` | GET /api/v1/reviews/{id}/diff |
+    | reviews.navigate    | `review_id`, `action`, `repo?`, `path?`, `key?`, `skip_decided?`, `diff?` | POST /api/v1/reviews/{id}/navigate |
+    | reviews.decide      | `review_id`, file, `decision`, `note?`, `advance?` | POST /api/v1/reviews/{id}/decision |
+    | reviews.discuss     | `review_id`, `message`, file? | POST /api/v1/reviews/{id}/discuss |
+    | reviews.request_changes | `review_id`, file, `instructions` | POST /api/v1/reviews/{id}/request-changes |
+    | reviews.transcript  | `review_id`, `after?`, `limit?` | GET /api/v1/reviews/{id}/transcript |
+    | reviews.cancel      | `review_id` | POST /api/v1/reviews/{id}/cancel |
+    | reviews.commit_message | `review_id`, `files`, `hint?`, `cli?`, `model?`, `effort?` | POST /api/v1/reviews/{id}/commit-message |
+    | reviews.commit      | `review_id`, `files`, `message`, `include_unstaged?`, `allow_multi_repo?` | POST /api/v1/reviews/{id}/commit |
+    | reviews.commits     | `review_id` | GET /api/v1/reviews/{id}/commits |
+    | options.get         | -                                                | GET /api/v1/options                |
+    | models.list         | `refresh?`                                       | GET /api/v1/models                 |
+    | fs.dirs             | `path?`                                          | GET /api/v1/fs/dirs                |
+    | issues.list         | `workdir`                                        | GET /api/v1/issues                 |
+    | reports.get         | `period?`, `from?`, `to?`                        | GET /api/v1/reports                |
+    | settings.get        | -                                                | GET /api/v1/settings               |
+    | settings.update     | secciones de ajustes                                | POST /api/v1/settings              |
+    | subscribe           | `topics` (lista de cadenas; admite `tasks`, `sessions` y `reviews`)    | -                                  |
+    | unsubscribe         | -                                                | -                                  |
+
+    Después de `subscribe {"topics":["tasks"]}`, cada tarea cuyo `state`
+    cambie se envía por push como un evento `task.changed` con la misma
+    estructura `TaskSummary` que el endpoint REST de listado. El servidor
+    sondea el almacén de tareas en disco cada 2 s (firma de cada `task.toml`:
+    mtime + tamaño); el snapshot se mantiene actualizado incluso sin
+    suscriptores, de modo que un cliente nuevo nunca recibe una avalancha del
+    backlog.
+
+    Después de `subscribe {"topics":["sessions"]}`, los cambios de las
+    sesiones CLI directas se envían por push como eventos `session.changed`
+    (con `CliSessionSummary`) y `session.deleted` (con `session_id`). Las
+    entradas del transcript no se envían por push: consulte
+    `sessions.transcript` con `after`.
+
+    Después de `subscribe {"topics":["reviews"]}`, los cambios de las
+    revisiones se envían por push como eventos `review.changed` (con
+    `ReviewSummary`) y `review.deleted` (con `review_id`). Los errores de
+    revisión incluyen un `code` estable en el objeto `error` (p. ej.,
+    `not_pending`, `stale`, `multi_repo`, `busy`).
+- source: "Interactive REST documentation (Swagger UI)"
+  translation: "Documentación REST interactiva (Swagger UI)"
+- source: "Client sends a JSON-RPC command"
+  translation: "El cliente envía un comando JSON-RPC"
+- source: "Server answers each command with result or error"
+  translation: "El servidor responde a cada comando con un resultado o un error"
+- source: "Server pushes state changes to `tasks` subscribers"
+  translation: "El servidor envía por push cambios de estado a los suscriptores de `tasks`"
+- source: "Server pushes CLI session changes to `sessions` subscribers"
+  translation: "El servidor envía por push cambios de sesiones CLI a los suscriptores de `sessions`"
+- source: "Server pushes review changes to `reviews` subscribers"
+  translation: "El servidor envía por push cambios de revisiones a los suscriptores de `reviews`"
+- source: "Same shape as the REST `ReviewSummary`."
+  translation: "La misma estructura que `ReviewSummary` de REST."
+- source: "Same slim payload as the REST list endpoint and the `task.changed` event."
+  translation: "El mismo payload compacto que el endpoint REST de listado y el evento `task.changed`."
+- source: "Derived pending start; status is empty when nothing is pending."
+  translation: "Inicio pendiente derivado; status está vacío cuando no hay nada pendiente."
+- source: "Same payload as the REST session summary."
+  translation: "El mismo payload que el resumen de sesión de REST."
+- source: "JSON-RPC request"
+  translation: "Petición JSON-RPC"
+- source: "Client request with `id`, `method` and `params`."
+  translation: "Petición del cliente con `id`, `method` y `params`."
+- source: "JSON-RPC success response"
+  translation: "Respuesta JSON-RPC correcta"
+- source: "JSON-RPC error response"
+  translation: "Respuesta JSON-RPC de error"
+- source: "Push event delivered to `tasks` subscribers"
+  translation: "Evento push entregado a los suscriptores de `tasks`"
+- source: "Push event delivered to `sessions` subscribers"
+  translation: "Evento push entregado a los suscriptores de `sessions`"
+- source: "Push event delivered when a CLI session is deleted"
+  translation: "Evento push entregado cuando se elimina una sesión CLI"
+- source: "Push event delivered to `reviews` subscribers"
+  translation: "Evento push entregado a los suscriptores de `reviews`"
+- source: "Push event delivered when a review is deleted"
+  translation: "Evento push entregado cuando se elimina una revisión"

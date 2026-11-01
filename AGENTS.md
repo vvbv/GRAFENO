@@ -301,10 +301,21 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   de la sección `[api]` aplican al siguiente arranque de la TUI (el worker
   se crea en `on_mount`, no en caliente). El log de actividad va a
   `~/.grafeno/api.log` (cap 1 MiB, rotación in-place) y nunca contiene el
-  token. Las specs se mantienen a mano en `docs/api/` (OpenAPI 3.1 para
-  REST, AsyncAPI 3.0 para la WebSocket) y `tests/test_api_specs.py`
-  garantiza que cada ruta REST y cada método WS del código estén
-  documentados.
+  token. Las fuentes inglesas de las specs se mantienen a mano en
+  `docs/api/openapi.yaml` (OpenAPI 3.1 para REST) y
+  `docs/api/asyncapi.yaml` (AsyncAPI 3.0 para la WebSocket); los catálogos
+  `docs/api/*.es-translations.yaml` son obligatorios y contienen todas sus
+  traducciones españolas. Los cuatro `src/grafeno/server/static/docs/*.json`
+  son artefactos generados, nunca fuentes independientes: tras modificar las
+  fuentes o los catálogos hay que ejecutar
+  `.venv/bin/python scripts/build_api_docs.py` y
+  `.venv/bin/python scripts/build_api_docs.py --check`, sin editar solo los
+  JSON. `/docs` es público únicamente para la shell, sus activos permitidos y
+  las specs; `GET /api/v1/skill.md` conserva la autenticación normal de la API.
+  El contenido definitivo del skill vive solo en
+  `src/grafeno/server/static/skill.md` y no debe duplicarse en otras rutas.
+  `tests/test_api_specs.py` garantiza que cada ruta REST y cada método WS del
+  código estén documentados.
 - **Panel web**: `grafeno --web` arranca el servidor API para esa
   ejecución (sin tocar `config.toml`: `server/web.prepare` devuelve una
   copia de `ApiConfig` que la App usa en memoria) y sirve en `/` un panel

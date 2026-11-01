@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
-from . import actions, branding, clisessions, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings, webeditor
+from . import actions, apidocs, branding, clisessions, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings, webeditor
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -68,6 +68,24 @@ async def _status(service: "ServerService", request: Request, params: dict[str, 
 @route("GET", "/api/v1/time")
 async def _time(service: "ServerService", request: Request, params: dict[str, str]) -> dict:
     return clock.server_time()
+
+
+@route("GET", "/api/v1/skill.md")
+async def _skill_md(service: "ServerService", request: Request, params: dict[str, str]) -> Response:
+    try:
+        text = apidocs.skill_text()
+    except FileNotFoundError as exc:
+        raise actions.ApiError(404, "skill.md is not available") from exc
+    return Response(
+        200,
+        headers={
+            "Content-Type": "text/markdown; charset=utf-8",
+            "Content-Disposition": 'attachment; filename="skill.md"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+        body=text.encode("utf-8"),
+    )
 
 
 # ---------------------------------------------------------------------- #

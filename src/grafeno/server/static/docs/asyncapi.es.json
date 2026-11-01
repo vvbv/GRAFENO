@@ -1,0 +1,745 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "API WebSocket remota de GRAFENO",
+    "version": "1.10.0",
+    "description": "Canal JSON-RPC bidireccional expuesto en `/api/v1/ws` (implementado a\nmano sobre RFC 6455, consulte `src/grafeno/server/ws.py`). La actualización\nHTTP GET usa el mismo token OPCIONAL que los endpoints REST (`Authorization:\nBearer <token>` o `?token=`); cuando no hay tokens configurados (valor\npredeterminado), la actualización es anónima. La credencial es exclusiva de\neste servidor y nunca se comparte con el bot de Telegram. Los frames del\ncliente deben estar enmascarados; los frames del servidor no llevan máscara;\nlos frames de texto transportan JSON UTF-8. Los mensajes de más de 1 MiB\ncierran el socket. El propio servidor responde Ping con Pong.\n`GET /api/v1/skill.md` es una descarga de Markdown exclusivamente REST: no\ntiene método JSON-RPC y se omite intencionadamente de la tabla siguiente.\n\nLos comandos son peticiones de estilo JSON-RPC `{\"id\",\"method\",\"params\"}` y\ncada una recibe exactamente una respuesta: `{\"id\",\"result\":...}` si tiene\néxito o `{\"id\",\"error\":{\"message\",\"status?\",\"code?\"}}` si falla (`id` repite\nel id de la petición y es `null` cuando la entrada no era JSON válido). Los\nmétodos disponibles reflejan uno a uno los endpoints REST:\n| Método             | Parámetros                                       | Equivalente REST                   |\n| status              | -                                                | GET /api/v1/status                 |\n| time                | -                                                | GET /api/v1/time                   |\n| tasks.list          | `state?`, `workdir?`, `project?`, `sort?`, ...    | GET /api/v1/tasks                  |\n| tasks.get           | `task_id`                                        | GET /api/v1/tasks/{id}             |\n| projects.list       | -                                                | GET /api/v1/projects               |\n| projects.create     | `name?`, `url?`, `mode?`, `workspace?`           | POST /api/v1/projects              |\n| projects.favorite   | `workdir`, `favorite?` (true de forma predeterminada)            | POST /api/v1/projects/favorite     |\n| projects.docs       | `workdir?`, `project?`                           | GET /api/v1/projects/docs          |\n| projects.doc        | `workdir?`, `project?`, `name`, `offset?`, `max_chars?` | GET /api/v1/projects/doc    |\n| projects.files      | `workdir?`, `project?`, `path?`, `hidden?`, `limit?`, `offset?` | GET /api/v1/projects/files |\n| projects.file       | `workdir?`, `project?`, `path`                   | GET /api/v1/projects/file          |\n| projects.file_text  | `workdir?`, `project?`, `path`, `line?`, `max_lines?` | GET /api/v1/projects/file/text |\n| projects.file_raw   | `workdir?`, `project?`, `path` (resultado: `{path, name, mime, size, etag, data}` base64; los archivos de más de 16 MiB devuelven un error 413: use GET /api/v1/projects/file/raw) | GET /api/v1/projects/file/raw |\n| editor.open         | `workdir?`, `project?`, `task_id?`, `host?` | POST /api/v1/editor/open |\n| tasks.logs          | `task_id`, `limit?` (1..1000, 200 de forma predeterminada)      | GET /api/v1/tasks/{id}/logs        |\n| tasks.artifacts     | `task_id`, `kind`, `cycle?` (1 de forma predeterminada)         | GET /api/v1/tasks/{id}/artifacts   |\n| tasks.create        | `name`, `workdir`, `description?`, `automode?`, `parent_id?`, `scheduled_at?`, `origin?`, `profile?`, `attachments?` (lista opcional de {name, data-base64}, máximo 10; limitada por el tope de 1 MiB por mensaje) | POST /api/v1/tasks |\n| tasks.start         | `task_id`                                        | POST /api/v1/tasks/{id}/start      |\n| tasks.resume        | `task_id` (solo FAILED)                          | POST /api/v1/tasks/{id}/resume     |\n| tasks.restart       | `task_id`                                        | POST /api/v1/tasks/{id}/restart    |\n| tasks.pause         | `task_id`                                        | POST /api/v1/tasks/{id}/pause      |\n| tasks.discard       | `task_id`                                        | POST /api/v1/tasks/{id}/discard    |\n| tasks.mark_done     | `task_id`                                        | POST /api/v1/tasks/{id}/mark-done  |\n| tasks.extend        | `task_id`, `request`, `attachments?`             | POST /api/v1/tasks/{id}/extend     |\n| tasks.reset         | `task_id`                                        | POST /api/v1/tasks/{id}/reset      |\n| tasks.run           | `task_id`, `phase` (plan/implement/review/fix/final/tests/automode) | POST /api/v1/tasks/{id}/run |\n| tasks.continue      | `task_id`                                        | POST /api/v1/tasks/{id}/continue   |\n| tasks.approve_plan  | `task_id`                                        | POST /api/v1/tasks/{id}/approve-plan |\n| tasks.edit          | `task_id`, `name?`, `description?`, `parent_id?` | POST /api/v1/tasks/{id}/edit       |\n| tasks.roles         | `task_id`, `roles?`, `profile?`                  | POST /api/v1/tasks/{id}/roles      |\n| tasks.artifact      | `task_id`, `kind`, `path`                        | GET /api/v1/tasks/{id}/artifact    |\n| tasks.media         | `task_id`, `name` (resultado: `{name, mime, data}` base64; los archivos de más de 16 MiB devuelven un error 413: use GET /api/v1/tasks/{id}/media) | GET /api/v1/tasks/{id}/media |\n| tasks.attachments   | `task_id`                                        | GET /api/v1/tasks/{id}/attachments |\n| tasks.attach        | `task_id`, `attachments` (base64; 1 MiB por mensaje WS; para archivos mayores, use la subida en crudo de REST) | POST /api/v1/tasks/{id}/attachments |\n| tasks.detach        | `task_id`, `file`                                | DELETE /api/v1/tasks/{id}/attachments |\n| sessions.list       | `workdir?`                                       | GET /api/v1/sessions               |\n| sessions.get        | `session_id`                                     | GET /api/v1/sessions/{id}          |\n| sessions.transcript | `session_id`, `after?`, `limit?`                 | GET /api/v1/sessions/{id}/transcript |\n| sessions.create     | `workdir?`, `cli?`, `model?`, `effort?`, `name?`, `prompt?`, `task_id?` | POST /api/v1/sessions    |\n| sessions.send       | `session_id`, `prompt`, `attachments?`           | POST /api/v1/sessions/{id}/send    |\n| sessions.attachments | `session_id`                                    | GET /api/v1/sessions/{id}/attachments |\n| sessions.cancel     | `session_id`                                     | POST /api/v1/sessions/{id}/cancel  |\n| sessions.edit       | `session_id`, `name`                             | POST /api/v1/sessions/{id}/edit    |\n| sessions.close      | `session_id`                                     | POST /api/v1/sessions/{id}/close   |\n| sessions.reopen     | `session_id`                                     | POST /api/v1/sessions/{id}/reopen  |\n| sessions.delete     | `session_id`                                     | DELETE /api/v1/sessions/{id}       |\n| projects.repos      | `workdir?`, `project?` | GET /api/v1/projects/repos |\n| projects.changes    | `workdir?`, `project?`, `refresh?` | GET /api/v1/projects/changes |\n| projects.branches   | `workdir?`, `project?`, `repo?` | GET /api/v1/projects/branches |\n| projects.push       | `workdir?`, `project?`, `repo?`, `set_upstream?`, `remote?` | POST /api/v1/projects/push |\n| projects.pull       | `workdir?`, `project?`, `repo?`, `mode?` | POST /api/v1/projects/pull |\n| projects.checkout   | `workdir?`, `project?`, `repo?`, `branch` | POST /api/v1/projects/checkout |\n| projects.abort      | `workdir?`, `project?`, `repo?` | POST /api/v1/projects/abort |\n| reviews.list        | `workdir?`, `state?` | GET /api/v1/reviews |\n| reviews.start       | `workdir?`, `project?`, `task_id?`, `name?`, `cli?`, `model?`, `effort?`, `resume?` | POST /api/v1/reviews |\n| reviews.get         | `review_id` | GET /api/v1/reviews/{id} |\n| reviews.delete      | `review_id` | DELETE /api/v1/reviews/{id} |\n| reviews.close       | `review_id` | POST /api/v1/reviews/{id}/close |\n| reviews.reopen      | `review_id` | POST /api/v1/reviews/{id}/reopen |\n| reviews.files       | `review_id`, `repo?`, `decision?` | GET /api/v1/reviews/{id}/files |\n| reviews.diff        | `review_id`, `repo`+`path` or `key`, `max_bytes?` | GET /api/v1/reviews/{id}/diff |\n| reviews.navigate    | `review_id`, `action`, `repo?`, `path?`, `key?`, `skip_decided?`, `diff?` | POST /api/v1/reviews/{id}/navigate |\n| reviews.decide      | `review_id`, file, `decision`, `note?`, `advance?` | POST /api/v1/reviews/{id}/decision |\n| reviews.discuss     | `review_id`, `message`, file? | POST /api/v1/reviews/{id}/discuss |\n| reviews.request_changes | `review_id`, file, `instructions` | POST /api/v1/reviews/{id}/request-changes |\n| reviews.transcript  | `review_id`, `after?`, `limit?` | GET /api/v1/reviews/{id}/transcript |\n| reviews.cancel      | `review_id` | POST /api/v1/reviews/{id}/cancel |\n| reviews.commit_message | `review_id`, `files`, `hint?`, `cli?`, `model?`, `effort?` | POST /api/v1/reviews/{id}/commit-message |\n| reviews.commit      | `review_id`, `files`, `message`, `include_unstaged?`, `allow_multi_repo?` | POST /api/v1/reviews/{id}/commit |\n| reviews.commits     | `review_id` | GET /api/v1/reviews/{id}/commits |\n| options.get         | -                                                | GET /api/v1/options                |\n| models.list         | `refresh?`                                       | GET /api/v1/models                 |\n| fs.dirs             | `path?`                                          | GET /api/v1/fs/dirs                |\n| issues.list         | `workdir`                                        | GET /api/v1/issues                 |\n| reports.get         | `period?`, `from?`, `to?`                        | GET /api/v1/reports                |\n| settings.get        | -                                                | GET /api/v1/settings               |\n| settings.update     | secciones de ajustes                                | POST /api/v1/settings              |\n| subscribe           | `topics` (lista de cadenas; admite `tasks`, `sessions` y `reviews`)    | -                                  |\n| unsubscribe         | -                                                | -                                  |\n\nDespués de `subscribe {\"topics\":[\"tasks\"]}`, cada tarea cuyo `state`\ncambie se envía por push como un evento `task.changed` con la misma\nestructura `TaskSummary` que el endpoint REST de listado. El servidor\nsondea el almacén de tareas en disco cada 2 s (firma de cada `task.toml`:\nmtime + tamaño); el snapshot se mantiene actualizado incluso sin\nsuscriptores, de modo que un cliente nuevo nunca recibe una avalancha del\nbacklog.\n\nDespués de `subscribe {\"topics\":[\"sessions\"]}`, los cambios de las\nsesiones CLI directas se envían por push como eventos `session.changed`\n(con `CliSessionSummary`) y `session.deleted` (con `session_id`). Las\nentradas del transcript no se envían por push: consulte\n`sessions.transcript` con `after`.\n\nDespués de `subscribe {\"topics\":[\"reviews\"]}`, los cambios de las\nrevisiones se envían por push como eventos `review.changed` (con\n`ReviewSummary`) y `review.deleted` (con `review_id`). Los errores de\nrevisión incluyen un `code` estable en el objeto `error` (p. ej.,\n`not_pending`, `stale`, `multi_repo`, `busy`).\n"
+  },
+  "externalDocs": {
+    "description": "Documentación REST interactiva (Swagger UI)",
+    "url": "/docs?lang=es"
+  },
+  "servers": {
+    "local": {
+      "host": "127.0.0.1:8735",
+      "pathname": "/api/v1/ws",
+      "protocol": "ws",
+      "protocolVersion": "13",
+      "security": [
+        {
+          "$ref": "#/components/securitySchemes/BearerAuth"
+        },
+        {
+          "$ref": "#/components/securitySchemes/QueryToken"
+        }
+      ]
+    }
+  },
+  "channels": {
+    "control": {
+      "address": "/api/v1/ws",
+      "messages": {
+        "command": {
+          "$ref": "#/components/messages/Command"
+        },
+        "result": {
+          "$ref": "#/components/messages/Result"
+        },
+        "errorResult": {
+          "$ref": "#/components/messages/ErrorResult"
+        },
+        "taskChanged": {
+          "$ref": "#/components/messages/TaskChanged"
+        },
+        "sessionChanged": {
+          "$ref": "#/components/messages/SessionChanged"
+        },
+        "sessionDeleted": {
+          "$ref": "#/components/messages/SessionDeleted"
+        },
+        "reviewChanged": {
+          "$ref": "#/components/messages/ReviewChanged"
+        },
+        "reviewDeleted": {
+          "$ref": "#/components/messages/ReviewDeleted"
+        }
+      }
+    }
+  },
+  "operations": {
+    "sendCommand": {
+      "action": "send",
+      "title": "El cliente envía un comando JSON-RPC",
+      "channel": {
+        "$ref": "#/channels/control"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/control/messages/command"
+        }
+      ]
+    },
+    "receiveResult": {
+      "action": "receive",
+      "title": "El servidor responde a cada comando con un resultado o un error",
+      "channel": {
+        "$ref": "#/channels/control"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/control/messages/result"
+        },
+        {
+          "$ref": "#/channels/control/messages/errorResult"
+        }
+      ]
+    },
+    "receiveTaskChanged": {
+      "action": "receive",
+      "title": "El servidor envía por push cambios de estado a los suscriptores de `tasks`",
+      "channel": {
+        "$ref": "#/channels/control"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/control/messages/taskChanged"
+        }
+      ]
+    },
+    "receiveSessionEvents": {
+      "action": "receive",
+      "title": "El servidor envía por push cambios de sesiones CLI a los suscriptores de `sessions`",
+      "channel": {
+        "$ref": "#/channels/control"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/control/messages/sessionChanged"
+        },
+        {
+          "$ref": "#/channels/control/messages/sessionDeleted"
+        }
+      ]
+    },
+    "receiveReviewEvents": {
+      "action": "receive",
+      "title": "El servidor envía por push cambios de revisiones a los suscriptores de `reviews`",
+      "channel": {
+        "$ref": "#/channels/control"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/control/messages/reviewChanged"
+        },
+        {
+          "$ref": "#/channels/control/messages/reviewDeleted"
+        }
+      ]
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "QueryToken": {
+        "type": "httpApiKey",
+        "in": "query",
+        "name": "token"
+      }
+    },
+    "schemas": {
+      "MethodEnum": {
+        "type": "string",
+        "enum": [
+          "status",
+          "time",
+          "tasks.list",
+          "tasks.get",
+          "projects.list",
+          "projects.create",
+          "projects.favorite",
+          "projects.docs",
+          "projects.doc",
+          "projects.files",
+          "projects.file",
+          "projects.file_text",
+          "projects.file_raw",
+          "editor.open",
+          "tasks.logs",
+          "tasks.artifacts",
+          "tasks.create",
+          "tasks.start",
+          "tasks.resume",
+          "tasks.restart",
+          "tasks.pause",
+          "tasks.discard",
+          "tasks.mark_done",
+          "tasks.extend",
+          "tasks.reset",
+          "tasks.run",
+          "tasks.continue",
+          "tasks.approve_plan",
+          "tasks.edit",
+          "tasks.roles",
+          "tasks.artifact",
+          "tasks.media",
+          "tasks.attachments",
+          "tasks.attach",
+          "tasks.detach",
+          "sessions.list",
+          "sessions.get",
+          "sessions.transcript",
+          "sessions.create",
+          "sessions.send",
+          "sessions.attachments",
+          "sessions.cancel",
+          "sessions.edit",
+          "sessions.close",
+          "sessions.reopen",
+          "sessions.delete",
+          "projects.repos",
+          "projects.changes",
+          "projects.branches",
+          "projects.push",
+          "projects.pull",
+          "projects.checkout",
+          "projects.abort",
+          "reviews.list",
+          "reviews.start",
+          "reviews.get",
+          "reviews.delete",
+          "reviews.close",
+          "reviews.reopen",
+          "reviews.files",
+          "reviews.diff",
+          "reviews.navigate",
+          "reviews.decide",
+          "reviews.discuss",
+          "reviews.request_changes",
+          "reviews.transcript",
+          "reviews.cancel",
+          "reviews.commit_message",
+          "reviews.commit",
+          "reviews.commits",
+          "options.get",
+          "models.list",
+          "fs.dirs",
+          "issues.list",
+          "reports.get",
+          "settings.get",
+          "settings.update",
+          "subscribe",
+          "unsubscribe"
+        ]
+      },
+      "ReviewSummary": {
+        "type": "object",
+        "description": "La misma estructura que `ReviewSummary` de REST.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "workdir": {
+            "type": "string"
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "closed"
+            ]
+          },
+          "cli": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          },
+          "agent_session_id": {
+            "type": "string"
+          },
+          "agent_running": {
+            "type": "boolean"
+          },
+          "cursor": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "commits": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskSummary": {
+        "type": "object",
+        "description": "El mismo payload compacto que el endpoint REST de listado y el evento `task.changed`.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "workdir": {
+            "type": "string"
+          },
+          "remote": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "first_step",
+              "planning",
+              "planned",
+              "implementing",
+              "implemented",
+              "reviewing",
+              "fixing",
+              "finalizing",
+              "done",
+              "failed",
+              "paused",
+              "discarded"
+            ]
+          },
+          "state_label": {
+            "type": "string"
+          },
+          "automode": {
+            "type": "boolean"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "scheduled_at": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "object",
+            "description": "Inicio pendiente derivado; status está vacío cuando no hay nada pendiente.",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "future",
+                  "overdue",
+                  "waiting_parent"
+                ]
+              },
+              "at": {
+                "type": "string"
+              },
+              "at_iso": {
+                "type": "string"
+              },
+              "utc_offset": {
+                "type": "string"
+              },
+              "parent_id": {
+                "type": "string"
+              },
+              "parent_name": {
+                "type": "string"
+              }
+            }
+          },
+          "parent_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "workdir",
+          "state",
+          "automode"
+        ]
+      },
+      "CliSessionSummary": {
+        "type": "object",
+        "description": "El mismo payload que el resumen de sesión de REST.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "workdir": {
+            "type": "string"
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "cli": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          },
+          "cli_session_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "closed"
+            ]
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "turns": {
+            "type": "integer"
+          },
+          "last_prompt": {
+            "type": "string"
+          },
+          "last_error": {
+            "type": "string"
+          },
+          "tokens": {
+            "type": "object",
+            "properties": {
+              "input": {
+                "type": "integer"
+              },
+              "output": {
+                "type": "integer"
+              }
+            }
+          },
+          "seconds": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "workdir",
+          "cli",
+          "state",
+          "running",
+          "turns"
+        ]
+      }
+    },
+    "messages": {
+      "Command": {
+        "name": "Command",
+        "title": "Petición JSON-RPC",
+        "summary": "Petición del cliente con `id`, `method` y `params`.",
+        "payload": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "method": {
+              "$ref": "#/components/schemas/MethodEnum"
+            },
+            "params": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "method"
+          ]
+        },
+        "examples": [
+          {
+            "name": "subscribe",
+            "payload": {
+              "id": 1,
+              "method": "subscribe",
+              "params": {
+                "topics": [
+                  "tasks"
+                ]
+              }
+            }
+          },
+          {
+            "name": "tasks.list",
+            "payload": {
+              "id": 2,
+              "method": "tasks.list",
+              "params": {
+                "state": "done"
+              }
+            }
+          },
+          {
+            "name": "tasks.list (last completed of a project)",
+            "payload": {
+              "id": 3,
+              "method": "tasks.list",
+              "params": {
+                "state": "done",
+                "project": "GRAFENO",
+                "sort": "completed",
+                "limit": 3
+              }
+            }
+          }
+        ]
+      },
+      "Result": {
+        "name": "Result",
+        "title": "Respuesta JSON-RPC correcta",
+        "payload": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "result": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "result"
+          ]
+        }
+      },
+      "ErrorResult": {
+        "name": "ErrorResult",
+        "title": "Respuesta JSON-RPC de error",
+        "payload": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "message"
+              ]
+            }
+          },
+          "required": [
+            "error"
+          ]
+        },
+        "examples": [
+          {
+            "name": "unknown method",
+            "payload": {
+              "id": 3,
+              "error": {
+                "message": "unknown method: foo"
+              }
+            }
+          },
+          {
+            "name": "api error with status",
+            "payload": {
+              "id": 4,
+              "error": {
+                "message": "task not found",
+                "status": 404
+              }
+            }
+          }
+        ]
+      },
+      "TaskChanged": {
+        "name": "TaskChanged",
+        "title": "Evento push entregado a los suscriptores de `tasks`",
+        "payload": {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "task.changed"
+            },
+            "task": {
+              "$ref": "#/components/schemas/TaskSummary"
+            }
+          },
+          "required": [
+            "event",
+            "task"
+          ]
+        },
+        "examples": [
+          {
+            "name": "state flip",
+            "payload": {
+              "event": "task.changed",
+              "task": {
+                "id": "20260905-101126-slug",
+                "name": "Demo",
+                "workdir": "/repo/path",
+                "remote": "",
+                "state": "done",
+                "state_label": "Done",
+                "automode": true,
+                "origin": "api",
+                "scheduled_at": "",
+                "schedule": {
+                  "status": "",
+                  "at": "",
+                  "at_iso": "",
+                  "utc_offset": "",
+                  "parent_id": "",
+                  "parent_name": ""
+                },
+                "parent_id": ""
+              }
+            }
+          }
+        ]
+      },
+      "SessionChanged": {
+        "name": "SessionChanged",
+        "title": "Evento push entregado a los suscriptores de `sessions`",
+        "payload": {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "session.changed"
+            },
+            "session": {
+              "$ref": "#/components/schemas/CliSessionSummary"
+            }
+          },
+          "required": [
+            "event",
+            "session"
+          ]
+        }
+      },
+      "SessionDeleted": {
+        "name": "SessionDeleted",
+        "title": "Evento push entregado cuando se elimina una sesión CLI",
+        "payload": {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "session.deleted"
+            },
+            "session_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "session_id"
+          ]
+        }
+      },
+      "ReviewChanged": {
+        "name": "ReviewChanged",
+        "title": "Evento push entregado a los suscriptores de `reviews`",
+        "payload": {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "review.changed"
+            },
+            "review": {
+              "$ref": "#/components/schemas/ReviewSummary"
+            }
+          },
+          "required": [
+            "event",
+            "review"
+          ]
+        }
+      },
+      "ReviewDeleted": {
+        "name": "ReviewDeleted",
+        "title": "Evento push entregado cuando se elimina una revisión",
+        "payload": {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "review.deleted"
+            },
+            "review_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "review_id"
+          ]
+        }
+      }
+    }
+  }
+}

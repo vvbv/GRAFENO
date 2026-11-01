@@ -1,0 +1,4 @@
+Swagger UI 5.17.14
+https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui.css
+https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui-bundle.js
+License: https://raw.githubusercontent.com/swagger-api/swagger-ui/v5.17.14/LICENSE

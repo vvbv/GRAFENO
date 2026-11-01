@@ -1,0 +1,71 @@
+:root {
+  color-scheme: light;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #fafafa;
+  color: #263238;
+}
+
+body {
+  margin: 0;
+}
+
+.docs-header {
+  padding: 24px max(24px, calc((100vw - 1280px) / 2));
+  background: #17324d;
+  color: #ffffff;
+}
+
+.docs-header h1 {
+  margin: 0 0 16px;
+  font-size: 28px;
+}
+
+.docs-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+}
+
+.docs-nav a {
+  color: #d9efff;
+  font-weight: 600;
+}
+
+.docs-language {
+  color: #c4d4e2;
+}
+
+.docs-help {
+  max-width: 900px;
+  margin: 16px 0 0;
+  line-height: 1.5;
+}
+
+.docs-main {
+  max-width: 1330px;
+  margin: 0 auto;
+  padding: 0 25px 40px;
+}
+
+.swagger-ui .topbar {
+  display: none;
+}
+
+.swagger-ui .info {
+  margin: 30px 0;
+}
+
+@media (max-width: 700px) {
+  .docs-header {
+    padding: 20px;
+  }
+
+  .docs-header h1 {
+    font-size: 23px;
+  }
+
+  .docs-main {
+    padding: 0 10px 30px;
+  }
+}

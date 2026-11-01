@@ -138,6 +138,7 @@ Project consoles (interactive shells) stay TUI-only; CLI sessions are available 
 
 ```
 GET  /api/v1/status                            # {version, uptime_seconds, pid, ws_path}
+GET  /api/v1/skill.md                          # packaged API skill as a Markdown download (normal API authentication)
 GET  /api/v1/time                              # {iso, utc, epoch, date, time, weekday, timezone, utc_offset, ...}
 GET  /api/v1/tasks[?state=...]                 # list tasks (optional state filter)
 GET  /api/v1/tasks/{id}                        # full task detail (to_dict + derived)
@@ -176,7 +177,14 @@ POST /api/v1/audio/speech                     # TTS: {"text", format?} -> audio 
 WS   /api/v1/ws                                # JSON-RPC: {"id","method","params"} + subscribe {"event":"task.changed","task":{...}}
 ```
 
-The endpoints are documented as machine-readable specs under `docs/api/`:
+While the API server is running, browse the complete REST API with the
+[integrated Swagger UI](http://127.0.0.1:8735/docs) at `/docs`. OpenAPI 3.1
+and AsyncAPI 3.0 JSON documents are served in English and Spanish with
+`?lang=en|es`, and Swagger includes the `GET /api/v1/skill.md` download. See
+the [English usage guide](docs/api/swagger.en.md) or the
+[guía de uso en español](docs/api/swagger.es.md).
+
+The machine-readable sources remain available under `docs/api/`:
 [OpenAPI 3.1](docs/api/openapi.yaml) for REST and
 [AsyncAPI 3.0](docs/api/asyncapi.yaml) for the WebSocket JSON-RPC protocol;
 project documents are covered in [docs/api/project-docs.md](docs/api/project-docs.md),
@@ -185,8 +193,8 @@ assisted multi-repository review in [docs/api/reviews.md](docs/api/reviews.md),
 branch operations and the pending-changes indicator in [docs/api/project-git.md](docs/api/project-git.md)
 and the server clock (date, time and timezone) in
 [docs/api/server-time.md](docs/api/server-time.md).
-Browse them with Swagger UI/Redoc or AsyncAPI Studio; coverage of every
-registered route/method is enforced by `tests/test_api_specs.py`.
+Coverage of every registered route/method is enforced by
+`tests/test_api_specs.py`.
 
 ## Installation
 

@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: GRAFENO Remote WebSocket API
-  version: 1.9.0
+  version: 1.10.0
   description: |
     Bidirectional JSON-RPC channel exposed on `/api/v1/ws` (implemented by
     hand on RFC 6455, see `src/grafeno/server/ws.py`). The HTTP GET upgrade
@@ -11,7 +11,9 @@ info:
     server and never shared with the Telegram bot. Client frames must be
     masked; server frames are unmasked; text frames carry UTF-8 JSON.
     Messages over 1 MiB close the socket. Ping is answered with Pong by
-    the server itself.
+    the server itself. `GET /api/v1/skill.md` is a REST-only Markdown
+    download: it has no JSON-RPC method and is intentionally absent from
+    the table below.
 
     Commands are JSON-RPC style requests `{"id","method","params"}` and
     each gets exactly one response: `{"id","result":...}` on success or
@@ -115,6 +117,9 @@ info:
     `review.changed` (carrying the `ReviewSummary`) and `review.deleted`
     (carrying `review_id`) events. Review errors carry a stable `code` in
     the `error` object (e.g. `not_pending`, `stale`, `multi_repo`, `busy`).
+externalDocs:
+  description: Interactive REST documentation (Swagger UI)
+  url: /docs
 servers:
   local:
     host: 127.0.0.1:8735

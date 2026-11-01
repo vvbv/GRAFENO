@@ -1,0 +1,1133 @@
+- source: "GRAFENO Remote API"
+  translation: "API remota de GRAFENO"
+- source: "REST API of the GRAFENO remote server (optional token authentication)."
+  translation: "API REST del servidor remoto de GRAFENO (autenticación opcional mediante token)."
+- source: |
+    REST control API exposed by the GRAFENO TUI while it is running
+    (`[api]` section of `~/.grafeno/config.toml`). The server lives only
+    inside the TUI process as a worker; there is no standalone daemon.
+    Authentication is OPTIONAL and dedicated to this server (it never
+    shares nor overrides credentials with the Telegram bot or any other
+    integration): when tokens are configured, requests must carry the
+    shared token as `Authorization: Bearer <token>` or as the `?token=`
+    query parameter (duplicate of `src/grafeno/server/auth.py`); when the
+    token set is empty (the default), no authentication is required.
+    Error payloads are always `{"error": "<message>"}`.
+    Interactive documentation is available at `/docs` in English (`en`) and
+    Spanish (`es`). WebSocket commands and events are documented separately
+    with AsyncAPI.
+  translation: |
+    API de control REST expuesta por la TUI de GRAFENO mientras se ejecuta (sección
+    `[api]` de `~/.grafeno/config.toml`). El servidor solo existe dentro
+    del proceso de la TUI como un worker; no hay un daemon independiente. La autenticación
+    es OPCIONAL y exclusiva de este servidor (nunca comparte ni sobrescribe credenciales con
+    el bot de Telegram ni con ninguna otra integración): cuando hay tokens configurados, las
+    peticiones deben incluir el token compartido como `Authorization: Bearer <token>` o como el
+    parámetro de consulta `?token=` (duplicado de
+    `src/grafeno/server/auth.py`); cuando el conjunto de tokens está vacío (valor
+    predeterminado), no se requiere autenticación. Los payloads de error siempre son
+    `{"error": "<message>"}`. La documentación interactiva está disponible en
+    `/docs` en inglés (`en`) y español
+    (`es`). Los comandos y eventos de WebSocket se documentan por
+    separado con AsyncAPI.
+- source: "WebSocket protocol (AsyncAPI)"
+  translation: "Protocolo WebSocket (AsyncAPI)"
+- source: "Default local bind; host and port are configurable in `[api]`."
+  translation: "Enlace local predeterminado; el host y el puerto se pueden configurar en `[api]`."
+- source: "Server metadata."
+  translation: "Metadatos del servidor."
+- source: "Task lifecycle, logs and artifacts."
+  translation: "Ciclo de vida, logs y artefactos de las tareas."
+- source: "Direct CLI sessions - conversations with an agent CLI in a project folder, outside the task pipeline."
+  translation: "Sesiones CLI directas: conversaciones con un CLI de agente en la carpeta de un proyecto, fuera del pipeline de tareas."
+- source: "Assisted review of pending git changes across nested repositories; explicit commits only."
+  translation: "Revisión asistida de cambios git pendientes en repositorios anidados; solo commits explícitos."
+- source: "Projects - task workdirs and folders of the working directories, with task counts."
+  translation: "Proyectos: directorios de trabajo de las tareas y carpetas de los directorios de trabajo, con el número de tareas."
+- source: "Audio synthesis (TTS) endpoint."
+  translation: "Endpoint de síntesis de audio (TTS)."
+- source: "New-task form options, model catalogue, directories and GitHub issues."
+  translation: "Opciones del formulario de nueva tarea, catálogo de modelos, directorios e issues de GitHub."
+- source: "Usage reports (tokens, models, time and projects per period)."
+  translation: "Reportes de uso (tokens, modelos, tiempo y proyectos por período)."
+- source: "Global settings (same sections as the TUI settings screen)."
+  translation: "Ajustes globales (las mismas secciones de la pantalla de ajustes de la TUI)."
+- source: "Packaged documentation resources for API consumers and agents."
+  translation: "Recursos de documentación empaquetados para consumidores de la API y agentes."
+- source: "RFC 6455 WebSocket upgrade for the JSON-RPC control channel."
+  translation: "Actualización a WebSocket conforme a RFC 6455 para el canal de control JSON-RPC."
+- source: "Download the packaged API skill as Markdown."
+  translation: "Descargar el skill de la API empaquetado como Markdown."
+- source: |
+    Returns the `skill.md` resource packaged with GRAFENO for agents and
+    other API consumers. The Markdown bytes are returned without
+    transformation. This endpoint accepts no file path or file name: it
+    only serves this specific resource.
+  translation: |
+    Devuelve el recurso `skill.md` empaquetado con GRAFENO para agentes y
+    otros consumidores de la API. Los bytes de Markdown se devuelven sin transformación.
+    Este endpoint no acepta ninguna ruta ni nombre de archivo: solo sirve este recurso
+    concreto.
+- source: "Packaged Markdown skill, served as an attachment without transformation."
+  translation: "Skill de Markdown empaquetado, servido como adjunto sin transformación."
+- source: "The packaged `skill.md` resource is not installed yet."
+  translation: "El recurso `skill.md` empaquetado todavía no está instalado."
+- source: "Upgrade an HTTP connection to the JSON-RPC WebSocket channel."
+  translation: "Actualizar una conexión HTTP al canal WebSocket JSON-RPC."
+- source: |
+    Performs the RFC 6455 opening handshake on `/api/v1/ws`. After a
+    successful upgrade, the connection carries JSON-RPC commands, results
+    and push events as documented by the linked AsyncAPI specification.
+    Swagger "Try it out" is not a WebSocket client, and browsers control
+    the upgrade headers themselves. Use an RFC 6455 WebSocket client for
+    the handshake and the linked AsyncAPI document for the commands; WS
+    methods cannot be invoked with a normal HTTP POST or JSON request.
+  translation: |
+    Realiza el handshake de apertura de RFC 6455 en `/api/v1/ws`. Tras una
+    actualización correcta, la conexión transporta comandos JSON-RPC, resultados y eventos
+    push como documenta la especificación AsyncAPI enlazada. La función «Try it out» de
+    Swagger no es un cliente WebSocket y los navegadores controlan ellos mismos las
+    cabeceras de actualización. Use un cliente WebSocket compatible con RFC 6455 para el
+    handshake y el documento AsyncAPI enlazado para los comandos; los métodos WS no se
+    pueden invocar con una petición HTTP POST o JSON normal.
+- source: "JSON-RPC methods and push events (AsyncAPI)"
+  translation: "Métodos JSON-RPC y eventos push (AsyncAPI)"
+- source: "Must be `websocket` (case-insensitive)."
+  translation: "Debe ser `websocket` (sin distinguir mayúsculas de minúsculas)."
+- source: "Must include the `Upgrade` connection token (normally `Upgrade`)."
+  translation: "Debe incluir el token de conexión `Upgrade` (normalmente `Upgrade`)."
+- source: "Base64-encoded 16-byte nonce generated by the client for this handshake."
+  translation: "Nonce de 16 bytes codificado en Base64 que el cliente genera para este handshake."
+- source: "WebSocket protocol version; must be `13`."
+  translation: "Versión del protocolo WebSocket; debe ser `13`."
+- source: "Switching Protocols; the RFC 6455 upgrade succeeded and no JSON body is returned."
+  translation: "Switching Protocols; la actualización de RFC 6455 se realizó correctamente y no se devuelve ningún cuerpo JSON."
+- source: "Invalid WebSocket upgrade request."
+  translation: "Petición de actualización a WebSocket no válida."
+- source: "Server metadata (version, uptime, pid and WS path)."
+  translation: "Metadatos del servidor (versión, tiempo de actividad, pid y ruta WS)."
+- source: "Missing or invalid token (only enforced when tokens are configured)."
+  translation: "Token ausente o no válido (solo se exige cuando hay tokens configurados)."
+- source: "Current server date and time with timezone (ISO 8601, UTC, epoch, IANA zone)."
+  translation: "Fecha y hora actuales del servidor con zona horaria (ISO 8601, UTC, epoch, zona IANA)."
+- source: |
+    Clock of the host running GRAFENO, so a client (for example a voice
+    assistant) answers "what date and time is it" with the server time
+    instead of its own clock. `iso` always carries an explicit UTC offset
+    and `utc` ends in `Z`; both denote the same instant as `epoch`.
+    `timezone` is the IANA name of the host zone, or an empty string when
+    it cannot be determined reliably. Weekday names are fixed English
+    names (locale independent). Also available as the WebSocket method
+    `time`.
+  translation: |
+    Reloj del host que ejecuta GRAFENO, para que un cliente (por ejemplo, un asistente de
+    voz) responda «qué fecha y hora es» con la hora del servidor en lugar de su propio
+    reloj. `iso` siempre incluye un offset UTC explícito y
+    `utc` termina en `Z`; ambos denotan el mismo
+    instante que `epoch`. `timezone` es el nombre IANA de
+    la zona del host o una cadena vacía cuando no se puede determinar de forma fiable. Los
+    nombres de los días de la semana son nombres fijos en inglés (independientes de la
+    configuración regional). También está disponible como el método WebSocket
+    `time`.
+- source: "Current server time."
+  translation: "Hora actual del servidor."
+- source: "List tasks with optional filters, ordering and pagination."
+  translation: "Listar tareas con filtros, ordenación y paginación opcionales."
+- source: "Tasks wrapped under the `tasks` key."
+  translation: "Tareas encapsuladas bajo la clave `tasks`."
+- source: "Unknown state, sort or order; limit/offset out of range or not integers."
+  translation: "Estado, orden o dirección de ordenación desconocido; limit/offset fuera de rango o no enteros."
+- source: "Create a task (DRAFT via automode)."
+  translation: "Crear una tarea (DRAFT mediante automode)."
+- source: "Created task summary."
+  translation: "Resumen de la tarea creada."
+- source: "Validation error (name/workdir required, rechain error, malformed attachments)."
+  translation: "Error de validación (name/workdir obligatorios, error de reencadenamiento, adjuntos mal formados)."
+- source: "File larger than 500 MiB or request body above its cap."
+  translation: "Archivo de más de 500 MiB o cuerpo de la petición por encima de su límite."
+- source: "Full task detail (`to_dict()` plus derived fields)."
+  translation: "Detalle completo de la tarea (`to_dict()` más campos derivados)."
+- source: "Task detail wrapped under the `task` key."
+  translation: "Detalle de la tarea encapsulado bajo la clave `task`."
+- source: "Task not found."
+  translation: "Tarea no encontrada."
+- source: "Task workdirs plus the folders found in the working directories, with task counts."
+  translation: "Directorios de trabajo de las tareas más las carpetas encontradas en los directorios de trabajo, con el número de tareas."
+- source: |
+    Items keep `workdir` and `count`; folders found in a working directory
+    (first-level subfolders of each configured root) also carry `name` and
+    `workspace`. `workspaces` lists the configured roots (global + project
+    level of the TUI cwd) with their state. In remote session mode no folder
+    is discovered and `session` is true. Items also carry `sessions` (direct
+    CLI sessions of the folder) and the root has `create` (creation options).
+    Items also carry `last_worked` (latest task update, empty without tasks)
+    and `favorite` (marked as favorite on the server, see
+    `POST /api/v1/projects/favorite`).
+  translation: |
+    Los elementos conservan `workdir` y `count`; las
+    carpetas encontradas en un directorio de trabajo (subcarpetas de primer nivel de cada
+    raíz configurada) también incluyen `name` y
+    `workspace`. `workspaces` enumera las raíces configuradas
+    (nivel global + proyecto del cwd de la TUI) con su estado. En el modo de sesión remota
+    no se descubre ninguna carpeta y `session` es true. Los elementos
+    también incluyen `sessions` (sesiones CLI directas de la carpeta) y la
+    raíz incluye `create` (opciones de creación). Los elementos también
+    incluyen `last_worked` (última actualización de una tarea, vacío si no hay
+    tareas) y `favorite` (marcado como favorito en el servidor; consulte
+    `POST /api/v1/projects/favorite`).
+- source: "Projects wrapped under the `projects` key."
+  translation: "Proyectos encapsulados bajo la clave `projects`."
+- source: "Create a project in a configured working directory (git init, git clone or plain folder)."
+  translation: "Crear un proyecto en un directorio de trabajo configurado (git init, git clone o carpeta simple)."
+- source: |
+    Modes: `init` (folder + `git init`, default without `url`), `clone`
+    (`git clone` of an https/http/ssh/scp-like `url`, default with `url`)
+    and `plain` (folder only, "create without Git"). The folder is always
+    created inside a configured working directory; `workspace` is required
+    only when several are configured. Names and URLs are validated and
+    credentials in the URL are never echoed. See `docs/api/project-create.md`.
+  translation: |
+    Modos: `init` (carpeta + `git init`, predeterminado
+    sin `url`), `clone` (`git clone` de
+    una `url` de tipo https/http/ssh/scp, predeterminado con
+    `url`) y `plain` (solo carpeta, «crear sin Git»).
+    La carpeta siempre se crea dentro de un directorio de trabajo configurado;
+    `workspace` solo es obligatorio cuando hay varios configurados. Los
+    nombres y las URL se validan y las credenciales de la URL nunca se muestran. Consulte
+    `docs/api/project-create.md`.
+- source: "Project created."
+  translation: "Proyecto creado."
+- source: "Invalid name, URL, mode or workspace, or a field that is not a string."
+  translation: "Nombre, URL, modo o workspace no válido, o un campo que no es una cadena."
+- source: "Project already exists, no working directory configured, or remote session mode."
+  translation: "El proyecto ya existe, no hay ningún directorio de trabajo configurado o está activo el modo de sesión remota."
+- source: "git clone failed."
+  translation: "git clone falló."
+- source: "git init failed or the folder could not be created."
+  translation: "git init falló o no se pudo crear la carpeta."
+- source: "git is not installed on the host."
+  translation: "git no está instalado en el host."
+- source: "git init or git clone timed out (code `timeout`); the whole git process tree was killed."
+  translation: "git init o git clone agotó el tiempo de espera (código `timeout`); se mató todo el árbol de procesos de git."
+- source: "Mark or unmark a project as favorite."
+  translation: "Marcar o desmarcar un proyecto como favorito."
+- source: |
+    Favorites are stored on the server (`~/.grafeno/project-favorites.toml`)
+    so every browser of the instance shares them. `workdir` is stored
+    normalized (expanded, no trailing slash); `favorite` defaults to true.
+  translation: |
+    Los favoritos se guardan en el servidor (`~/.grafeno/project-favorites.toml`), de modo que todos
+    los navegadores de la instancia los comparten. `workdir` se guarda
+    normalizado (expandido y sin barra final); `favorite` vale true de forma
+    predeterminada.
+- source: "Favorite state saved."
+  translation: "Estado de favorito guardado."
+- source: "The favorites file could not be written."
+  translation: "No se pudo escribir el archivo de favoritos."
+- source: "Index of the README.md / AGENTS.md / GRAFENO.md documents of a project (no content)."
+  translation: "Índice de los documentos README.md / AGENTS.md / GRAFENO.md de un proyecto (sin contenido)."
+- source: |
+    The project must be one listed by `GET /api/v1/projects`; arbitrary paths
+    are rejected. Only `README.md`, `AGENTS.md` and `GRAFENO.md` of the project
+    folder (first level) can be read; symlinks leaving the folder are blocked.
+    Text is normalized with the Markdown normalizer, offsets and counts are in
+    characters, and at most 1 MiB (`DOC_MAX_BYTES`) of each file is read. Remote
+    projects and remote session mode answer 409.
+  translation: |
+    El proyecto debe ser uno de los enumerados por `GET /api/v1/projects`; se rechazan
+    las rutas arbitrarias. Solo se pueden leer `README.md`,
+    `AGENTS.md` y `GRAFENO.md` de la carpeta del proyecto (primer
+    nivel); se bloquean los symlinks que salen de la carpeta. El texto se normaliza con el
+    normalizador de Markdown, los offsets y los recuentos están en caracteres y se lee como
+    máximo 1 MiB (`DOC_MAX_BYTES`) de cada archivo. Los proyectos remotos y el
+    modo de sesión remota responden 409.
+- source: "Presence, size and heading outline of each document."
+  translation: "Presencia, tamaño y esquema de encabezados de cada documento."
+- source: "Neither workdir nor project given."
+  translation: "No se indicó ni workdir ni project."
+- source: "Project or project folder not found."
+  translation: "Proyecto o carpeta del proyecto no encontrado."
+- source: "Ambiguous project, remote project or remote session mode."
+  translation: "Proyecto ambiguo, proyecto remoto o modo de sesión remota."
+- source: "URL that opens a project (or the project of a task) in the configured web editor."
+  translation: "URL que abre un proyecto (o el proyecto de una tarea) en el editor web configurado."
+- source: |
+    The web editor is the first enabled startup command with `open_url` (else the first
+    one with `open_url`). Placeholders of `open_url`: `{host}` (the `host` field, default
+    `localhost`), `{folder}` (URL-encoded absolute folder) and `{name}` (folder name).
+    Before answering, the command `settings` over the default dark theme
+    (`{"workbench.colorTheme": "Default Dark Modern"}`), with `{"git.repositoryScanMaxDepth": -1}` always on top,
+    is merged into its `settings_file` when one is set (best effort: failures are reported
+    in `settings_error`). Projects must be listed by `GET /api/v1/projects`. Remote (SSH)
+    projects/tasks and remote session mode answer 409.
+  translation: |
+    El editor web es el primer comando de inicio habilitado con `open_url`
+    (o, si no hay ninguno, el primero con `open_url`). Placeholders de
+    `open_url`: `{host}` (el campo
+    `host`, `localhost` de forma predeterminada),
+    `{folder}` (carpeta absoluta codificada para URL) y
+    `{name}` (nombre de la carpeta). Antes de responder, los
+    `settings` del comando sobre el tema oscuro predeterminado
+    (`{"workbench.colorTheme": "Default Dark Modern"}`), con `{"git.repositoryScanMaxDepth": -1}` siempre por encima, se
+    fusionan en su `settings_file` cuando hay uno definido (mejor esfuerzo: los
+    fallos se informan en `settings_error`). Los proyectos deben estar enumerados
+    por `GET /api/v1/projects`. Los proyectos/tareas remotos (SSH) y el modo de sesión
+    remota responden 409.
+- source: "Project folder (one of GET /api/v1/projects)."
+  translation: "Carpeta del proyecto (una de GET /api/v1/projects)."
+- source: "Project name (case-insensitive)."
+  translation: "Nombre del proyecto (sin distinguir mayúsculas de minúsculas)."
+- source: "Open the folder of this task instead."
+  translation: "Abrir en su lugar la carpeta de esta tarea."
+- source: "Host the browser uses to reach the panel (`location.hostname`)."
+  translation: "Host que el navegador usa para acceder al panel (`location.hostname`)."
+- source: "Editor URL ready to open in a new tab."
+  translation: "URL del editor lista para abrir en una pestaña nueva."
+- source: "Neither workdir, project nor task_id given, or invalid host."
+  translation: "No se indicó workdir, project ni task_id, o el host no es válido."
+- source: "No web editor configured, or project, task or folder not found."
+  translation: "No hay ningún editor web configurado o no se encontró el proyecto, la tarea o la carpeta."
+- source: "Ambiguous project, remote project or task, or remote session mode."
+  translation: "Proyecto ambiguo, proyecto o tarea remota, o modo de sesión remota."
+- source: "One page of one project document, paginated by characters."
+  translation: "Una página de un documento del proyecto, paginada por caracteres."
+- source: "A page of the document; continue with `next_offset` while `has_more`."
+  translation: "Una página del documento; continúe con `next_offset` mientras haya `has_more`."
+- source: "Invalid parameter or document name outside the whitelist."
+  translation: "Parámetro no válido o nombre de documento fuera de la lista blanca."
+- source: "The document is a symlink leaving the project folder."
+  translation: "El documento es un symlink que sale de la carpeta del proyecto."
+- source: "Project, folder or document not found, or document not readable."
+  translation: "Proyecto, carpeta o documento no encontrado, o documento no legible."
+- source: "One page of the entries of a project directory."
+  translation: "Una página de las entradas de un directorio del proyecto."
+- source: |
+    Read-only file explorer: only projects listed by `GET /api/v1/projects` are accepted; `path` is a POSIX path relative to the project root; `..`, absolute paths and `.git` are rejected; symlinks leaving the folder are blocked; remote projects and remote session mode answer 409. Folders come first, then names sorted
+    case-insensitively; dotfiles are hidden unless `hidden` is set.
+  translation: |
+    Explorador de archivos de solo lectura: solo se aceptan proyectos enumerados por
+    `GET /api/v1/projects`; `path` es una ruta POSIX relativa a la
+    raíz del proyecto; se rechazan `..`, las rutas absolutas y
+    `.git`; se bloquean los symlinks que salen de la carpeta; los
+    proyectos remotos y el modo de sesión remota responden 409. Las carpetas aparecen
+    primero y después los nombres ordenados sin distinguir mayúsculas de minúsculas; los
+    dotfiles se ocultan salvo que se establezca `hidden`.
+- source: "A page of entries."
+  translation: "Una página de entradas."
+- source: "Invalid parameter, or the path is not of the expected kind."
+  translation: "Parámetro no válido o la ruta no es del tipo esperado."
+- source: "Path outside the project folder, `.git`, or permission denied."
+  translation: "Ruta fuera de la carpeta del proyecto, `.git` o permiso denegado."
+- source: "Project or path not found."
+  translation: "Proyecto o ruta no encontrada."
+- source: "Metadata of one file or directory of a project."
+  translation: "Metadatos de un archivo o directorio de un proyecto."
+- source: |
+    Read-only access: only projects listed by `GET /api/v1/projects` are accepted; `path` is a POSIX path relative to the project root; `..`, absolute paths and `.git` are rejected; symlinks leaving the folder are blocked; remote projects and remote session mode answer 409. Files are sniffed to tell text from binary.
+  translation: |
+    Acceso de solo lectura: solo se aceptan proyectos enumerados por
+    `GET /api/v1/projects`; `path` es una ruta POSIX relativa a la
+    raíz del proyecto; se rechazan `..`, las rutas absolutas y
+    `.git`; se bloquean los symlinks que salen de la carpeta; los
+    proyectos remotos y el modo de sesión remota responden 409. Se inspeccionan los archivos
+    para distinguir texto de binario.
+- source: "Metadata of the file or directory."
+  translation: "Metadatos del archivo o directorio."
+- source: "One page of lines of a text file."
+  translation: "Una página de líneas de un archivo de texto."
+- source: |
+    Read-only access: only projects listed by `GET /api/v1/projects` are accepted; `path` is a POSIX path relative to the project root; `..`, absolute paths and `.git` are rejected; symlinks leaving the folder are blocked; remote projects and remote session mode answer 409. At most 2 MiB of the file is decoded (`clipped`); binary files answer 415 with `code: binary_file`.
+  translation: |
+    Acceso de solo lectura: solo se aceptan proyectos enumerados por
+    `GET /api/v1/projects`; `path` es una ruta POSIX relativa a la
+    raíz del proyecto; se rechazan `..`, las rutas absolutas y
+    `.git`; se bloquean los symlinks que salen de la carpeta; los
+    proyectos remotos y el modo de sesión remota responden 409. Se decodifican como máximo 2
+    MiB del archivo (`clipped`); los archivos binarios responden 415 con
+    `code: binary_file`.
+- source: "A page of lines; continue with `next_line` while `has_more`."
+  translation: "Una página de líneas; continúe con `next_line` mientras haya `has_more`."
+- source: "Binary file (code binary_file); use the raw endpoint."
+  translation: "Archivo binario (código binary_file); use el endpoint raw."
+- source: "Raw bytes of a file, streamed, with single Range support."
+  translation: "Bytes en crudo de un archivo, transmitidos en streaming, con soporte para un único Range."
+- source: |
+    Read-only access: only projects listed by `GET /api/v1/projects` are accepted; `path` is a POSIX path relative to the project root; `..`, absolute paths and `.git` are rejected; symlinks leaving the folder are blocked; remote projects and remote session mode answer 409. Never served as `text/html`, `image/svg+xml` or JavaScript
+    (text-like files are sent as `text/plain`). Single `Range` requests answer
+    206; multi-range requests are ignored; `If-Range` with a stale `ETag`
+    returns the whole file.
+  translation: |
+    Acceso de solo lectura: solo se aceptan proyectos enumerados por
+    `GET /api/v1/projects`; `path` es una ruta POSIX relativa a la
+    raíz del proyecto; se rechazan `..`, las rutas absolutas y
+    `.git`; se bloquean los symlinks que salen de la carpeta; los
+    proyectos remotos y el modo de sesión remota responden 409. Nunca se sirve como
+    `text/html`, `image/svg+xml` o JavaScript (los archivos de tipo
+    texto se envían como `text/plain`). Las peticiones con un único
+    `Range` responden 206; las peticiones multirango se ignoran;
+    `If-Range` con un `ETag` obsoleto devuelve el archivo
+    completo.
+- source: "Single byte range, e.g. `bytes=0-99`."
+  translation: "Un único rango de bytes, p. ej. `bytes=0-99`."
+- source: "ETag or Last-Modified validator of the partial download."
+  translation: "Validador ETag o Last-Modified de la descarga parcial."
+- source: "The whole file."
+  translation: "El archivo completo."
+- source: "The requested byte range."
+  translation: "El rango de bytes solicitado."
+- source: "Range not satisfiable; the Content-Range header (bytes */size) carries the size."
+  translation: "Rango no satisfactorio; la cabecera Content-Range (bytes */size) incluye el tamaño."
+- source: "bytes */size"
+  translation: "bytes */size"
+- source: "Tail of the persisted live log of a task."
+  translation: "Final del log en vivo persistido de una tarea."
+- source: "One plain-text log line per array item."
+  translation: "Una línea de log de texto plano por elemento del array."
+- source: "`limit` out of range or not an integer."
+  translation: "`limit` fuera de rango o no entero."
+- source: "Task not found (checked before any content)."
+  translation: "Tarea no encontrada (comprobado antes que cualquier contenido)."
+- source: "Every `.md` file of a first/plan/review/final phase."
+  translation: "Todos los archivos `.md` de una fase first/plan/review/final."
+- source: "Markdown files of the requested phase."
+  translation: "Archivos Markdown de la fase solicitada."
+- source: "Missing `kind`, unknown `kind` or bad `cycle`."
+  translation: "Falta `kind`, `kind` desconocido o `cycle` incorrecto."
+- source: "Start the full automode pipeline (stops after the plan when the task has `confirm_plan`)."
+  translation: "Iniciar el pipeline completo de automode (se detiene después del plan cuando la tarea tiene `confirm_plan`)."
+- source: "Pipeline started."
+  translation: "Pipeline iniciado."
+- source: "Task already running."
+  translation: "La tarea ya está en ejecución."
+- source: "App unavailable (write op without the TUI runtime)."
+  translation: "Aplicación no disponible (operación de escritura sin el runtime de la TUI)."
+- source: "Resume a FAILED task reusing the artifacts on disk."
+  translation: "Reanudar una tarea FAILED reutilizando los artefactos del disco."
+- source: "Pipeline resumed."
+  translation: "Pipeline reanudado."
+- source: "Task is not in FAILED state (or already running)."
+  translation: "La tarea no está en estado FAILED (o ya está en ejecución)."
+- source: "App unavailable."
+  translation: "Aplicación no disponible."
+- source: "Reset the task to DRAFT and start automode again."
+  translation: "Restablecer la tarea a DRAFT e iniciar automode de nuevo."
+- source: "Pipeline restarted from scratch."
+  translation: "Pipeline reiniciado desde cero."
+- source: "Task already running (409 may also come from the runner check)."
+  translation: "La tarea ya está en ejecución (el 409 también puede proceder de la comprobación del runner)."
+- source: "Pause a running task (cancels the worker)."
+  translation: "Pausar una tarea en ejecución (cancela el worker)."
+- source: "Task paused; `state` becomes `paused`."
+  translation: "Tarea pausada; `state` pasa a ser `paused`."
+- source: "Not running."
+  translation: "No está en ejecución."
+- source: "Mark the task as DISCARDED (cancels any running pipeline first)."
+  translation: "Marcar la tarea como DISCARDED (primero cancela cualquier pipeline en ejecución)."
+- source: "Task discarded; `state` becomes `discarded`."
+  translation: "Tarea descartada; `state` pasa a ser `discarded`."
+- source: "Force-complete the task without running the rest of the pipeline."
+  translation: "Forzar la finalización de la tarea sin ejecutar el resto del pipeline."
+- source: "Task completed; `state` becomes `done`."
+  translation: "Tarea completada; `state` pasa a ser `done`."
+- source: "Start a new cycle on an existing task with a fresh request."
+  translation: "Iniciar un nuevo ciclo en una tarea existente con una solicitud nueva."
+- source: "New cycle started."
+  translation: "Nuevo ciclo iniciado."
+- source: "Empty `request`."
+  translation: "`request` vacío."
+- source: "One `.md` of a phase by its path relative to the phase root (any cycle), normalized like the TUI viewer."
+  translation: "Un `.md` de una fase por su ruta relativa a la raíz de la fase (cualquier ciclo), normalizado como el visor de la TUI."
+- source: "Relative path, e.g. `plan.md` or `ciclo-02/plan.md`."
+  translation: "Ruta relativa, p. ej. `plan.md` o `ciclo-02/plan.md`."
+- source: "OK."
+  translation: "Correcto."
+- source: "Reference attachments of a task with their metadata."
+  translation: "Adjuntos de referencia de una tarea con sus metadatos."
+- source: "Add reference files (Word, Excel, PDF, images, video, ...) to an existing task."
+  translation: "Añadir archivos de referencia (Word, Excel, PDF, imágenes, vídeo, ...) a una tarea existente."
+- source: "Does not start a cycle and does not touch the description; the files are listed to the agents from the next prompt on. Max 500 MiB per file. Large files should use the raw binary body (`?name=`): it is streamed to disk and never loaded in memory. The JSON/base64 body is capped at the base64 size of one 500 MiB file plus 1 MiB. The request is authorized before its body is read and `Expect: 100-continue` is honored."
+  translation: "No inicia un ciclo ni modifica la descripción; los archivos se enumeran a los agentes a partir del siguiente prompt. Máximo 500 MiB por archivo. Los archivos grandes deben usar el cuerpo binario en crudo (`?name=`): se transmiten al disco en streaming y nunca se cargan en memoria. El cuerpo JSON/base64 está limitado al tamaño en base64 de un archivo de 500 MiB más 1 MiB. La petición se autoriza antes de leer su cuerpo y se respeta `Expect: 100-continue`."
+- source: "Original file name; required with the binary body."
+  translation: "Nombre original del archivo; obligatorio con el cuerpo binario."
+- source: "Cycle the files belong to (1..task cycle + 1); defaults to the current cycle. Binary body only."
+  translation: "Ciclo al que pertenecen los archivos (1..ciclo de la tarea + 1); de forma predeterminada, el ciclo actual. Solo cuerpo binario."
+- source: "Max 10 entries."
+  translation: "Máximo 10 entradas."
+- source: "Saved."
+  translation: "Guardado."
+- source: "Not enough disk space to store the upload."
+  translation: "No hay suficiente espacio en disco para guardar la subida."
+- source: "Remove one attachment."
+  translation: "Eliminar un adjunto."
+- source: "Stored file name (media-NN.ext)."
+  translation: "Nombre del archivo almacenado (media-NN.ext)."
+- source: "Removed."
+  translation: "Eliminado."
+- source: "The task is running (or discarded)."
+  translation: "La tarea está en ejecución (o descartada)."
+- source: "Raw file of the task media dir (any attached file); MIME type by extension, never HTML or SVG."
+  translation: "Archivo en crudo del directorio media de la tarea (cualquier archivo adjunto); tipo MIME según la extensión, nunca HTML ni SVG."
+- source: "Streamed from disk (no Range support)."
+  translation: "Transmitido desde el disco en streaming (sin soporte de Range)."
+- source: "File name as listed in the task detail `media`."
+  translation: "Nombre del archivo tal como aparece en `media` del detalle de la tarea."
+- source: "Run one pipeline phase or the full automode (same checks as the TUI detail)."
+  translation: "Ejecutar una fase del pipeline o el automode completo (las mismas comprobaciones que el detalle de la TUI)."
+- source: "`automode` respects `confirm_plan`: it stops after the plan and the task waits in `planned` for `approve-plan`."
+  translation: "`automode` respeta `confirm_plan`: se detiene después del plan y la tarea espera en `planned` a `approve-plan`."
+- source: "Done."
+  translation: "Hecho."
+- source: "Continue a failed or interrupted task from the phase where it stopped (TUI `c`)."
+  translation: "Continuar una tarea fallida o interrumpida desde la fase en la que se detuvo (TUI `c`)."
+- source: "Approve the plan of a `planned` task, then implementation + review loop (plan confirmation point)."
+  translation: "Aprobar el plan de una tarea `planned` y después ejecutar el bucle de implementación + revisión (punto de confirmación del plan)."
+- source: "Cancel any running execution and reset the task to `draft`, deleting its artifacts (TUI `R`)."
+  translation: "Cancelar cualquier ejecución en curso y restablecer la tarea a `draft`, eliminando sus artefactos (TUI `R`)."
+- source: "Edit name, description and/or chain parent (validated like the TUI rechain)."
+  translation: "Editar el nombre, la descripción o la tarea padre del encadenamiento (validado como el reencadenamiento de la TUI)."
+- source: "Change the agents (cli/model/effort per role) of a task, or apply a profile."
+  translation: "Cambiar los agentes (cli/model/effort por rol) de una tarea o aplicar un perfil."
+- source: "Defaults and choices of the new-task form (config defaults, profiles, hook stages, CLIs, session mode)."
+  translation: "Valores predeterminados y opciones del formulario de nueva tarea (valores predeterminados de la configuración, perfiles, etapas de hooks, CLIs, modo de sesión)."
+- source: "Models and effort variants per CLI (cached for 10 minutes; `refresh=1` reloads them)."
+  translation: "Modelos y variantes de esfuerzo por CLI (en caché durante 10 minutos; `refresh=1` los vuelve a cargar)."
+- source: "Subdirectories for the workdir autocompletion (directory or partial path)."
+  translation: "Subdirectorios para el autocompletado de workdir (directorio o ruta parcial)."
+- source: "Open GitHub issues of a project (requires `gh` with access; empty otherwise)."
+  translation: "Issues abiertos de GitHub de un proyecto (requiere `gh` con acceso; vacío en caso contrario)."
+- source: "Usage aggregated by day, CLI+model and project for a period (`period` wins over `from`/`to`; default today)."
+  translation: "Uso agregado por día, CLI+modelo y proyecto para un período (`period` tiene prioridad sobre `from`/`to`; hoy de forma predeterminada)."
+- source: "Global settings; secrets are reported as `*_set` flags, never their value."
+  translation: "Ajustes globales; los secretos se indican como flags `*_set`, nunca con su valor."
+- source: "Current settings."
+  translation: "Ajustes actuales."
+- source: "Save the sections present in the body (secrets are write-only; `<key>_clear` empties them)."
+  translation: "Guardar las secciones presentes en el cuerpo (los secretos son de solo escritura; `<key>_clear` los vacía)."
+- source: "Saved settings (same shape as GET)."
+  translation: "Ajustes guardados (la misma estructura que GET)."
+- source: "Synthesize speech (TTS) with the configured provider and download the audio file."
+  translation: "Sintetizar voz (TTS) con el proveedor configurado y descargar el archivo de audio."
+- source: "The text is split into segments of under 200 characters and synthesized as a single WAV, with at most 800 characters spoken."
+  translation: "El texto se divide en segmentos de menos de 200 caracteres y se sintetiza como un único WAV, con un máximo de 800 caracteres hablados."
+- source: "ogg requires ffmpeg on the host."
+  translation: "ogg requiere ffmpeg en el host."
+- source: "Audio file (provider WAV, or OGG/OPUS when `format=ogg`)."
+  translation: "Archivo de audio (WAV del proveedor u OGG/OPUS cuando `format=ogg`)."
+- source: "Missing text or unknown format."
+  translation: "Falta el texto o el formato es desconocido."
+- source: "TTS provider error."
+  translation: "Error del proveedor de TTS."
+- source: "TTS not configured or OGG conversion unavailable."
+  translation: "TTS no configurado o conversión a OGG no disponible."
+- source: "List direct CLI sessions (optionally of one project)."
+  translation: "Listar sesiones CLI directas (opcionalmente de un proyecto)."
+- source: "Only sessions of this project folder."
+  translation: "Solo sesiones de esta carpeta del proyecto."
+- source: "Sessions, offered CLIs and availability."
+  translation: "Sesiones, CLIs ofrecidos y disponibilidad."
+- source: "Create a direct CLI session (and optionally send the first prompt)."
+  translation: "Crear una sesión CLI directa (y opcionalmente enviar el primer prompt)."
+- source: "Session created."
+  translation: "Sesión creada."
+- source: "Unknown `task_id`."
+  translation: "`task_id` desconocido."
+- source: "The task is remote (SSH)."
+  translation: "La tarea es remota (SSH)."
+- source: "Session summary."
+  translation: "Resumen de la sesión."
+- source: "Session wrapped under the `session` key."
+  translation: "Sesión encapsulada bajo la clave `session`."
+- source: "Cancel a running turn and delete the session with its history."
+  translation: "Cancelar un turno en ejecución y eliminar la sesión con su historial."
+- source: "Deleted."
+  translation: "Eliminada."
+- source: "Transcript entries after a sequence number."
+  translation: "Entradas del transcript posteriores a un número de secuencia."
+- source: "Return entries with `seq` greater than this value."
+  translation: "Devolver entradas con `seq` mayor que este valor."
+- source: "Keep only the last N entries of the result (0 = all, max 2000)."
+  translation: "Conservar solo las últimas N entradas del resultado (0 = todas, máximo 2000)."
+- source: "Entries, total count and running flag."
+  translation: "Entradas, recuento total y flag de ejecución."
+- source: "Send a prompt (runs one agent turn resuming the native CLI session)."
+  translation: "Enviar un prompt (ejecuta un turno del agente reanudando la sesión nativa del CLI)."
+- source: "Updated session wrapped under the `session` key."
+  translation: "Sesión actualizada encapsulada bajo la clave `session`."
+- source: "Files attached to the messages of a session, with their absolute paths."
+  translation: "Archivos adjuntos a los mensajes de una sesión, con sus rutas absolutas."
+- source: "Upload one file for the next message (raw binary body, no base64)."
+  translation: "Subir un archivo para el siguiente mensaje (cuerpo binario en crudo, sin base64)."
+- source: "The body is the file itself (`?name=` carries the original name); it is streamed to `~/.grafeno/cli-sessions/<id>/media/` and never loaded in memory. No turn is started: send the returned `file` in the `attachments` of `POST .../send` and the agent receives its absolute path (never its contents). Max 500 MiB per file; authorized before the body is read; `Expect: 100-continue` is honored. JSON bodies are refused with 415."
+  translation: "El cuerpo es el propio archivo (`?name=` contiene el nombre original); se transmite en streaming a `~/.grafeno/cli-sessions/<id>/media/` y nunca se carga en memoria. No se inicia ningún turno: envíe el `file` devuelto en `attachments` de `POST .../send` y el agente recibirá su ruta absoluta (nunca su contenido). Máximo 500 MiB por archivo; autorizado antes de leer el cuerpo; se respeta `Expect: 100-continue`. Los cuerpos JSON se rechazan con 415."
+- source: "Original file name."
+  translation: "Nombre original del archivo."
+- source: "File larger than 500 MiB."
+  translation: "Archivo de más de 500 MiB."
+- source: "JSON/base64 body: send the file as the raw request body."
+  translation: "Cuerpo JSON/base64: envíe el archivo como cuerpo en crudo de la petición."
+- source: "Cancel the running turn."
+  translation: "Cancelar el turno en ejecución."
+- source: "Rename the session."
+  translation: "Renombrar la sesión."
+- source: "Close the session (rejected while a turn runs)."
+  translation: "Cerrar la sesión (se rechaza mientras se ejecuta un turno)."
+- source: "Reopen a closed session."
+  translation: "Reabrir una sesión cerrada."
+- source: "Git repositories of a project (root, nested and submodules) with their branch and pending file count."
+  translation: "Repositorios Git de un proyecto (raíz, anidados y submódulos) con su rama y número de archivos pendientes."
+- source: |
+    The project must be listed by `GET /api/v1/projects`. Remote projects and remote session mode answer 409.
+  translation: |
+    El proyecto debe estar enumerado por `GET /api/v1/projects`. Los proyectos remotos y
+    el modo de sesión remota responden 409.
+- source: "Absolute folder of a catalogued project."
+  translation: "Carpeta absoluta de un proyecto catalogado."
+- source: "Project folder name."
+  translation: "Nombre de la carpeta del proyecto."
+- source: "Repositories found."
+  translation: "Repositorios encontrados."
+- source: "Pending-change indicator per project (nested repositories at any depth)."
+  translation: "Indicador de cambios pendientes por proyecto (repositorios anidados a cualquier profundidad)."
+- source: |
+    Without filter returns every project of `GET /api/v1/projects`. Remote (SSH) projects and missing folders are reported with `git: false`. Results are cached 15 s per project; `refresh=true` bypasses the cache. Remote session mode answers 200 with `session: true` and no projects.
+  translation: |
+    Sin filtro, devuelve todos los proyectos de `GET /api/v1/projects`. Los proyectos
+    remotos (SSH) y las carpetas ausentes se indican con `git: false`. Los
+    resultados se guardan en caché durante 15 s por proyecto; `refresh=true`
+    omite la caché. El modo de sesión remota responde 200 con `session: true` y
+    sin proyectos.
+- source: "Ignore the 15 s cache."
+  translation: "Ignorar la caché de 15 s."
+- source: "Summaries."
+  translation: "Resúmenes."
+- source: "Local branches of a repository of the project."
+  translation: "Ramas locales de un repositorio del proyecto."
+- source: "Repository id from `GET /api/v1/projects/repos` (`.` by default)."
+  translation: "Id del repositorio obtenido de `GET /api/v1/projects/repos` (`.` de forma predeterminada)."
+- source: "Branches, current first."
+  translation: "Ramas, la actual primero."
+- source: "git timed out (code `timeout`)."
+  translation: "git agotó el tiempo de espera (código `timeout`)."
+- source: "Push the current branch."
+  translation: "Subir la rama actual."
+- source: |
+    Never forces. A branch without upstream needs `set_upstream`. 4xx/5xx means the current branch did not move; after a `timeout` re-read the repository status.
+  translation: |
+    Nunca fuerza. Una rama sin upstream necesita `set_upstream`. 4xx/5xx
+    significa que la rama actual no se movió; después de un `timeout`,
+    vuelva a leer el estado del repositorio.
+- source: "Operation finished (inspect `result.outcome`)."
+  translation: "Operación finalizada (inspeccione `result.outcome`)."
+- source: "Remote rejected the credentials (`auth_failed`) or is unreachable (`remote_unreachable`)."
+  translation: "El remoto rechazó las credenciales (`auth_failed`) o no está accesible (`remote_unreachable`)."
+- source: "git timed out (code `timeout`); the process tree was killed."
+  translation: "git agotó el tiempo de espera (código `timeout`); se mató el árbol de procesos."
+- source: "Pull the upstream of the current branch."
+  translation: "Descargar e integrar el upstream de la rama actual."
+- source: |
+    Default mode `ff-only`. A pull that leaves conflicts answers 200 with `result.outcome: conflict`; leave it with `abort`.
+  translation: |
+    Modo predeterminado `ff-only`. Un pull que deja conflictos responde 200
+    con `result.outcome: conflict`; cancélelo con `abort`.
+- source: "Switch to an existing local branch."
+  translation: "Cambiar a una rama local existente."
+- source: |
+    Uses `git switch --no-guess`: branches are never created.
+  translation: |
+    Usa `git switch --no-guess`: nunca se crean ramas.
+- source: "Abort the merge, rebase, cherry-pick or revert in progress."
+  translation: "Abortar el merge, rebase, cherry-pick o revert en curso."
+- source: |
+    Answers 409 `no_operation` when nothing is in progress.
+  translation: |
+    Responde 409 `no_operation` cuando no hay ninguna operación en curso.
+- source: "List review sessions."
+  translation: "Listar sesiones de revisión."
+- source: "Only reviews of this project folder."
+  translation: "Solo revisiones de esta carpeta del proyecto."
+- source: "Filter by state."
+  translation: "Filtrar por estado."
+- source: "Reviews, most recently updated first."
+  translation: "Revisiones, las actualizadas más recientemente primero."
+- source: "Start (or resume) a review of the pending changes of a project."
+  translation: "Iniciar (o reanudar) una revisión de los cambios pendientes de un proyecto."
+- source: |
+    With `resume` (default true) the latest active review of the same folder (and `task_id`) is returned with 200 and `resumed: true`; otherwise a new one is created (201).
+  translation: |
+    Con `resume` (true de forma predeterminada), se devuelve la revisión
+    activa más reciente de la misma carpeta (y `task_id`) con 200 y
+    `resumed: true`; en caso contrario, se crea una nueva (201).
+- source: "Review created (200 when resumed)."
+  translation: "Revisión creada (200 cuando se reanuda)."
+- source: "Review detail: repositories, pending files with decisions, counts and cursor."
+  translation: "Detalle de la revisión: repositorios, archivos pendientes con decisiones, recuentos y cursor."
+- source: "Review detail (git state recomputed)."
+  translation: "Detalle de la revisión (estado de git recalculado)."
+- source: "Delete a review (the agent CLI session is kept)."
+  translation: "Eliminar una revisión (se conserva la sesión CLI del agente)."
+- source: "Close a review."
+  translation: "Cerrar una revisión."
+- source: "Closed review."
+  translation: "Revisión cerrada."
+- source: "Reopen a closed review."
+  translation: "Reabrir una revisión cerrada."
+- source: "Reopened review."
+  translation: "Revisión reabierta."
+- source: "Pending files, optionally filtered."
+  translation: "Archivos pendientes, opcionalmente filtrados."
+- source: "Only files of this repository id."
+  translation: "Solo archivos de este id de repositorio."
+- source: "Only files with this decision."
+  translation: "Solo archivos con esta decisión."
+- source: "Files and counts."
+  translation: "Archivos y recuentos."
+- source: "Diff of one pending file."
+  translation: "Diff de un archivo pendiente."
+- source: |
+    The file is identified by `repo` + `path` (path relative to the owning repository) or by `key`.
+  translation: |
+    El archivo se identifica mediante `repo` + `path`
+    (ruta relativa al repositorio propietario) o mediante `key`.
+- source: "Repository id (posix path relative to the project root, `.` = root). Use with `path`."
+  translation: "Id del repositorio (ruta posix relativa a la raíz del proyecto, `.` = raíz). Úselo con `path`."
+- source: "File path relative to that repository."
+  translation: "Ruta del archivo relativa a ese repositorio."
+- source: "Opaque file key (alternative to `repo` + `path`)."
+  translation: "Clave opaca del archivo (alternativa a `repo` + `path`)."
+- source: "Clip the diff (1024 to 4 MiB)."
+  translation: "Recortar el diff (de 1024 a 4 MiB)."
+- source: "File entry and diff."
+  translation: "Entrada del archivo y diff."
+- source: "Move the cursor and return the file under it with its diff."
+  translation: "Mover el cursor y devolver el archivo situado bajo él con su diff."
+- source: "Current entry (null at the end of the list) and counts."
+  translation: "Entrada actual (null al final de la lista) y recuentos."
+- source: "Record the decision for a file (optionally advancing the cursor)."
+  translation: "Registrar la decisión de un archivo (opcionalmente avanzando el cursor)."
+- source: "Updated file, counts and optional next file."
+  translation: "Archivo actualizado, recuentos y siguiente archivo opcional."
+- source: "Ask the review agent about the review or one file (asynchronous turn)."
+  translation: "Preguntar al agente de revisión sobre la revisión o un archivo (turno asíncrono)."
+- source: "Agent session summary; follow the turn through the transcript."
+  translation: "Resumen de la sesión del agente; siga el turno mediante el transcript."
+- source: "Mark a file as changes requested and ask the agent to apply them."
+  translation: "Marcar un archivo como changes requested y pedir al agente que aplique los cambios."
+- source: "Agent session summary and the updated file decision."
+  translation: "Resumen de la sesión del agente y decisión actualizada del archivo."
+- source: "Transcript of the review agent conversation."
+  translation: "Transcript de la conversación del agente de revisión."
+- source: "Keep only the last N entries (0 = all)."
+  translation: "Conservar solo las últimas N entradas (0 = todas)."
+- source: "Entries (empty when the agent was not started)."
+  translation: "Entradas (vacío cuando no se inició el agente)."
+- source: "Cancel the running agent turn."
+  translation: "Cancelar el turno del agente en ejecución."
+- source: "Agent session summary."
+  translation: "Resumen de la sesión del agente."
+- source: "Suggest a commit message with an agent (never commits)."
+  translation: "Sugerir un mensaje de commit con un agente (nunca crea commits)."
+- source: "Suggested message."
+  translation: "Mensaje sugerido."
+- source: "The agent failed or returned nothing."
+  translation: "El agente falló o no devolvió nada."
+- source: "Generation timed out."
+  translation: "La generación agotó el tiempo de espera."
+- source: "Commit explicit files, each in its owning repository."
+  translation: "Crear commits de archivos explícitos, cada uno en su repositorio propietario."
+- source: |
+    Only the listed paths are committed (`git commit --only`, literal pathspecs); the
+    staging area of other paths is preserved, the author is the system git identity,
+    hooks are respected, and neither `-a` nor `add -A` is ever used. Every repository
+    group is validated before the first commit. Conflicted files, partially staged
+    files (unless `include_unstaged`), stale fingerprints and repositories with a
+    merge, rebase or cherry-pick in progress are rejected. Files of several
+    repositories require `allow_multi_repo`; a failure after a first commit returns
+    `partial: true`.
+  translation: |
+    Solo se comitean las rutas enumeradas (`git commit --only`, pathspecs literales);
+    se preserva el staging area de las demás rutas, el autor es la identidad git del
+    sistema, se respetan los hooks y nunca se usan `-a` ni
+    `add -A`. Cada grupo de repositorios se valida antes del primer commit.
+    Se rechazan los archivos con conflictos, los archivos parcialmente en stage (salvo con
+    `include_unstaged`), las huellas obsoletas y los repositorios con un merge,
+    rebase o cherry-pick en curso. Los archivos de varios repositorios requieren
+    `allow_multi_repo`; un fallo después de un primer commit devuelve
+    `partial: true`.
+- source: "Commits made and errors."
+  translation: "Commits creados y errores."
+- source: "A git hook or git itself rejected the commit."
+  translation: "Un hook de git o el propio git rechazó el commit."
+- source: "Unexpected git failure."
+  translation: "Fallo inesperado de git."
+- source: "Git timed out."
+  translation: "Git agotó el tiempo de espera."
+- source: "History of commits made from the review."
+  translation: "Historial de commits creados desde la revisión."
+- source: "Commit records."
+  translation: "Registros de commits."
+- source: "Validation error."
+  translation: "Error de validación."
+- source: "Task or file not found."
+  translation: "Tarea o archivo no encontrado."
+- source: "The action does not apply to the task right now (running, discarded, wrong state); the message is localized."
+  translation: "La acción no se aplica a la tarea en este momento (en ejecución, descartada, estado incorrecto); el mensaje está localizado."
+- source: "Token from the `[api].tokens` list or the `GRAFENO_API_TOKEN` env var (env wins). Only enforced when non-empty; exclusive credential of this server, unrelated to the Telegram bot token."
+  translation: "Token de la lista `[api].tokens` o de la variable de entorno `GRAFENO_API_TOKEN` (la variable de entorno tiene prioridad). Solo se exige cuando no está vacío; credencial exclusiva de este servidor, sin relación con el token del bot de Telegram."
+- source: "Same optional token passed as a query parameter (browser/websocket friendly); only enforced when tokens are configured."
+  translation: "El mismo token opcional pasado como parámetro de consulta (apto para navegadores/websocket); solo se exige cuando hay tokens configurados."
+- source: "Review identifier, e.g. `20261019-105613-a1b2c3`."
+  translation: "Identificador de la revisión, p. ej. `20261019-105613-a1b2c3`."
+- source: "Absolute folder of a project listed by GET /api/v1/projects; takes precedence over `project`."
+  translation: "Carpeta absoluta de un proyecto enumerado por GET /api/v1/projects; tiene prioridad sobre `project`."
+- source: "Project folder name (case-insensitive, exact). Ambiguous names return 409."
+  translation: "Nombre de la carpeta del proyecto (exacto, sin distinguir mayúsculas de minúsculas). Los nombres ambiguos devuelven 409."
+- source: "POSIX path relative to the project root; empty = root."
+  translation: "Ruta POSIX relativa a la raíz del proyecto; vacía = raíz."
+- source: "Include dotfiles (`1`, `true`, `yes`, `on`). `.git` is never listed."
+  translation: "Incluir dotfiles (`1`, `true`, `yes`, `on`). `.git` nunca se enumera."
+- source: "Entries per page (1 to 2000)."
+  translation: "Entradas por página (de 1 a 2000)."
+- source: "Entries to skip."
+  translation: "Entradas que se deben omitir."
+- source: "First line of the page (1-based)."
+  translation: "Primera línea de la página (comenzando en 1)."
+- source: "Lines per page (1 to 5000)."
+  translation: "Líneas por página (de 1 a 5000)."
+- source: "Send Content-Disposition attachment instead of inline (1, true, yes, on)."
+  translation: "Enviar Content-Disposition attachment en lugar de inline (1, true, yes, on)."
+- source: "Document to read. Also accepted case-insensitively and without the `.md` extension."
+  translation: "Documento que se debe leer. También se acepta sin distinguir mayúsculas de minúsculas y sin la extensión `.md`."
+- source: "Character offset in the normalized document."
+  translation: "Offset de caracteres en el documento normalizado."
+- source: "Page size in characters (the cut backs up to the last line break when possible)."
+  translation: "Tamaño de página en caracteres (el corte retrocede hasta el último salto de línea cuando es posible)."
+- source: "Direct CLI session identifier, e.g. `20261018-101500-a1b2c3`."
+  translation: "Identificador de sesión CLI directa, p. ej. `20261018-101500-a1b2c3`."
+- source: "Task identifier, e.g. `20260905-101126-slug`."
+  translation: "Identificador de tarea, p. ej. `20260905-101126-slug`."
+- source: "State filter; one state or a comma separated list (e.g. `done,discarded`)."
+  translation: "Filtro de estado; un estado o una lista separada por comas (p. ej. `done,discarded`)."
+- source: "Absolute project folder; exact match after normalization (no trailing slash)."
+  translation: "Carpeta absoluta del proyecto; coincidencia exacta tras la normalización (sin barra final)."
+- source: "Project folder name; case-insensitive match against the last segment of the task workdir."
+  translation: "Nombre de la carpeta del proyecto; coincidencia sin distinguir mayúsculas de minúsculas con el último segmento del workdir de la tarea."
+- source: "`tree` keeps the chain order; the others return a flat list sorted by that timestamp."
+  translation: "`tree` conserva el orden del encadenamiento; los demás devuelven una lista plana ordenada por esa fecha y hora."
+- source: "Sort direction; ignored with `sort=tree`."
+  translation: "Dirección de ordenación; se ignora con `sort=tree`."
+- source: "Page size (1..1000); omitted = every matching task."
+  translation: "Tamaño de página (1..1000); omitido = todas las tareas coincidentes."
+- source: "Number of matching tasks to skip."
+  translation: "Número de tareas coincidentes que se deben omitir."
+- source: "Max number of log lines (1..1000, default 200)."
+  translation: "Número máximo de líneas de log (1..1000, 200 de forma predeterminada)."
+- source: "Artifact kind."
+  translation: "Tipo de artefacto."
+- source: "Artifact cycle number (default 1)."
+  translation: "Número de ciclo del artefacto (1 de forma predeterminada)."
+- source: "Summary of a direct CLI session; `running` is in-memory state of the current turn."
+  translation: "Resumen de una sesión CLI directa; `running` es el estado en memoria del turno actual."
+- source: "Agent CLI of the session (one of opencode, kimi, codex, claude, cursor, minimax). Kept as stored even if that CLI is no longer installed."
+  translation: "CLI de agente de la sesión (uno de opencode, kimi, codex, claude, cursor, minimax). Se conserva tal como está guardado aunque ese CLI ya no esté instalado."
+- source: "Native session id of the CLI (resume key)."
+  translation: "Id de sesión nativa del CLI (clave de reanudación)."
+- source: "Task the session was opened from (empty = none)."
+  translation: "Tarea desde la que se abrió la sesión (vacío = ninguna)."
+- source: "Initial context pending (sent with the next turn)."
+  translation: "Contexto inicial pendiente (se envía con el siguiente turno)."
+- source: "Supported session CLIs detected on the host (subset of opencode, kimi, codex, claude, cursor, minimax)."
+  translation: "CLIs de sesión compatibles detectados en el host (subconjunto de opencode, kimi, codex, claude, cursor, minimax)."
+- source: "False in remote session mode."
+  translation: "False en el modo de sesión remota."
+- source: "Absolute local project folder. Required unless `task_id` is given."
+  translation: "Carpeta local absoluta del proyecto. Obligatoria salvo que se indique `task_id`."
+- source: "Open the session from this task: workdir defaults to the task folder, name to 'Task: <name>', and its latest summary.md (or its description) is sent as initial context with the first turn. 404 unknown task, 409 remote task."
+  translation: "Abrir la sesión desde esta tarea: workdir usa de forma predeterminada la carpeta de la tarea, name usa 'Task: <name>' y su summary.md más reciente (o su descripción) se envía como contexto inicial con el primer turno. 404 tarea desconocida, 409 tarea remota."
+- source: "Default: claude when installed, else the first detected CLI (see `session_cli_default` of /api/v1/options). A supported CLI that is not installed is accepted; its turns fail with a CLI not installed error. 400 for an unknown CLI."
+  translation: "Predeterminado: claude cuando está instalado; en caso contrario, el primer CLI detectado (consulte `session_cli_default` de /api/v1/options). Se acepta un CLI compatible que no esté instalado; sus turnos fallan con un error de CLI no instalado. 400 para un CLI desconocido."
+- source: "Optional first prompt sent right after creation."
+  translation: "Primer prompt opcional enviado inmediatamente después de la creación."
+- source: "`prompt` may be empty when `attachments` is not."
+  translation: "`prompt` puede estar vacío cuando `attachments` no lo está."
+- source: "Stored names (`file`) returned by `POST .../attachments`. The agent receives their absolute paths appended to the prompt, never their contents."
+  translation: "Nombres almacenados (`file`) devueltos por `POST .../attachments`. El agente recibe sus rutas absolutas añadidas al prompt, nunca su contenido."
+- source: "Stored name inside the session media dir (media-NN.ext)."
+  translation: "Nombre almacenado dentro del directorio media de la sesión (media-NN.ext)."
+- source: "Absolute path on the GRAFENO host (what the agent receives)."
+  translation: "Ruta absoluta en el host de GRAFENO (lo que recibe el agente)."
+- source: "Global 1-based index of the entry."
+  translation: "Índice global de la entrada, comenzando en 1."
+- source: "Direct CLI session of the agent (\"\" = not started)."
+  translation: "Sesión CLI directa del agente (\"\" = no iniciada)."
+- source: "Posix path relative to the project root; `.` is the root (or enclosing) repository."
+  translation: "Ruta Posix relativa a la raíz del proyecto; `.` es el repositorio raíz (o contenedor)."
+- source: "Absolute top level of the repository."
+  translation: "Nivel superior absoluto del repositorio."
+- source: "For `outer` repositories"
+  translation: "Para repositorios `outer`"
+- source: "merge, cherry-pick, revert, rebase or empty."
+  translation: "merge, cherry-pick, revert, rebase o vacío."
+- source: "Nested repositories that were not scanned (ignored folders such as node_modules or build)."
+  translation: "Repositorios anidados que no se analizaron (carpetas ignoradas como node_modules o build)."
+- source: "Upstream of the current branch (origin/main) or empty."
+  translation: "Upstream de la rama actual (origin/main) o vacío."
+- source: "Commits not pushed."
+  translation: "Commits no subidos."
+- source: "Upstream commits not pulled."
+  translation: "Commits del upstream no incorporados."
+- source: "The configured upstream no longer exists."
+  translation: "El upstream configurado ya no existe."
+- source: "Fresh pending summary of the project (same fields as ProjectPendingSummary without the project identity)."
+  translation: "Resumen nuevo de cambios pendientes del proyecto (los mismos campos que ProjectPendingSummary sin la identidad del proyecto)."
+- source: "A pending file. `repo` + `path` is its identity; `path` is relative to the OWNING repository, never to the project root."
+  translation: "Un archivo pendiente. `repo` + `path` es su identidad; `path` es relativo al repositorio PROPIETARIO, nunca a la raíz del proyecto."
+- source: "Opaque stable hash of `repo` + `path`."
+  translation: "Hash estable y opaco de `repo` + `path`."
+- source: "Detects edits after the file was reviewed."
+  translation: "Detecta ediciones posteriores a la revisión del archivo."
+- source: "The file changed after the decision was recorded."
+  translation: "El archivo cambió después de registrar la decisión."
+- source: "Present on POST /reviews."
+  translation: "Presente en POST /reviews."
+- source: "Identifies a file by `repo` + `path` or by `key`."
+  translation: "Identifica un archivo mediante `repo` + `path` o mediante `key`."
+- source: "Default as in CliSessionCreateRequest."
+  translation: "Valor predeterminado igual que en CliSessionCreateRequest."
+- source: "True when `next`/`prev` ran past the end of the list (the cursor stays)."
+  translation: "True cuando `next`/`prev` sobrepasó el final de la lista (el cursor se mantiene)."
+- source: "Present on request-changes."
+  translation: "Presente en request-changes."
+- source: "Stable machine-readable code (reviews and project creation endpoints): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed, invalid_branch, invalid_mode, branch_not_found, detached, no_commits, no_upstream, upstream_gone, no_remote, ambiguous_remote, local_changes, diverged, push_rejected, no_operation, upstream_mismatch, auth_failed, remote_unreachable, not_a_repo, binary_file."
+  translation: "Código estable legible por máquina (endpoints de revisiones y creación de proyectos): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed, invalid_branch, invalid_mode, branch_not_found, detached, no_commits, no_upstream, upstream_gone, no_remote, ambiguous_remote, local_changes, diverged, push_rejected, no_operation, upstream_mismatch, auth_failed, remote_unreachable, not_a_repo, binary_file."
+- source: "Derived, read-only pending unattended start of a task."
+  translation: "Inicio desatendido pendiente, derivado y de solo lectura, de una tarea."
+- source: "Empty when nothing is pending (task started, paused, failed, done, discarded or running)."
+  translation: "Vacío cuando no hay nada pendiente (tarea iniciada, pausada, fallida, completada, descartada o en ejecución)."
+- source: "Effective next start"
+  translation: "Siguiente inicio efectivo"
+- source: "Same instant with the server UTC offset."
+  translation: "El mismo instante con el offset UTC del servidor."
+- source: "Server UTC offset such as UTC-05:00."
+  translation: "Offset UTC del servidor, como UTC-05:00."
+- source: "Slim task payload used by list endpoints and WS events."
+  translation: "Payload compacto de tarea usado por los endpoints de listado y los eventos WS."
+- source: "Raw stored value; may be stale. Use `schedule` for the pending start."
+  translation: "Valor almacenado en crudo; puede estar obsoleto. Use `schedule` para el inicio pendiente."
+- source: "Waiting for the CLI usage quota to reset."
+  translation: "Esperando a que se restablezca la cuota de uso del CLI."
+- source: "A pipeline of the task is running in this TUI."
+  translation: "Un pipeline de la tarea se está ejecutando en esta TUI."
+- source: "\"cli/model\" -> [input, output]."
+  translation: "\"cli/model\" -> [input, output]."
+- source: "Local ISO time the task last reached DONE (`last_completed_at`); falls back to `updated_at` for DONE tasks completed before it was recorded; empty otherwise."
+  translation: "Hora ISO local en la que la tarea llegó por última vez a DONE (`last_completed_at`); usa `updated_at` como respaldo para tareas DONE completadas antes de que se registrara; vacío en caso contrario."
+- source: "Chain depth in the list endpoint (children follow their parent)."
+  translation: "Profundidad del encadenamiento en el endpoint de listado (las hijas siguen a su padre)."
+- source: "Raw `Task` fields persisted in `task.toml`."
+  translation: "Campos `Task` en crudo persistidos en `task.toml`."
+- source: "Full payload = `Task.to_dict()` plus derived fields."
+  translation: "Payload completo = `Task.to_dict()` más campos derivados."
+- source: "Phases of the progress bar (`first` only when the task defines it)."
+  translation: "Fases de la barra de progreso (`first` solo cuando la tarea la define)."
+- source: "Progress bar as the TUI draws it (`status` pending/active/done per phase)."
+  translation: "Barra de progreso tal como la dibuja la TUI (`status` pending/active/done por fase)."
+- source: "Waiting for the CLI usage quota to reset (transient, only while running)."
+  translation: "Esperando a que se restablezca la cuota de uso del CLI (transitorio, solo durante la ejecución)."
+- source: "Agent and consumption per phase (TUI agents bar)."
+  translation: "Agente y consumo por fase (barra de agentes de la TUI)."
+- source: "Live execution data of this TUI (activity bar)."
+  translation: "Datos de ejecución en vivo de esta TUI (barra de actividad)."
+- source: "Which actions apply right now (same rules as the TUI detail)."
+  translation: "Qué acciones se aplican en este momento (las mismas reglas que el detalle de la TUI)."
+- source: "Relative `.md` paths per phase (`first`, `plan`, `review`, `final`), every cycle."
+  translation: "Rutas `.md` relativas por fase (`first`, `plan`, `review`, `final`), en cada ciclo."
+- source: "Roles pointing at a model the CLI no longer lists."
+  translation: "Roles que apuntan a un modelo que el CLI ya no enumera."
+- source: "Wrapper with the task payload under the `task` key (see `actions.get_task`)."
+  translation: "Envoltorio con el payload de la tarea bajo la clave `task` (consulte `actions.get_task`)."
+- source: "Remote project `user@host:/path` (then `workdir` is not needed). Ignored in session mode."
+  translation: "Proyecto remoto `user@host:/path` (entonces no se necesita `workdir`). Se ignora en el modo de sesión."
+- source: "Chain after this task. Any existing task is accepted (completed ones too); without `scheduled_at` the child is scheduled to now, so it starts unattended once the parent is DONE (immediately if it already is)."
+  translation: "Encadenar después de esta tarea. Se acepta cualquier tarea existente (también las completadas); sin `scheduled_at`, la hija se programa para ahora, de modo que se inicia desatendida cuando la padre está DONE (inmediatamente si ya lo está)."
+- source: "Local `YYYY-MM-DD HH:MM` (or with `T`)."
+  translation: "`YYYY-MM-DD HH:MM` local (o con `T`)."
+- source: "A repetitive task always runs in automode."
+  translation: "Una tarea repetitiva siempre se ejecuta en automode."
+- source: "List or comma-separated string of first/plan/implement/review/fix/final/tests."
+  translation: "Lista o cadena separada por comas de first/plan/implement/review/fix/final/tests."
+- source: "Optional processing profile name; its roles override the global ones for this task only. Returns 400 if the profile is unknown."
+  translation: "Nombre opcional del perfil de procesamiento; sus roles sobrescriben los globales solo para esta tarea. Devuelve 400 si el perfil es desconocido."
+- source: "Optional attachments persisted into the task's media dir and referenced from its description (image tokens for image suffixes, absolute paths otherwise). Audio files (ogg/oga/opus/mp3/wav/m4a/flac by file name) are additionally transcribed with the configured STT provider and their text is appended to the task description (see `transcriptions` in the response). Max 10 entries; each `data` is standard base64. Max 500 MiB per file; the JSON body is capped at the base64 size of one 500 MiB file plus 1 MiB. For files above 25 MiB prefer creating the task and uploading them with the raw body of `POST /api/v1/tasks/{task_id}/attachments`."
+  translation: "Adjuntos opcionales persistidos en el directorio media de la tarea y referenciados desde su descripción (tokens de imagen para sufijos de imagen, rutas absolutas en caso contrario). Los archivos de audio (ogg/oga/opus/mp3/wav/m4a/flac según el nombre del archivo) también se transcriben con el proveedor STT configurado y su texto se añade a la descripción de la tarea (consulte `transcriptions` en la respuesta). Máximo 10 entradas; cada `data` es base64 estándar. Máximo 500 MiB por archivo; el cuerpo JSON está limitado al tamaño en base64 de un archivo de 500 MiB más 1 MiB. Para archivos de más de 25 MiB, es preferible crear la tarea y subirlos con el cuerpo en crudo de `POST /api/v1/tasks/{task_id}/attachments`."
+- source: "Original file name. Extension kept for images (png/jpg/jpeg/gif/webp), video (mp4/webm/mov/mkv/avi/m4v), audio, spreadsheets (xlsx/xlsm/xls/ods/csv/tsv), documents (docx/doc/odt/rtf/pdf/pptx/ppt/odp/txt/md), data (json/xml/yaml/yml/toml/sql/log) and archives (zip/tar/gz/tgz/7z); anything else is stored as .bin. The original name is kept in the attachments metadata."
+  translation: "Nombre original del archivo. Se conserva la extensión para imágenes (png/jpg/jpeg/gif/webp), vídeo (mp4/webm/mov/mkv/avi/m4v), audio, hojas de cálculo (xlsx/xlsm/xls/ods/csv/tsv), documentos (docx/doc/odt/rtf/pdf/pptx/ppt/odp/txt/md), datos (json/xml/yaml/yml/toml/sql/log) y archivos comprimidos (zip/tar/gz/tgz/7z); cualquier otra cosa se guarda como .bin. El nombre original se conserva en los metadatos de los adjuntos."
+- source: "Base64-encoded file content."
+  translation: "Contenido del archivo codificado en Base64."
+- source: "Per audio attachment, either {name, text} or {name, error}."
+  translation: "Por adjunto de audio, {name, text} o {name, error}."
+- source: "Chain order by default (see `depth`); flat list (depth 0) when `sort` is not `tree`. Only the requested page."
+  translation: "Orden del encadenamiento de forma predeterminada (consulte `depth`); lista plana (depth 0) cuando `sort` no es `tree`. Solo la página solicitada."
+- source: "Number of tasks after filtering and before paging."
+  translation: "Número de tareas después de filtrar y antes de paginar."
+- source: "Offset applied to the filtered, sorted result."
+  translation: "Offset aplicado al resultado filtrado y ordenado."
+- source: "Page size applied, or null when every task is returned."
+  translation: "Tamaño de página aplicado o null cuando se devuelven todas las tareas."
+- source: "True when more matching tasks exist after this page."
+  translation: "True cuando existen más tareas coincidentes después de esta página."
+- source: "Finished tasks that can be hidden without breaking a chain."
+  translation: "Tareas finalizadas que se pueden ocultar sin romper un encadenamiento."
+- source: "Project folder (task workdir or folder found in a working directory)."
+  translation: "Carpeta del proyecto (workdir de una tarea o carpeta encontrada en un directorio de trabajo)."
+- source: "Number of tasks whose workdir is this folder."
+  translation: "Número de tareas cuyo workdir es esta carpeta."
+- source: "Number of direct CLI sessions whose workdir is this folder."
+  translation: "Número de sesiones CLI directas cuyo workdir es esta carpeta."
+- source: "Folder name."
+  translation: "Nombre de la carpeta."
+- source: "Resolved working directory where the folder was found; empty for workdirs only known from tasks."
+  translation: "Directorio de trabajo resuelto donde se encontró la carpeta; vacío para workdirs conocidos solo por las tareas."
+- source: "Latest task activity of the folder (maximum task `updated_at`, falling back to `created_at`); empty when it has no tasks."
+  translation: "Actividad de tarea más reciente de la carpeta (`updated_at` máximo de las tareas, con `created_at` como respaldo); vacío cuando no tiene tareas."
+- source: "True when the folder is a server-side favorite (shared by every browser of the instance)."
+  translation: "True cuando la carpeta es un favorito del servidor (compartido por todos los navegadores de la instancia)."
+- source: "Project folder (`workdir` of a `ProjectItem`)."
+  translation: "Carpeta del proyecto (`workdir` de un `ProjectItem`)."
+- source: "True marks, false unmarks."
+  translation: "True marca y false desmarca."
+- source: "Normalized folder."
+  translation: "Carpeta normalizada."
+- source: "Every saved favorite (normalized folders)."
+  translation: "Todos los favoritos guardados (carpetas normalizadas)."
+- source: "What a client needs to offer project creation."
+  translation: "Lo que necesita un cliente para ofrecer la creación de proyectos."
+- source: "False without existing working directories or in remote session mode."
+  translation: "False cuando no existen directorios de trabajo o en el modo de sesión remota."
+- source: "True when git is installed on the host (needed by init and clone)."
+  translation: "True cuando git está instalado en el host (necesario para init y clone)."
+- source: "Resolved paths accepted as `workspace`."
+  translation: "Rutas resueltas aceptadas como `workspace`."
+- source: "Folder name. Optional with `url` (derived from the repository name)."
+  translation: "Nombre de la carpeta. Opcional con `url` (se deriva del nombre del repositorio)."
+- source: "Clone URL: https://, http://, ssh:// or scp-like user@host:path."
+  translation: "URL de clonación: https://, http://, ssh:// o user@host:path de tipo scp."
+- source: "Default: clone with url, init otherwise. plain creates the folder without git."
+  translation: "Predeterminado: clone con url, init en caso contrario. plain crea la carpeta sin git."
+- source: "Working directory (entry as configured or resolved path). Required only when several are configured."
+  translation: "Directorio de trabajo (entrada tal como está configurada o ruta resuelta). Obligatorio solo cuando hay varios configurados."
+- source: "Clone URL with credentials redacted; empty unless mode is clone."
+  translation: "URL de clonación con las credenciales ocultas; vacía salvo que el modo sea clone."
+- source: "Working directory as configured (e.g. `~/code`)."
+  translation: "Directorio de trabajo tal como está configurado (p. ej. `~/code`)."
+- source: "Expanded and resolved absolute path (empty when it cannot be resolved)."
+  translation: "Ruta absoluta expandida y resuelta (vacía cuando no se puede resolver)."
+- source: "True when the path is an existing directory."
+  translation: "True cuando la ruta es un directorio existente."
+- source: "Character offset usable as `offset` of the content endpoint."
+  translation: "Offset de caracteres utilizable como `offset` del endpoint de contenido."
+- source: "Real file name on disk (case may differ)."
+  translation: "Nombre real del archivo en disco (las mayúsculas pueden diferir)."
+- source: "File size in bytes."
+  translation: "Tamaño del archivo en bytes."
+- source: "Characters of the normalized text."
+  translation: "Caracteres del texto normalizado."
+- source: "True when the file exceeds the 1 MiB read cap."
+  translation: "True cuando el archivo supera el límite de lectura de 1 MiB."
+- source: "Hint from the suffix; `unknown` means ask `projects/file`."
+  translation: "Pista a partir del sufijo; `unknown` significa consultar `projects/file`."
+- source: "True when the directory has more entries than the scan cap."
+  translation: "True cuando el directorio tiene más entradas que el límite de análisis."
+- source: "Directories only."
+  translation: "Solo directorios."
+- source: "Files only."
+  translation: "Solo archivos."
+- source: "Configured working directories; empty in remote session mode."
+  translation: "Directorios de trabajo configurados; vacío en el modo de sesión remota."
+- source: "True in remote session mode (folder discovery skipped)."
+  translation: "True en el modo de sesión remota (se omite el descubrimiento de carpetas)."
+- source: "Instance name configured in the web panel settings (`[web]` section); empty when not set."
+  translation: "Nombre de instancia configurado en los ajustes del panel web (sección `[web]`); vacío cuando no está definido."
+- source: "Server local time, ISO 8601 with seconds and explicit offset."
+  translation: "Hora local del servidor, ISO 8601 con segundos y offset explícito."
+- source: "Same instant in UTC with the `Z` suffix."
+  translation: "El mismo instante en UTC con el sufijo `Z`."
+- source: "Unix time in seconds."
+  translation: "Hora Unix en segundos."
+- source: "Unix time in milliseconds."
+  translation: "Hora Unix en milisegundos."
+- source: "Server local calendar date (YYYY-MM-DD)."
+  translation: "Fecha de calendario local del servidor (YYYY-MM-DD)."
+- source: "Server local wall-clock time (HH:MM:SS, 24 h)."
+  translation: "Hora local del reloj del servidor (HH:MM:SS, 24 h)."
+- source: "English weekday name of the local date (locale independent)."
+  translation: "Nombre en inglés del día de la semana de la fecha local (independiente de la configuración regional)."
+- source: "ISO weekday, 1 = Monday ... 7 = Sunday."
+  translation: "Día de la semana ISO, 1 = Monday ... 7 = Sunday."
+- source: "IANA name of the host timezone; empty when it cannot be determined reliably."
+  translation: "Nombre IANA de la zona horaria del host; vacío cuando no se puede determinar de forma fiable."
+- source: "Zone abbreviation reported by the host (`-05`, `CEST`); informative only."
+  translation: "Abreviatura de zona informada por el host (`-05`, `CEST`); solo informativa."
+- source: "Offset label in the format used by the task schedule (`UTC-05:00`)."
+  translation: "Etiqueta de offset en el formato usado por la programación de tareas (`UTC-05:00`)."
+- source: "Offset from UTC in minutes (east positive)."
+  translation: "Offset respecto de UTC en minutos (positivo hacia el este)."
+- source: "Resulting state (`paused`, `discarded` or `done`)."
+  translation: "Estado resultante (`paused`, `discarded` o `done`)."
+- source: "Free-text request for the new cycle."
+  translation: "Solicitud de texto libre para el nuevo ciclo."
+- source: "Optional files saved to the task media and referenced in the request (same shape as task creation). Max 500 MiB per file; the JSON body is capped at the base64 size of one 500 MiB file plus 1 MiB. For big files upload them first with the raw body of `POST /api/v1/tasks/{task_id}/attachments?cycle=<task cycle + 1>`."
+  translation: "Archivos opcionales guardados en media de la tarea y referenciados en la solicitud (la misma estructura que la creación de tareas). Máximo 500 MiB por archivo; el cuerpo JSON está limitado al tamaño en base64 de un archivo de 500 MiB más 1 MiB. Para archivos grandes, súbalos primero con el cuerpo en crudo de `POST /api/v1/tasks/{task_id}/attachments?cycle=<task cycle + 1>`."
+- source: "Same lines with their TUI style (e.g. `bold red`, `cyan`, `dim`)."
+  translation: "Las mismas líneas con su estilo de la TUI (p. ej. `bold red`, `cyan`, `dim`)."
+- source: "Local directory or URL."
+  translation: "Directorio local o URL."
+- source: "Only the present fields change."
+  translation: "Solo cambian los campos presentes."
+- source: "Empty = unchain (root)."
+  translation: "Vacío = desencadenar (raíz)."
+- source: "Keys first/planner/implementer/reviewer/final."
+  translation: "Claves first/planner/implementer/reviewer/final."
+- source: "Alone, copies the profile roles; with `roles`, kept only when they match."
+  translation: "Por sí solo, copia los roles del perfil; con `roles`, solo se conserva cuando coinciden."
+- source: "Editor URL (http or https)."
+  translation: "URL del editor (http o https)."
+- source: "Name of the startup command used as editor."
+  translation: "Nombre del comando de inicio usado como editor."
+- source: "Absolute project folder."
+  translation: "Carpeta absoluta del proyecto."
+- source: "Whether GRAFENO launched it and it is alive; null when GRAFENO did not launch it."
+  translation: "Si GRAFENO lo lanzó y sigue activo; null cuando GRAFENO no lo lanzó."
+- source: "Compact cli/model summary of the global roles (same format as Profile.summary)."
+  translation: "Resumen compacto cli/model de los roles globales (el mismo formato que Profile.summary)."
+- source: "Session CLIs detected on the host, in supported order."
+  translation: "CLIs de sesión detectados en el host, en el orden soportado."
+- source: "CLI preselected for a new session: the implementer role CLI when detected, else claude, else the first detected."
+  translation: "CLI preseleccionado para una nueva sesión: el CLI del rol implementer cuando se detecta; si no, claude; si no, el primero detectado."
+- source: "Web editor of the panel (startup command with `open_url`)."
+  translation: "Editor web del panel (comando de inicio con `open_url`)."
+- source: "cli -> model -> effort levels."
+  translation: "cli -> model -> niveles de effort."
+- source: "Global settings, same sections as the TUI settings screen. On save, only the present sections change. Secrets (`telegram.bot_token`, `telegram.stt_key`, `telegram.tts_key`, `api.tokens`) are write-only: GET returns `<key>_set`, a non-empty value replaces them and `<key>_clear: true` empties them. `telegram.parser_cli`, `parser_model`, `parser_effort` and `parser_timeout` apply at once to the running bot; the rest of `[telegram]` and `[api]` applies on the next TUI start. The `web` section applies at once; the favicon (PNG/ICO/GIF/JPEG/WebP, no SVG, max 256 KiB, signature checked) is served without authentication at `GET /favicon.ico` (204 when none)."
+  translation: "Ajustes globales, las mismas secciones de la pantalla de ajustes de la TUI. Al guardar, solo cambian las secciones presentes. Los secretos (`telegram.bot_token`, `telegram.stt_key`, `telegram.tts_key`, `api.tokens`) son de solo escritura: GET devuelve `<key>_set`, un valor no vacío los sustituye y `<key>_clear: true` los vacía. `telegram.parser_cli`, `parser_model`, `parser_effort` y `parser_timeout` se aplican de inmediato al bot en ejecución; el resto de `[telegram]` y `[api]` se aplica en el siguiente inicio de la TUI. La sección `web` se aplica de inmediato; el favicon (PNG/ICO/GIF/JPEG/WebP, sin SVG, máximo 256 KiB, firma comprobada) se sirve sin autenticación en `GET /favicon.ico` (204 cuando no hay ninguno)."
+- source: "Empty = follow the browser light/dark preference."
+  translation: "Vacío = seguir la preferencia claro/oscuro del navegador."
+- source: "Base64 file contents."
+  translation: "Contenido del archivo en Base64."
+- source: "Commands launched in the background when GRAFENO starts (e.g. a web editor server). Applies on the next start. `settings` is a JSON object (as text) merged into `settings_file` before every launch. Rows with empty name and command are ignored; invalid rows return 400."
+  translation: "Comandos lanzados en segundo plano cuando GRAFENO se inicia (p. ej., un servidor de editor web). Se aplica en el siguiente inicio. `settings` es un objeto JSON (como texto) que se fusiona en `settings_file` antes de cada lanzamiento. Las filas con nombre y comando vacíos se ignoran; las filas no válidas devuelven 400."
+- source: "Split with shlex and run without a shell; {workdir} = folder GRAFENO starts in."
+  translation: "Se divide con shlex y se ejecuta sin shell; {workdir} = carpeta en la que se inicia GRAFENO."
+- source: "Web panel editor link: {host}, {folder}, {name}; empty = not an editor. Must start with http(s):// and contain {folder}. Editors always get git.repositoryScanMaxDepth = -1 and the dark theme by default."
+  translation: "Enlace del editor del panel web: {host}, {folder}, {name}; vacío = no es un editor. Debe comenzar con http(s):// y contener {folder}. Los editores siempre reciben git.repositoryScanMaxDepth = -1 y el tema oscuro de forma predeterminada."
+- source: "Presets for web editors (VS Code serve-web, code-server, openvscode-server); same fields as `startup` (including `open_url`) plus `key`."
+  translation: "Presets para editores web (VS Code serve-web, code-server, openvscode-server); los mismos campos que `startup` (incluido `open_url`) más `key`."
+- source: "Empty = same as the GUI language."
+  translation: "Vacío = el mismo idioma de la GUI."
+- source: "Working directories (root folders whose first-level subfolders are the projects). On update a comma-separated string is also accepted; entries are normalized and deduplicated."
+  translation: "Directorios de trabajo (carpetas raíz cuyas subcarpetas de primer nivel son los proyectos). Al actualizar también se acepta una cadena separada por comas; las entradas se normalizan y deduplican."
+- source: "`all` or comma-separated stages."
+  translation: "`all` o etapas separadas por comas."
+- source: "Empty means the planner role CLI."
+  translation: "Vacío significa el CLI del rol planner."
+- source: "Base parser timeout in seconds; long messages get extra time."
+  translation: "Tiempo de espera base del parser en segundos; los mensajes largos reciben tiempo adicional."
