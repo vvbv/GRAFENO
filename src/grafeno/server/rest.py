@@ -352,7 +352,7 @@ async def _reports(service: "ServerService", request: Request, params: dict[str,
 
 @route("GET", "/api/v1/quota")
 async def _quota(service: "ServerService", request: Request, params: dict[str, str]) -> Response:
-    cached = request.query.get("cached", "") in ("1", "true", "yes")
+    cached = actions._coerce_bool(request.query.get("cached"), False)
     payload = await cliquota.quota_report(service, cached=cached)
     response = Response.json(200, payload)
     if payload.get("throttled"):

@@ -24,6 +24,7 @@ from .i18n import t
 from .telegram.api import USER_AGENT, Opener, default_opener
 
 REFRESH_SECONDS = 300        # cached snapshot lifetime; views poll at this pace
+REFRESH_GRACE = 10           # polls land slightly before the nominal age; avoids skipping a tick
 LIVE_MIN_INTERVAL = 60       # minimum seconds between two live fetches (throttling)
 JUST_FETCHED_SECONDS = 2.0   # a refresh this recent is reused by a waiting caller
 FETCH_TIMEOUT = 10.0         # per-provider HTTP timeout
@@ -279,7 +280,7 @@ def parse_codex_rate_limits(rate_limits: dict, timestamp: str = "") -> list[Quot
             continue
         minutes = item.get("window_minutes")
         key = {300: "five_hour", 10080: "seven_day"}.get(
-            int(minutes) if _is_number(minutes) else -1, slot,
+            int(float(minutes)) if _is_number(minutes) else -1, slot,
         )
         resets = ""
         if _is_number(item.get("resets_at")):
@@ -327,11 +328,11 @@ def clear_observed() -> None:
 
 
 # ---------------------------------------------------------------- providers
-def _http_json(url: str, headers: dict[str, str]) -> tuple[dict | None, CliQuota | None]:
+def _http_json(url: str, headers: dict[str, str], opener: Opener) -> tuple[dict | None, CliQuota | None]:
     """GET ``url``; returns ``(payload, None)`` or ``(None, failure result)``."""
     request = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        body = default_opener(request, FETCH_TIMEOUT)
+        body = opener(request, FETCH_TIMEOUT)
         data = json.loads(body)
     except urllib.error.HTTPError as exc:  # before URLError/OSError (subclass)
         if exc.code in (401, 403):
@@ -352,7 +353,7 @@ def _read_json(path: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def _claude_active() -> CliQuota:
+def _claude_active(opener: Opener) -> CliQuota:
     creds = _read_json(claude_credentials_path())
     oauth = creds.get("claudeAiOauth") if creds else None
     token = oauth.get("accessToken") if isinstance(oauth, dict) else None
@@ -366,7 +367,7 @@ def _claude_active() -> CliQuota:
         "anthropic-beta": "oauth-2025-04-20",
         "Accept": "application/json",
         "User-Agent": USER_AGENT,
-    })
+    }, opener)
     if failure is not None:
         failure.cli = "claude"
         return failure
@@ -377,7 +378,7 @@ def _claude_active() -> CliQuota:
 
 
 def _fetch_claude(opener: Opener) -> CliQuota:
-    result = _claude_active()
+    result = _claude_active(opener)
     if result.status != STATUS_OK:
         seen = observed("claude")
         if seen is not None:
@@ -414,7 +415,7 @@ def _fetch_kimi(opener: Opener) -> CliQuota:
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
         "User-Agent": USER_AGENT,
-    })
+    }, opener)
     if failure is not None:
         failure.cli = "kimi"
         return failure
@@ -506,7 +507,8 @@ class QuotaMonitor:
         self._lock: asyncio.Lock | None = None
         self._results: list[CliQuota] | None = None
         self._fetched_at = ""
-        self._refreshed = 0.0       # clock value of the last refresh
+        self._refreshed = 0.0       # clock value when the last refresh STARTED
+        self._finished = 0.0        # clock value when the last refresh ENDED (concurrent callers reuse it)
         self._last_live: float | None = None
         self._last_good: dict[str, CliQuota] = {}
 
@@ -555,20 +557,22 @@ class QuotaMonitor:
             self._lock = asyncio.Lock()
         async with self._lock:
             recent = self._results is not None and (
-                self._clock() - self._refreshed < JUST_FETCHED_SECONDS
+                self._clock() - self._finished < JUST_FETCHED_SECONDS
             )
             if not recent:
+                started = self._clock()  # age is measured from the start, not the end, of the fetch
                 shells = self._collect()
                 results = await asyncio.gather(*(self._fetch(s) for s in shells))
                 self._results = self._merge_stale(list(results))
                 self._fetched_at = _now_iso()
-                self._refreshed = self._clock()
+                self._refreshed = started
+                self._finished = self._clock()
         return self._payload("cached")
 
     async def get(self, live: bool = True) -> dict:
         """API entry point: live (throttled) or cached snapshot."""
         if not live:
-            if self._results is None or self._clock() - self._refreshed >= REFRESH_SECONDS:
+            if self._results is None or self._clock() - self._refreshed >= REFRESH_SECONDS - REFRESH_GRACE:
                 await self.refresh()
             return self._payload("cached")
         if self._results is not None and self._last_live is not None:

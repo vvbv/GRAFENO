@@ -218,3 +218,35 @@ def test_monitor_stale_and_single_flight():
 
     asyncio.run(concurrent())
     assert len(calls2) == 1
+
+
+def test_monitor_polling_every_refresh_seconds_refreshes_each_tick():
+    clock = _Clock()
+    calls = []
+
+    async def fetch(shell):
+        calls.append(clock.now)
+        clock.now += 1  # the fetch itself takes one second
+        return _good()
+
+    monitor = quota.QuotaMonitor(collect=lambda: [quota.CliQuota("claude")], fetch=fetch, clock=clock)
+
+    async def run():
+        for _ in range(4):
+            await monitor.get(live=False)
+            clock.now += quota.REFRESH_SECONDS - 1  # next poll exactly one period later
+
+    asyncio.run(run())
+    assert len(calls) == 4
+
+
+def test_providers_use_the_injected_opener():
+    _write_claude_creds((time.time() + 3600) * 1000)
+    seen = []
+
+    def opener(request, timeout):
+        seen.append(request.full_url)
+        return json.dumps(CLAUDE_USAGE).encode()
+
+    assert quota._fetch_claude(opener).status == quota.STATUS_OK
+    assert seen == [quota.CLAUDE_USAGE_URL]

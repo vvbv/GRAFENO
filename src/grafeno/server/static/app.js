@@ -2685,7 +2685,7 @@ const reportsView = {
     const head = ["reports.quota.col.cli", "reports.quota.col.window", "reports.quota.col.used", "reports.quota.col.remaining",
       "reports.quota.col.resets", "reports.quota.col.status", "reports.quota.col.used_by"];
     const rows = [].concat(...clis.map(quotaRows));
-    this.quotaBox.replaceChildren(
+    this.quotaBox.replaceChildren(...[
       h("h3", { text: tr("reports.quota.title") }),
       h("div", { class: "toolbar" }, h("button", { class: "small", text: tr("reports.quota.refresh"), onclick: () => this.loadQuota(true) })),
       h("p", { class: "help", text: tr("reports.quota.subtitle", { minutes: Math.round((data.refresh_seconds || 300) / 60) }) }),
@@ -2695,7 +2695,7 @@ const reportsView = {
         ? h("div", { class: "table-wrap" }, h("table", null,
           h("thead", null, h("tr", null, head.map((key) => h("th", { text: tr(key) })))),
           h("tbody", null, rows)))
-        : h("div", { class: "help", text: tr("reports.quota.empty") }));
+        : h("div", { class: "help", text: tr("reports.quota.empty") })].filter(Boolean));
   },
   async load(query) {
     let data;

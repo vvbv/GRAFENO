@@ -585,7 +585,7 @@ async def _issues_list(service: "ServerService", params: dict, conn: "WsConnecti
 
 
 async def _quota_get(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
-    return await cliquota.quota_report(service, cached=bool(params.get("cached")))
+    return await cliquota.quota_report(service, cached=actions._coerce_bool(params.get("cached"), False))
 
 
 async def _reports_get(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
