@@ -310,4 +310,4 @@ The base directory can be changed with the `GRAFENO_HOME` environment variable.
 ```
 
 Includes unit tests (config, prompts, verdict, drivers, orchestrator with
-fake drivers) and TUI smoke tests in headless mode.
+fake drivers) and TUI smoke tests in headless mode
