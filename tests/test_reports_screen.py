@@ -131,3 +131,45 @@ def test_reports_screen_week_month_and_range():
             assert screen._start == date(2020, 1, 15)
 
     asyncio.run(scenario())
+
+
+def test_reports_screen_shows_quota_and_throttles():
+    from grafeno import quota
+
+    async def fetch(shell):
+        return quota.CliQuota(
+            shell.cli, quota.STATUS_OK, "api",
+            [quota.QuotaWindow("five_hour", 25.0), quota.QuotaWindow("seven_day", 40.0)],
+            fetched_at=quota._now_iso(),
+        )
+
+    async def scenario():
+        app = GrafenoApp()
+        app.quota_monitor = quota.QuotaMonitor(
+            collect=lambda: [quota.CliQuota("claude", used_by_default=True)], fetch=fetch,
+        )
+        async with app.run_test(size=(120, 50)) as pilot:
+            await pilot.pause()
+            await pilot.press("i")
+            await pilot.pause()
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, ReportsScreen)
+            rows = _rows(screen.query_one("#report-quota", DataTable))
+            assert len(rows) == 2
+            assert rows[0][0] == "claude" and rows[0][2] == "25%"
+            await pilot.press("u")
+            await pilot.pause()
+            await pilot.press("u")
+            await pilot.pause()
+            await pilot.pause()
+            info = str(screen.query_one("#quota-info", Static).render())
+            assert "Try again in" in info
+
+    asyncio.run(scenario())
+
+
+def test_quota_rows_unsupported_without_windows():
+    rows = ReportsScreen._quota_rows({"cli": "opencode", "status": "unsupported", "windows": []})
+    assert len(rows) == 1 and rows[0][0] == "opencode"
+    assert "Not available for this CLI" in rows[0][5]

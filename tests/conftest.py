@@ -50,3 +50,21 @@ def _offline_release_check(monkeypatch):
 
     monkeypatch.setattr(selfupdate, "default_opener", _offline)
     monkeypatch.setattr(selfupdate, "_latest_from_redirect", lambda timeout: None)
+
+
+@pytest.fixture(autouse=True)
+def _offline_quota(monkeypatch, tmp_path):
+    """Keep the CLI quota providers off the network and away from real credentials."""
+    from grafeno import quota
+
+    def _no_network(request, timeout):
+        raise OSError("network disabled in tests")
+
+    monkeypatch.setattr(quota, "default_opener", _no_network)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-home"))
+    monkeypatch.setenv("KIMI_CODE_HOME", str(tmp_path / "kimi-home"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+    monkeypatch.delenv("KIMI_CODE_BASE_URL", raising=False)
+    quota.clear_observed()
+    yield
+    quota.clear_observed()

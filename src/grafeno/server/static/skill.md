@@ -162,7 +162,7 @@ Available subscription topics are `tasks`, `sessions` and `reviews`. Expect `tas
 | Assisted reviews | Inspect pending changes across nested repositories. Identify each file by `repo` plus `path`; no commit is automatic, and explicit commits require the appropriate review operation and confirmation. |
 | Project Git | Inspect branches and pending changes, or request checkout, abort, push and pull operations when authorized. |
 | Catalog | Use `options`, `models`, `fs/dirs` and `issues` for form choices, model discovery, directory completion and GitHub issues. |
-| Reports | Read token, model, time and project usage reports. |
+| Reports | Read token, model, time and project usage reports, and the available usage of the configured agent CLIs through `quota` (use `cached=true` for polling; respect `retry_after` when `throttled`). |
 | Settings | Read or change global settings only within the user's request; writes can affect the whole instance. |
 | Audio | Use `audio/speech` for on-demand TTS with the configured provider. |
 

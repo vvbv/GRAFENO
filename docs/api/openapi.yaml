@@ -1479,6 +1479,27 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "400":
           $ref: "#/components/responses/BadRequest"
+  /api/v1/quota:
+    get:
+      tags: [reports]
+      summary: Available usage (quota windows) of every agent CLI assigned in the general roles or in a processing profile.
+      description: "Live by default: each request queries the CLI providers, but two live requests within live_min_interval seconds return the last snapshot with throttled=true, a warning and Retry-After instead of calling the providers again. cached=true returns the snapshot refreshed at most every refresh_seconds (what the TUI and the web panel use). Values are per instance. Guide: docs/api/cli-quota.md."
+      operationId: getCliQuota
+      parameters:
+        - {name: cached, in: query, required: false, schema: {type: boolean}}
+      responses:
+        "200":
+          description: Quota snapshot (live or cached).
+          headers:
+            Retry-After:
+              description: Seconds to wait before the next live request; only present when throttled is true.
+              schema: {type: integer}
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotaResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/v1/settings:
     get:
       tags: [settings]
@@ -4360,6 +4381,47 @@ components:
               number: {type: integer}
               title: {type: string}
               body: {type: string}
+    QuotaWindow:
+      type: object
+      properties:
+        key: {type: string, enum: [five_hour, seven_day, seven_day_opus, seven_day_sonnet, extra_usage, month_total, month_code, primary, secondary]}
+        used_percent: {type: number}
+        remaining_percent: {type: number}
+        resets_at: {type: string, description: "ISO 8601 with offset; empty when unknown."}
+        resets_in_seconds: {type: [integer, "null"]}
+    CliQuota:
+      type: object
+      properties:
+        cli: {type: string}
+        status: {type: string, enum: [ok, unsupported, not_installed, no_credentials, auth_expired, no_data, error]}
+        source: {type: string, enum: [api, stream, rollout, ""]}
+        windows:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuotaWindow"
+        message: {type: string}
+        fetched_at: {type: string}
+        stale: {type: boolean}
+        installed: {type: boolean}
+        used_by_default: {type: boolean}
+        profiles:
+          type: array
+          items: {type: string}
+    QuotaResponse:
+      type: object
+      properties:
+        instance_name: {type: string}
+        fetched_at: {type: string}
+        refresh_seconds: {type: integer}
+        live_min_interval: {type: integer}
+        mode: {type: string, enum: [live, cached]}
+        throttled: {type: boolean}
+        retry_after: {type: integer}
+        warning: {type: string}
+        clis:
+          type: array
+          items:
+            $ref: "#/components/schemas/CliQuota"
     ReportResponse:
       type: object
       properties:

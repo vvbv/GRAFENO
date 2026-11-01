@@ -782,3 +782,11 @@ def test_model_levels_js_matches_python():
     )
     out = subprocess.run([node, "-e", code], capture_output=True, text=True, timeout=30, check=True)
     assert json.loads(out.stdout) == [model_levels(m, n) for m, n in cases]
+
+
+def test_reports_view_has_quota_card_and_cleans_timers():
+    script = resources.files("grafeno.server").joinpath("static/app.js").read_text(encoding="utf-8")
+    assert '"/api/v1/quota"' in script
+    assert 'tr("reports.quota.title")' in script
+    block = script[script.index("const reportsView"):script.index("const settingsView")]
+    assert "forEach(clearInterval)" in block

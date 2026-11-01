@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
-from . import actions, apidocs, branding, clisessions, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings, webeditor
+from . import actions, apidocs, branding, clisessions, cliquota, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings, webeditor
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -348,6 +348,16 @@ async def _reports(service: "ServerService", request: Request, params: dict[str,
         end=request.query.get("to") or "",
         period=request.query.get("period") or "",
     )
+
+
+@route("GET", "/api/v1/quota")
+async def _quota(service: "ServerService", request: Request, params: dict[str, str]) -> Response:
+    cached = request.query.get("cached", "") in ("1", "true", "yes")
+    payload = await cliquota.quota_report(service, cached=cached)
+    response = Response.json(200, payload)
+    if payload.get("throttled"):
+        response.headers["Retry-After"] = str(payload.get("retry_after") or 1)
+    return response
 
 
 @route("GET", "/api/v1/settings")

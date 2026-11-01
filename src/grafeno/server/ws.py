@@ -17,7 +17,7 @@ import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Optional
 
-from . import actions, branding, clisessions, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings, webeditor
+from . import actions, branding, clisessions, cliquota, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings, webeditor
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -584,6 +584,10 @@ async def _issues_list(service: "ServerService", params: dict, conn: "WsConnecti
     return await settings.list_issues(service, str(params.get("workdir") or ""))
 
 
+async def _quota_get(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
+    return await cliquota.quota_report(service, cached=bool(params.get("cached")))
+
+
 async def _reports_get(service: "ServerService", params: dict, conn: "WsConnection") -> dict:
     return settings.usage_report(
         service,
@@ -839,6 +843,7 @@ METHODS: dict[str, Callable] = {
     "models.list": _models_list,
     "fs.dirs": _fs_dirs,
     "issues.list": _issues_list,
+    "quota.get": _quota_get,
     "reports.get": _reports_get,
     "settings.get": _settings_get,
     "settings.update": _settings_update,

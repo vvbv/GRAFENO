@@ -95,6 +95,7 @@ info:
     | models.list         | `refresh?`                                       | GET /api/v1/models                 |
     | fs.dirs             | `path?`                                          | GET /api/v1/fs/dirs                |
     | issues.list         | `workdir`                                        | GET /api/v1/issues                 |
+    | quota.get           | `cached?`                                        | GET /api/v1/quota                  |
     | reports.get         | `period?`, `from?`, `to?`                        | GET /api/v1/reports                |
     | settings.get        | -                                                | GET /api/v1/settings               |
     | settings.update     | settings sections                                | POST /api/v1/settings              |
@@ -275,6 +276,7 @@ components:
         - models.list
         - fs.dirs
         - issues.list
+        - quota.get
         - reports.get
         - settings.get
         - settings.update

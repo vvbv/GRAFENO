@@ -295,6 +295,11 @@ dl.info dd { margin: 0; word-break: break-word; white-space: pre-line; }
 .stat .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
 .bar-cell { width: 34%; }
 .bar { height: 8px; border-radius: 4px; background: var(--accent); opacity: .75; min-width: 2px; }
+.bar.warn { background: var(--warn); }
+.bar.danger { background: var(--danger); }
+.quota-used { display: flex; align-items: center; gap: 6px; }
+.quota-used .bar { flex: 1; }
+.quota-warning { color: var(--warn); margin: 4px 0 8px; }
 
 /* ------------------------------------------------------------ searchable select */
 /* Select2-like control (searchSelect in app.js): trigger + search panel. */

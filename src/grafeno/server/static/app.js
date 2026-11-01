@@ -2595,12 +2595,63 @@ const newTaskView = {
 };
 
 // ---------------------------------------------------------------- reports view
+const QUOTA_WINDOW_KEYS = {
+  five_hour: "reports.quota.window.five_hour", seven_day: "reports.quota.window.seven_day",
+  seven_day_opus: "reports.quota.window.seven_day_opus", seven_day_sonnet: "reports.quota.window.seven_day_sonnet",
+  extra_usage: "reports.quota.window.extra_usage", month_total: "reports.quota.window.month_total",
+  month_code: "reports.quota.window.month_code", primary: "reports.quota.window.primary",
+  secondary: "reports.quota.window.secondary",
+};
+const QUOTA_STATUS_KEYS = {
+  ok: "reports.quota.status.ok", unsupported: "reports.quota.status.unsupported",
+  not_installed: "reports.quota.status.not_installed", no_credentials: "reports.quota.status.no_credentials",
+  auth_expired: "reports.quota.status.auth_expired", no_data: "reports.quota.status.no_data",
+  error: "reports.quota.status.error",
+};
+function quotaWindowLabel(key) { return QUOTA_WINDOW_KEYS[key] ? tr(QUOTA_WINDOW_KEYS[key]) : key; }
+function quotaStatus(cli) {
+  let text = QUOTA_STATUS_KEYS[cli.status] ? tr(QUOTA_STATUS_KEYS[cli.status]) : cli.status;
+  if (cli.stale) text += " (" + tr("reports.quota.stale") + ")";
+  if (cli.source === "stream") text += " (" + tr("reports.quota.source.stream") + ")";
+  return text;
+}
+function quotaUsedBy(cli) {
+  const names = (cli.used_by_default ? [tr("reports.quota.default")] : []).concat(cli.profiles || []);
+  return names.join(", ");
+}
+// Table rows of one serialized CLI quota: one per window, or one status row.
+function quotaRows(cli) {
+  const status = quotaStatus(cli), usedBy = quotaUsedBy(cli);
+  const windows = cli.windows || [];
+  if (!windows.length) {
+    const detail = cli.message ? " (" + cli.message.slice(0, 80) + ")" : "";
+    return [h("tr", null, h("td", { class: "mono", text: cli.cli }), h("td"), h("td"), h("td"), h("td"),
+      h("td", { text: status + detail }), h("td", { text: usedBy }))];
+  }
+  return windows.map((w, index) => {
+    const used = Math.max(0, Math.min(100, Number(w.used_percent) || 0));
+    const severity = used >= 95 ? " danger" : used >= 80 ? " warn" : "";
+    return h("tr", null,
+      h("td", { class: "mono", text: index === 0 ? cli.cli : "" }),
+      h("td", { text: quotaWindowLabel(w.key) }),
+      h("td", { class: "bar-cell" }, h("div", { class: "quota-used" },
+        h("div", { class: "bar" + severity, style: { width: used.toFixed(1) + "%" } }),
+        h("span", { class: "small-text", text: used.toFixed(0) + "%" }))),
+      h("td", { class: "num", text: (Number(w.remaining_percent) || 0).toFixed(0) + "%" }),
+      h("td", { title: when(w.resets_at), text: w.resets_in_seconds == null ? "" : tr("reports.quota.resets_in", { time: formatCountdown(w.resets_in_seconds) }) }),
+      h("td", { text: status }),
+      h("td", { text: usedBy }));
+  });
+}
 const reportsView = {
   mount() {
     this.from = h("input", { type: "date" });
     this.to = h("input", { type: "date" });
     const periodButton = (label, period) => h("button", { class: "small", text: tr(label), onclick: () => this.load({ period }) });
     this.body = h("div");
+    this.quotaBox = h("div", { class: "card" });
+    this.timers = [];
+    this.quotaInterval = 300000;
     $("main").replaceChildren(h("div", { class: "page" }, h("div", { class: "page-inner" },
       h("h2", { text: tr("tasks.bind.reports") }),
       h("p", { class: "subtitle", text: tr("reports.subtitle") }),
@@ -2608,10 +2659,44 @@ const reportsView = {
         periodButton("reports.period.today", "day"), periodButton("reports.period.week", "week"), periodButton("reports.period.month", "month"),
         this.from, this.to,
         h("button", { class: "small primary", text: tr("reports.period.apply"), onclick: () => this.load({ from: this.from.value, to: this.to.value }) })),
+      this.quotaBox,
       this.body)));
     this.load({ period: "day" });
+    this.loadQuota(false);
+    this.scheduleQuota();
   },
-  unmount() {},
+  unmount() { (this.timers || []).forEach(clearInterval); this.timers = []; },
+  scheduleQuota() {
+    (this.timers || []).forEach(clearInterval);
+    this.timers = [setInterval(() => this.loadQuota(false), this.quotaInterval)];
+  },
+  async loadQuota(live) {
+    let data;
+    try {
+      data = await api("GET", "/api/v1/quota" + (live ? "" : "?cached=1"));
+    } catch (err) { fail(err); return; }
+    if (!this.quotaBox || !this.quotaBox.isConnected) return;  // view left meanwhile
+    const interval = (Number(data.refresh_seconds) || 300) * 1000;
+    if (interval !== this.quotaInterval) { this.quotaInterval = interval; this.scheduleQuota(); }
+    this.renderQuota(data);
+  },
+  renderQuota(data) {
+    const clis = data.clis || [];
+    const head = ["reports.quota.col.cli", "reports.quota.col.window", "reports.quota.col.used", "reports.quota.col.remaining",
+      "reports.quota.col.resets", "reports.quota.col.status", "reports.quota.col.used_by"];
+    const rows = [].concat(...clis.map(quotaRows));
+    this.quotaBox.replaceChildren(
+      h("h3", { text: tr("reports.quota.title") }),
+      h("div", { class: "toolbar" }, h("button", { class: "small", text: tr("reports.quota.refresh"), onclick: () => this.loadQuota(true) })),
+      h("p", { class: "help", text: tr("reports.quota.subtitle", { minutes: Math.round((data.refresh_seconds || 300) / 60) }) }),
+      h("p", { class: "muted", text: tr("reports.quota.fetched_at", { time: when(data.fetched_at) }) }),
+      data.throttled ? h("p", { class: "quota-warning", text: tr("reports.quota.throttled", { seconds: data.retry_after }) }) : null,
+      clis.length
+        ? h("div", { class: "table-wrap" }, h("table", null,
+          h("thead", null, h("tr", null, head.map((key) => h("th", { text: tr(key) })))),
+          h("tbody", null, rows)))
+        : h("div", { class: "help", text: tr("reports.quota.empty") }));
+  },
   async load(query) {
     let data;
     try {

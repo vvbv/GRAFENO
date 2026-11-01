@@ -235,6 +235,11 @@ class ClaudeDriver(CLIDriver):
             info = payload.get("rateLimitInfo")
         if not isinstance(info, dict):
             info = payload
+        try:
+            from .. import quota  # local import: quota imports the drivers registry
+            quota.observe_claude_rate_limit(info)
+        except Exception:  # noqa: BLE001 - passive observation never breaks a run
+            pass
         status = str(
             info.get("status") or info.get("rate_limit_type") or info.get("rateLimitType") or ""
         ).lower()

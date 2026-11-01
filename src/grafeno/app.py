@@ -14,7 +14,7 @@ from textual.app import App
 from textual.binding import Binding
 from textual.reactive import Reactive
 
-from . import __version__, models, paths, remotesession, scheduler
+from . import __version__, models, paths, quota, remotesession, scheduler
 from .i18n import t
 from .clisession_runtime import CliSessionManager
 from .models import Task, TaskState
@@ -71,6 +71,8 @@ class GrafenoApp(App):
         self.runtimes: dict[str, TaskRuntime] = {}
         # Direct CLI sessions (outside the pipeline): turns survive navigation.
         self.cli_sessions = CliSessionManager(spawn=self._spawn_session_turn)
+        # Available usage of the configured CLIs (shared by the TUI, the panel and the API).
+        self.quota_monitor = quota.QuotaMonitor()
         # Telegram bot service (None when disabled or misconfigured).
         self.telegram: TelegramService | None = None
         # REST + WebSocket server (None when disabled).
