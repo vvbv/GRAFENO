@@ -42,7 +42,7 @@ Swagger UI is not a WebSocket client: it cannot perform the `/api/v1/ws` upgrade
 
 ## Download `skill.md`
 
-`GET /api/v1/skill.md` downloads the packaged Markdown skill for agents and API consumers. It accepts no file path or name and has no WebSocket equivalent. With authentication satisfied, a successful response returns the exact UTF-8 Markdown with these headers:
+`GET /api/v1/skill.md` downloads the packaged Markdown skill for agents and API consumers. It accepts no file path or name and has no WebSocket equivalent. With authentication satisfied, a successful response returns the UTF-8 Markdown, with its example instance entry filled with this instance's name and the request host, and these headers:
 
 ```text
 Content-Type: text/markdown; charset=utf-8
@@ -51,7 +51,7 @@ Cache-Control: no-store
 X-Content-Type-Options: nosniff
 ```
 
-The package includes `src/grafeno/server/static/skill.md`, so a correctly authenticated download returns `200`; a `404` with `{"error":"skill.md is not available"}` means the resource is unavailable in that installation. This portable Agent Skill is installed as `grafeno-api/SKILL.md`.
+The package includes `src/grafeno/server/static/skill.md`, so a correctly authenticated download returns `200`; a `404` with `{"error":"skill.md is not available"}` means the resource is unavailable in that installation. This portable Agent Skill is installed as `grafeno-api/SKILL.md`. The skill requires a configured instance (name and URL, with an optional token environment variable) before any operation: see its "Instances" section. Keep that configuration outside `SKILL.md`, because updating the skill replaces the file.
 
 ## Contributor workflow
 

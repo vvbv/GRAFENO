@@ -42,7 +42,7 @@ Swagger UI no es un cliente WebSocket: no puede hacer el upgrade de `/api/v1/ws`
 
 ## Descargar `skill.md`
 
-`GET /api/v1/skill.md` descarga el skill Markdown empaquetado para agentes y consumidores de la API. No acepta ruta ni nombre de archivo y no tiene equivalente WebSocket. Con la autenticación satisfecha, una respuesta correcta devuelve el Markdown UTF-8 exacto con estas cabeceras:
+`GET /api/v1/skill.md` descarga el skill Markdown empaquetado para agentes y consumidores de la API. No acepta ruta ni nombre de archivo y no tiene equivalente WebSocket. Con la autenticación satisfecha, una respuesta correcta devuelve el Markdown UTF-8, con su entrada de ejemplo de instancia rellenada con el nombre de esta instancia y el host de la petición, y estas cabeceras:
 
 ```text
 Content-Type: text/markdown; charset=utf-8
@@ -51,7 +51,7 @@ Cache-Control: no-store
 X-Content-Type-Options: nosniff
 ```
 
-El paquete incluye `src/grafeno/server/static/skill.md`, por lo que una descarga con autenticación correcta devuelve `200`; un `404` con `{"error":"skill.md is not available"}` indica que el recurso no está disponible en esa instalación. Este Agent Skill portable se instala como `grafeno-api/SKILL.md`.
+El paquete incluye `src/grafeno/server/static/skill.md`, por lo que una descarga con autenticación correcta devuelve `200`; un `404` con `{"error":"skill.md is not available"}` indica que el recurso no está disponible en esa instalación. Este Agent Skill portable se instala como `grafeno-api/SKILL.md`. El skill exige una instancia configurada (nombre y URL, con una variable de entorno opcional para el token) antes de cualquier operación: consulta su sección "Instances". Guarda esa configuración fuera de `SKILL.md`, porque actualizar el skill reemplaza el archivo.
 
 ## Flujo para contribuidores
 

@@ -130,15 +130,15 @@ Like the TUI, the task list fills the screen and clicking a task opens its full 
 - **Projects**: the folders of the working directories grouped by root (missing roots flagged), with task counts, last activity (Last worked) and a text filter; a star marks a project as favorite (saved on the server, so every browser shares it) and favorites are listed in a group above the roots; the Project, Tasks and Last worked headers sort ascending/descending, separately within favorites and within each root; clicking a project offers "Open editor" (the configured web editor on that folder), "New task in this project", which opens the new-task form with the folder preset. The actions dialog closes with an X in its upper-right corner instead of a Cancel button. A "New project" button creates a folder in a working directory: folder only, folder + `git init`, or `git clone` of a repository URL (the name is then optional); the new project opens its actions right away.
 - **CLI sessions**: the sessions of every project (or of one project from the Projects tab), a conversation view with live agent output (Markdown rendering, tool and error lines), prompt composer (Ctrl+Enter sends; a "Send with Enter" checkbox, remembered by the browser, makes Enter send and Shift+Enter insert a new line), and stop / rename / close / reopen / delete. The web composer accepts up to 10 files per message, 4 MiB in total, and includes their base64 contents in the prompt together with the text. Global session creation uses the same searchable selector, listing every project of the catalogue and filtering by name or path; project and task entry points keep the folder fixed. The task detail also has a "New CLI session" button next to "Open editor": it opens a session in the task project whose first turn carries the task's latest summary.md as initial context (on top of the AGENTS.md/CLAUDE.md the CLI already loads).
 - **Reports**: usage by day, CLI+model and project for today, this week, this month or a date range, plus the available usage (quota windows) of the CLIs assigned in the default roles or in a profile, refreshed every 5 minutes with a live refresh button.
-- **Settings**: the whole settings screen (roles with model/effort catalogue, automode defaults, prompts, hook, updates, language, working directories (editable list with folder autocompletion), editor, startup commands (with web-editor presets), web panel (instance name shown in the header and browser tab title, theme: automatic, night, day, blue, pink, white, dark or gray, and a custom favicon), references, triggers, profiles, Telegram and API). Secrets are write-only: the panel shows whether they are set, never their value. Each instance keeps its own name, theme and favicon (`[web]` section of its `config.toml`), so several running instances are easy to tell apart.
+- **Settings**: the whole settings screen (roles with model/effort catalogue, automode defaults, prompts, hook, updates, language, working directories (editable list with folder autocompletion), editor, startup commands (with web-editor presets), web panel (instance name shown in the header and browser tab title, theme: automatic, night, day, blue, pink, white, dark or gray, and a custom favicon), references, triggers, profiles, Telegram and API, and a card that downloads the API skill (`skill.md`) for external agents). Secrets are write-only: the panel shows whether they are set, never their value. Each instance keeps its own name, theme and favicon (`[web]` section of its `config.toml`), so several running instances are easy to tell apart.
 
 Project consoles (interactive shells) stay TUI-only; CLI sessions are available in both. By default it only listens on `127.0.0.1`; `--web-host 0.0.0.0` opens it to the network and `--web-port <p>` changes the port (default: the `[api]` port, `8735`); both imply `--web`. The panel URL is shown as a TUI notification. When the panel is exposed beyond loopback and no API token is configured (`[api] tokens` or `GRAFENO_API_TOKEN`), GRAFENO generates a temporary token for that run, kept only in memory and included in the announced URL (`?token=...`; the page stores it in the browser and removes it from the address bar). The page itself carries no task data and is served without authentication; every data request goes through the usual token check. `--no-auth` (implies `--web`) disables authentication for that run: configured and `GRAFENO_API_TOKEN` tokens are ignored and no temporary token is generated; the TUI shows a warning, in red when the panel is also open to the network. Use it only on a trusted machine or network. It is plain HTTP: to reach it across untrusted networks, put it behind an SSH tunnel or a TLS reverse proxy. The panel is also available at `/` whenever the API server is enabled from the settings.
 
 ### Remote API endpoints
 
 ```
-GET  /api/v1/status                            # {version, uptime_seconds, pid, ws_path}
-GET  /api/v1/skill.md                          # packaged API skill as a Markdown download (normal API authentication)
+GET  /api/v1/status                            # {version, uptime_seconds, pid, ws_path, instance_name}
+GET  /api/v1/skill.md                          # packaged API skill as a Markdown download, with an example entry for this instance (normal API authentication)
 GET  /api/v1/time                              # {iso, utc, epoch, date, time, weekday, timezone, utc_offset, ...}
 GET  /api/v1/tasks[?state=...]                 # list tasks (optional state filter)
 GET  /api/v1/tasks/{id}                        # full task detail (to_dict + derived)
@@ -175,6 +175,7 @@ GET  /api/v1/reports?period=day|week|month | ?from=&to=   # usage report
 GET  /api/v1/quota[?cached=1]                  # available usage of the configured CLIs (live, throttled)
 GET|POST /api/v1/settings                      # global settings (secrets write-only)
 POST /api/v1/audio/speech                     # TTS: {"text", format?} -> audio file (wav/ogg)
+POST /api/v1/audio/interpret?name=             # voice note (raw body) -> transcription + proposed tasks (creates none)
 WS   /api/v1/ws                                # JSON-RPC: {"id","method","params"} + subscribe {"event":"task.changed","task":{...}}
 ```
 
@@ -184,6 +185,8 @@ and AsyncAPI 3.0 JSON documents are served in English and Spanish with
 `?lang=en|es`, and Swagger includes the `GET /api/v1/skill.md` download. See
 the [English usage guide](docs/api/swagger.en.md) or the
 [guía de uso en español](docs/api/swagger.es.md).
+
+The API skill can operate several instances. Declare each one by name and URL, with an optional environment variable for its token, in `~/.config/grafeno/instances.toml` or, on cloud clients such as Claude.ai, in the project or personal instructions. The agent then asks when a request does not make the target clear, checks `instance_name` against `GET /api/v1/status`, and labels every result with its instance.
 
 The machine-readable sources remain available under `docs/api/`:
 [OpenAPI 3.1](docs/api/openapi.yaml) for REST and

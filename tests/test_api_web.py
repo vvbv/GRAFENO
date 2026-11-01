@@ -790,3 +790,44 @@ def test_reports_view_has_quota_card_and_cleans_timers():
     assert 'tr("reports.quota.title")' in script
     block = script[script.index("const reportsView"):script.index("const settingsView")]
     assert "forEach(clearInterval)" in block
+
+
+def test_settings_skill_card_downloads_through_authenticated_api():
+    """The Settings card uses api() (bearer header), never a link or a token in the URL."""
+    static = resources.files("grafeno.server").joinpath("static")
+    script = static.joinpath("app.js").read_text(encoding="utf-8")
+    css = static.joinpath("app.css").read_text(encoding="utf-8")
+    assert 'const SKILL_PATH = "/api/v1/skill.md";' in script
+    assert 'saveBlob(await api("GET", SKILL_PATH), SKILL_FILE);' in script
+    assert 'id: "cfg-skill"' in script
+    assert "this.skillCard()," in script
+    assert 'const download = h("button", { type: "button"' in script  # inside the settings form
+    assert script.count("/api/v1/skill.md") == 1
+    assert "SKILL_PATH +" not in script and "href: SKILL_PATH" not in script
+    assert ".skill-install" in css
+
+
+def test_settings_skill_install_note_matches_the_skill():
+    """Every path of the install note, in both languages, is one the skill documents."""
+    import re
+
+    from grafeno.server import apidocs
+
+    skill = apidocs.skill_text()
+    expected = {
+        ".claude/skills/grafeno-api/SKILL.md",
+        "~/.claude/skills/grafeno-api/SKILL.md",
+        ".opencode/skills/grafeno-api/SKILL.md",
+        "~/.config/opencode/skills/grafeno-api/SKILL.md",
+        ".agents/skills/grafeno-api/SKILL.md",
+        "~/.agents/skills/grafeno-api/SKILL.md",
+    }
+    for language in ("en", "es"):
+        note = i18n._MESSAGES[language]["web.cfg.skill.install"]
+        paths = set(re.findall(r"`([^`]*/SKILL\.md)`", note))
+        assert paths == expected
+        assert "`grafeno-api`" in note and "`SKILL.md`" in note
+        assert "`~/.config/grafeno/instances.toml`" in note
+        for path in paths:
+            assert f"`{path}`" in skill, path
+    assert "`~/.config/grafeno/instances.toml`" in skill

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "API remota de GRAFENO",
-    "version": "1.11.1",
+    "version": "1.12.0",
     "summary": "API REST del servidor remoto de GRAFENO (autenticación opcional mediante token).",
     "description": "API de control REST expuesta por la TUI de GRAFENO mientras se ejecuta (sección\n`[api]` de `~/.grafeno/config.toml`). El servidor solo existe dentro\ndel proceso de la TUI como un worker; no hay un daemon independiente. La autenticación\nes OPCIONAL y exclusiva de este servidor (nunca comparte ni sobrescribe credenciales con\nel bot de Telegram ni con ninguna otra integración): cuando hay tokens configurados, las\npeticiones deben incluir el token compartido como `Authorization: Bearer <token>` o como el\nparámetro de consulta `?token=` (duplicado de\n`src/grafeno/server/auth.py`); cuando el conjunto de tokens está vacío (valor\npredeterminado), no se requiere autenticación. Los payloads de error siempre son\n`{\"error\": \"<message>\"}`. La documentación interactiva está disponible en\n`/docs` en inglés (`en`) y español\n(`es`). Los comandos y eventos de WebSocket se documentan por\nseparado con AsyncAPI.\n"
   },
@@ -48,7 +48,7 @@
     },
     {
       "name": "audio",
-      "description": "Endpoint de síntesis de audio (TTS)."
+      "description": "Endpoints de audio: síntesis de voz (TTS) e interpretación de notas de voz."
     },
     {
       "name": "catalog",
@@ -78,11 +78,11 @@
           "documentation"
         ],
         "summary": "Descargar el skill de la API empaquetado como Markdown.",
-        "description": "Devuelve el recurso `skill.md` empaquetado con GRAFENO para agentes y\notros consumidores de la API. Los bytes de Markdown se devuelven sin transformación.\nEste endpoint no acepta ninguna ruta ni nombre de archivo: solo sirve este recurso\nconcreto.\n",
+        "description": "Devuelve el recurso `skill.md` empaquetado con GRAFENO para agentes y\notros consumidores de la API. El Markdown se devuelve sin cambios salvo\nsu entrada de ejemplo de instancia, que se rellena con el nombre de esta\ninstancia y la cabecera `Host` de la petición cuando son utilizables.\nNunca contiene tokens. Este endpoint no acepta ninguna ruta ni nombre de\narchivo: solo sirve este recurso concreto.\n",
         "operationId": "getApiSkill",
         "responses": {
           "200": {
-            "description": "Skill de Markdown empaquetado, servido como adjunto sin transformación.",
+            "description": "Skill de Markdown empaquetado con su entrada de ejemplo de instancia rellenada, servido como adjunto.",
             "content": {
               "text/markdown": {
                 "schema": {
@@ -2705,6 +2705,113 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/audio/interpret": {
+      "post": {
+        "tags": [
+          "audio"
+        ],
+        "summary": "Transcribir una nota de voz y proponer tareas sin crear ninguna.",
+        "description": "El cuerpo es el propio archivo de audio. Se transcribe con los ajustes de STT del bot de Telegram y se interpreta con el CLI, el modelo y el esfuerzo del intérprete del bot, con los proyectos conocidos y las tareas existentes como contexto. Cada descripción se reescribe para que sea clara, precisa y estructurada, conservando todos los datos del usuario. El bot no necesita estar activado. No se guarda nada ni se crea ninguna tarea: usa `POST /api/v1/tasks` con las propuestas revisadas (`title` es su `name`). La petición puede tardar minutos (STT más el CLI del intérprete, con `parser_timeout` como timeout base y reintentos), así que usa un timeout de lectura largo. El token se comprueba antes de leer el cuerpo y se respeta `Expect: 100-continue`; comprueba el límite de tamaño antes de enviar, porque la conexión se cierra tras un 413. No está disponible en modo sesión remota.",
+        "operationId": "interpretVoiceNote",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "description": "Nombre de archivo de la nota de voz. Su sufijo de audio (ogg, oga, opus, mp3, wav, m4a o flac) indica el formato al proveedor.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transcripción y tareas propuestas; `tasks` está vacío cuando la nota no pide ninguna.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceNoteInterpretation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Falta `name` (`audio_name_required`) o el cuerpo está vacío (`empty_audio`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "description": "Modo sesión remota (`remote`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Nota de voz por encima del límite de 25 MiB del proveedor (`audio_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`name` sin sufijo de audio o cuerpo JSON (`unsupported_audio`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Falló la transcripción (`stt_failed`) o la interpretación (`interpret_failed`: CLI del intérprete ausente, caído o con timeout, o salida no utilizable).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceNoteError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "URL, modelo o clave de STT sin configurar (`stt_not_configured`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -6388,11 +6495,73 @@
           },
           "code": {
             "type": "string",
-            "description": "Código estable legible por máquina (endpoints de revisiones y creación de proyectos): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed, invalid_branch, invalid_mode, branch_not_found, detached, no_commits, no_upstream, upstream_gone, no_remote, ambiguous_remote, local_changes, diverged, push_rejected, no_operation, upstream_mismatch, auth_failed, remote_unreachable, not_a_repo, binary_file."
+            "description": "Código estable legible por máquina (endpoints de revisiones, creación de proyectos y notas de voz): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed, invalid_branch, invalid_mode, branch_not_found, detached, no_commits, no_upstream, upstream_gone, no_remote, ambiguous_remote, local_changes, diverged, push_rejected, no_operation, upstream_mismatch, auth_failed, remote_unreachable, not_a_repo, binary_file, empty_audio, audio_name_required, unsupported_audio, audio_too_large, stt_not_configured, stt_failed, interpret_failed."
           }
         },
         "required": [
           "error"
+        ]
+      },
+      "VoiceNoteInterpretation": {
+        "type": "object",
+        "properties": {
+          "transcription": {
+            "type": "string",
+            "description": "Texto completo de la nota de voz."
+          },
+          "tasks": {
+            "type": "array",
+            "description": "Tareas propuestas, 10 como máximo. Ninguna existe todavía.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "description": "Título de tarea corto y específico."
+                },
+                "workdir": {
+                  "type": "string",
+                  "description": "Ruta absoluta de un proyecto local existente. Vacía cuando el directorio que indica la nota no es una carpeta local, o cuando no indica ninguno y `telegram.default_workdir` no está configurado o no existe."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Descripción de la tarea reescrita en Markdown, en el idioma de la nota."
+                }
+              },
+              "required": [
+                "title",
+                "workdir",
+                "description"
+              ]
+            }
+          }
+        },
+        "required": [
+          "transcription",
+          "tasks"
+        ]
+      },
+      "VoiceNoteError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "stt_failed",
+              "interpret_failed"
+            ]
+          },
+          "transcription": {
+            "type": "string",
+            "description": "Texto ya transcrito; solo con `interpret_failed` cuando la transcripción terminó."
+          }
+        },
+        "required": [
+          "error",
+          "code"
         ]
       },
       "TaskState": {

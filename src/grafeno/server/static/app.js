@@ -512,6 +512,13 @@ async function mediaUrl(taskId, name) {
   return mediaCache.get(key);
 }
 
+// Saves a fetched blob as a file through a temporary object URL.
+function saveBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  h("a", { href: url, download: name }).click();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);  // the browser may still be reading it
+}
+
 // ---------------------------------------------------------------- live events
 const live = {
   ws: null,
@@ -2736,6 +2743,9 @@ const reportsView = {
 };
 
 // ---------------------------------------------------------------- settings view
+const SKILL_PATH = "/api/v1/skill.md";
+const SKILL_FILE = "skill.md";
+
 const settingsView = {
   // params[0] === "workspaces" or "web": open scrolled to that card.
   async mount(params) {
@@ -2905,6 +2915,7 @@ const settingsView = {
         h("div", { class: "checks" }, apiEnabled.node),
         h("div", { class: "form-grid", style: { marginTop: "12px" } },
           field(tr("cfg.api.host"), apiHost), field(tr("cfg.api.port"), apiPort), field(tr("cfg.api.tokens"), apiTokens.node, { full: true }))),
+      this.skillCard(),
       h("div", { class: "form-actions" }, save));
     const secretValue = (target, key, item) => {
       if (item.clear.box.checked) target[key + "_clear"] = true;
@@ -2967,6 +2978,25 @@ const settingsView = {
     });
     return h("div", { class: "page" }, form);
   },
+  // Download card of the API skill. It goes through api() so the request
+  // authenticates like the rest of the panel, with the token never in the URL.
+  skillCard() {
+    const download = h("button", { type: "button", text: tr("web.cfg.skill.download"), onclick: async () => {
+      download.disabled = true;
+      try {
+        saveBlob(await api("GET", SKILL_PATH), SKILL_FILE);
+      } catch (err) {
+        fail(err);
+      } finally {
+        download.disabled = false;
+      }
+    } });
+    return h("div", { class: "card", id: "cfg-skill" }, h("h3", { text: tr("web.cfg.skill.title") }),
+      h("p", { class: "help", text: tr("web.cfg.skill.help") }),
+      h("div", { class: "row" }, download),
+      h("div", { class: "skill-install" }, renderMarkdown(tr("web.cfg.skill.install"))));
+  },
+
   profilesEditor(initial) {
     const items = (initial || []).map((profile) => ({ name: profile.name, roles: profile.roles }));
     const wrap = h("div");

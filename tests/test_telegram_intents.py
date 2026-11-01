@@ -511,3 +511,47 @@ def test_tasks_summary_state_in_prompt_language():
     i18n.set_language("es")
     i18n.set_prompt_language("en")
     assert "| Draft |" in intents.tasks_summary([task])
+
+
+# ---------------------------------------------------------------------- #
+# Voice note proposals
+# ---------------------------------------------------------------------- #
+def test_voice_prompt_has_context_and_literal_braces():
+    prompt = intents.build_voice_tasks_prompt("usa {x}", "t1 | n | draft | /w/p", "/w/p | 2")
+    assert "usa {x}" in prompt and "/w/p | 2" in prompt and "t1 | n | draft" in prompt
+    assert "Project context" in prompt
+    parser_prompt = intents.build_parser_prompt("hola", "", "", "")
+    assert "FORBIDDEN to summarize" in parser_prompt
+    assert "Project context" not in parser_prompt
+
+
+def test_parse_voice_tasks_payload():
+    good = json.dumps({"tasks": [{"name": "A", "description": "d", "workdir": "/w"}, {"name": " "}, "x"]})
+    specs = intents.parse_voice_tasks_payload(good)
+    assert specs is not None and [s.name for s in specs] == ["A"]
+    many = json.dumps({"tasks": [{"name": f"t{i}"} for i in range(intents.MAX_TASKS_PER_INTENT + 3)]})
+    assert len(intents.parse_voice_tasks_payload(many)) == intents.MAX_TASKS_PER_INTENT
+    assert intents.parse_voice_tasks_payload('{"tasks": []}') == []
+    assert intents.parse_voice_tasks_payload("no json") is None
+    assert intents.parse_voice_tasks_payload('{"other": 1}') is None
+    nulls = intents.parse_voice_tasks_payload(
+        json.dumps({"tasks": [{"name": None, "description": "d"}, {"name": "A", "description": None, "workdir": None}]})
+    )
+    assert [(s.name, s.description, s.workdir) for s in nulls] == [("A", "", "")]
+
+
+def test_propose_voice_tasks_success_and_retry(tmp_path):
+    payload = json.dumps({"tasks": [{"name": "A", "description": "d"}]})
+    driver = FakeDriver([RunResult(ok=False, error="boom"), _ok(payload)])
+    proposal = _run(intents.propose_voice_tasks(driver, "m", "texto", "", tmp_path, retry_delay=0))
+    assert not proposal.error and [s.name for s in proposal.tasks] == ["A"]
+    assert len(driver.prompts) == 2
+
+
+def test_propose_voice_tasks_failures(tmp_path):
+    driver = FakeDriver([RunResult(ok=False, error="boom")] * 3)
+    proposal = _run(intents.propose_voice_tasks(driver, "m", "texto", "", tmp_path, retry_delay=0))
+    assert "boom" in proposal.error and proposal.tasks == []
+    driver = FakeDriver([_ok("sin json")])
+    proposal = _run(intents.propose_voice_tasks(driver, "m", "texto", "", tmp_path, retry_delay=0))
+    assert proposal.error == "invalid parser output"

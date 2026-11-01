@@ -44,8 +44,8 @@
   translation: "Revisión asistida de cambios git pendientes en repositorios anidados; solo commits explícitos."
 - source: "Projects - task workdirs and folders of the working directories, with task counts."
   translation: "Proyectos: directorios de trabajo de las tareas y carpetas de los directorios de trabajo, con el número de tareas."
-- source: "Audio synthesis (TTS) endpoint."
-  translation: "Endpoint de síntesis de audio (TTS)."
+- source: "Audio endpoints - speech synthesis (TTS) and voice note interpretation."
+  translation: "Endpoints de audio: síntesis de voz (TTS) e interpretación de notas de voz."
 - source: "New-task form options, model catalogue, directories and GitHub issues."
   translation: "Opciones del formulario de nueva tarea, catálogo de modelos, directorios e issues de GitHub."
 - source: "Usage reports (tokens, models, time and projects per period)."
@@ -60,16 +60,20 @@
   translation: "Descargar el skill de la API empaquetado como Markdown."
 - source: |
     Returns the `skill.md` resource packaged with GRAFENO for agents and
-    other API consumers. The Markdown bytes are returned without
-    transformation. This endpoint accepts no file path or file name: it
-    only serves this specific resource.
+    other API consumers. The Markdown is returned unchanged except for its
+    example instance entry, which is filled with this instance's name and
+    the request `Host` when they are usable. It never contains tokens. This
+    endpoint accepts no file path or file name: it only serves this
+    specific resource.
   translation: |
     Devuelve el recurso `skill.md` empaquetado con GRAFENO para agentes y
-    otros consumidores de la API. Los bytes de Markdown se devuelven sin transformación.
-    Este endpoint no acepta ninguna ruta ni nombre de archivo: solo sirve este recurso
-    concreto.
-- source: "Packaged Markdown skill, served as an attachment without transformation."
-  translation: "Skill de Markdown empaquetado, servido como adjunto sin transformación."
+    otros consumidores de la API. El Markdown se devuelve sin cambios salvo
+    su entrada de ejemplo de instancia, que se rellena con el nombre de esta
+    instancia y la cabecera `Host` de la petición cuando son utilizables.
+    Nunca contiene tokens. Este endpoint no acepta ninguna ruta ni nombre de
+    archivo: solo sirve este recurso concreto.
+- source: "Packaged Markdown skill with its example instance entry filled in, served as an attachment."
+  translation: "Skill de Markdown empaquetado con su entrada de ejemplo de instancia rellenada, servido como adjunto."
 - source: "The packaged `skill.md` resource is not available in this installation."
   translation: "El recurso `skill.md` empaquetado no está disponible en esta instalación."
 - source: "Upgrade an HTTP connection to the JSON-RPC WebSocket channel."
@@ -901,8 +905,8 @@
   translation: "True cuando `next`/`prev` sobrepasó el final de la lista (el cursor se mantiene)."
 - source: "Present on request-changes."
   translation: "Presente en request-changes."
-- source: "Stable machine-readable code (reviews and project creation endpoints): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed, invalid_branch, invalid_mode, branch_not_found, detached, no_commits, no_upstream, upstream_gone, no_remote, ambiguous_remote, local_changes, diverged, push_rejected, no_operation, upstream_mismatch, auth_failed, remote_unreachable, not_a_repo, binary_file."
-  translation: "Código estable legible por máquina (endpoints de revisiones y creación de proyectos): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed, invalid_branch, invalid_mode, branch_not_found, detached, no_commits, no_upstream, upstream_gone, no_remote, ambiguous_remote, local_changes, diverged, push_rejected, no_operation, upstream_mismatch, auth_failed, remote_unreachable, not_a_repo, binary_file."
+- source: "Stable machine-readable code (reviews, project creation and voice note endpoints): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed, invalid_branch, invalid_mode, branch_not_found, detached, no_commits, no_upstream, upstream_gone, no_remote, ambiguous_remote, local_changes, diverged, push_rejected, no_operation, upstream_mismatch, auth_failed, remote_unreachable, not_a_repo, binary_file, empty_audio, audio_name_required, unsupported_audio, audio_too_large, stt_not_configured, stt_failed, interpret_failed."
+  translation: "Código estable legible por máquina (endpoints de revisiones, creación de proyectos y notas de voz): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed, invalid_branch, invalid_mode, branch_not_found, detached, no_commits, no_upstream, upstream_gone, no_remote, ambiguous_remote, local_changes, diverged, push_rejected, no_operation, upstream_mismatch, auth_failed, remote_unreachable, not_a_repo, binary_file, empty_audio, audio_name_required, unsupported_audio, audio_too_large, stt_not_configured, stt_failed, interpret_failed."
 - source: "Derived, read-only pending unattended start of a task."
   translation: "Inicio desatendido pendiente, derivado y de solo lectura, de una tarea."
 - source: "Empty when nothing is pending (task started, paused, failed, done, discarded or running)."
@@ -1141,3 +1145,35 @@
   translation: "Segundos de espera antes de la siguiente petición en vivo; solo aparece cuando throttled es true."
 - source: "ISO 8601 with offset; empty when unknown."
   translation: "ISO 8601 con desfase; vacío cuando se desconoce."
+- source: "Transcribe a voice note and propose tasks without creating any."
+  translation: "Transcribir una nota de voz y proponer tareas sin crear ninguna."
+- source: "The body is the audio file itself. It is transcribed with the Telegram bot STT settings and interpreted with the bot parser CLI, model and effort, using the known projects and existing tasks as context. Each description is rewritten to be clear, precise and structured, keeping all the user's data. The bot does not need to be enabled. Nothing is stored and no task is created: use `POST /api/v1/tasks` with the reviewed proposals (`title` is its `name`). The request can take minutes (STT plus the parser CLI, with `parser_timeout` as the base timeout and retries), so use a long read timeout. The token is checked before the body is read and `Expect: 100-continue` is honored; check the size limit before sending, because the connection closes after a 413. Not available in remote session mode."
+  translation: "El cuerpo es el propio archivo de audio. Se transcribe con los ajustes de STT del bot de Telegram y se interpreta con el CLI, el modelo y el esfuerzo del intérprete del bot, con los proyectos conocidos y las tareas existentes como contexto. Cada descripción se reescribe para que sea clara, precisa y estructurada, conservando todos los datos del usuario. El bot no necesita estar activado. No se guarda nada ni se crea ninguna tarea: usa `POST /api/v1/tasks` con las propuestas revisadas (`title` es su `name`). La petición puede tardar minutos (STT más el CLI del intérprete, con `parser_timeout` como timeout base y reintentos), así que usa un timeout de lectura largo. El token se comprueba antes de leer el cuerpo y se respeta `Expect: 100-continue`; comprueba el límite de tamaño antes de enviar, porque la conexión se cierra tras un 413. No está disponible en modo sesión remota."
+- source: "File name of the voice note. Its audio suffix (ogg, oga, opus, mp3, wav, m4a or flac) tells the provider the format."
+  translation: "Nombre de archivo de la nota de voz. Su sufijo de audio (ogg, oga, opus, mp3, wav, m4a o flac) indica el formato al proveedor."
+- source: "Transcription and proposed tasks; `tasks` is empty when the note asks for none."
+  translation: "Transcripción y tareas propuestas; `tasks` está vacío cuando la nota no pide ninguna."
+- source: "Missing `name` (`audio_name_required`) or empty body (`empty_audio`)."
+  translation: "Falta `name` (`audio_name_required`) o el cuerpo está vacío (`empty_audio`)."
+- source: "Remote session mode (`remote`)."
+  translation: "Modo sesión remota (`remote`)."
+- source: "Voice note over the 25 MiB provider limit (`audio_too_large`)."
+  translation: "Nota de voz por encima del límite de 25 MiB del proveedor (`audio_too_large`)."
+- source: "`name` without an audio suffix or a JSON body (`unsupported_audio`)."
+  translation: "`name` sin sufijo de audio o cuerpo JSON (`unsupported_audio`)."
+- source: "Transcription failed (`stt_failed`) or interpretation failed (`interpret_failed`: parser CLI missing, crashed or timed out, or unusable output)."
+  translation: "Falló la transcripción (`stt_failed`) o la interpretación (`interpret_failed`: CLI del intérprete ausente, caído o con timeout, o salida no utilizable)."
+- source: "STT URL, model or key not configured (`stt_not_configured`)."
+  translation: "URL, modelo o clave de STT sin configurar (`stt_not_configured`)."
+- source: "Full text of the voice note."
+  translation: "Texto completo de la nota de voz."
+- source: "Proposed tasks, at most 10. None of them exists yet."
+  translation: "Tareas propuestas, 10 como máximo. Ninguna existe todavía."
+- source: "Short and specific task title."
+  translation: "Título de tarea corto y específico."
+- source: "Absolute path of an existing local project. Empty when the directory named by the note is not a local folder, or when the note names none and `telegram.default_workdir` is not set or does not exist."
+  translation: "Ruta absoluta de un proyecto local existente. Vacía cuando el directorio que indica la nota no es una carpeta local, o cuando no indica ninguno y `telegram.default_workdir` no está configurado o no existe."
+- source: "Rewritten task description in Markdown, in the language of the note."
+  translation: "Descripción de la tarea reescrita en Markdown, en el idioma de la nota."
+- source: "Text already transcribed; only with `interpret_failed` when the transcription finished."
+  translation: "Texto ya transcrito; solo con `interpret_failed` cuando la transcripción terminó."

@@ -504,6 +504,7 @@ def test_prompt_templates_exist_in_every_language_with_same_placeholders():
     found = dict(_template_dicts())
     assert "grafeno.pipeline.prompts._PLAN_PROMPT" in found
     assert "grafeno.telegram.intents._PARSER_PROMPT" in found
+    assert "grafeno.telegram.intents._VOICE_TASKS_PROMPT" in found
     assert "grafeno.telegram.service._ASK_PROMPT" in found
     assert "grafeno.drivers.base._AGENTS_MD_PROMPT" in found
     assert "grafeno.reviews._COMMIT_MESSAGE_PROMPT" in found

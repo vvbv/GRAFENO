@@ -23,12 +23,15 @@ from typing import Awaitable, Callable, Optional
 from urllib.parse import parse_qs, urlsplit
 
 from .. import media
+from ..telegram.stt import MAX_AUDIO_BYTES
 
 MAX_HEAD = 32 * 1024      # hard cap on a single request head
 MAX_BODY = 8 * 1024 * 1024  # hard cap on a single request body (regular requests)
 MAX_UPLOAD_BODY = media.base64_length(media.MAX_ATTACHMENT_BYTES) + 1024 * 1024  # JSON+base64: one max file
 MAX_RAW_UPLOAD_BODY = media.MAX_ATTACHMENT_BYTES  # raw file body of POST .../attachments
 UPLOAD_IDLE_TIMEOUT = 60.0  # seconds without receiving upload bytes
+MAX_VOICE_NOTE_BODY = MAX_AUDIO_BYTES  # raw body of POST /api/v1/audio/interpret (STT provider limit)
+_VOICE_NOTE_PATH = "/api/v1/audio/interpret"
 READ_CHUNK = 1024 * 1024    # bytes per read/write when streaming bodies and files
 _UPLOAD_PATH = re.compile(r"/api/v1/tasks(?:/[^/]+/(?:extend|attachments))?")
 _RAW_UPLOAD_PATH = re.compile(r"/api/v1/(?:tasks|sessions)/[^/]+/attachments")  # raw file bodies only
@@ -326,6 +329,7 @@ class BodyPolicy:
     timeout: float        # seconds per read
     upload: bool = False  # file-carrying route: authorized before the body is read
     spool: bool = False   # stream into a temp file (Request.body_path) instead of memory
+    too_large_code: str = ""  # stable ``code`` of the 413 answer (empty = none)
 
 
 def body_policy(method: str, path: str, headers: dict[str, str]) -> BodyPolicy:
@@ -336,6 +340,8 @@ def body_policy(method: str, path: str, headers: dict[str, str]) -> BodyPolicy:
     the body is read, which is why the large caps stay limited to them.
     """
     if method == "POST":
+        if path == _VOICE_NOTE_PATH:
+            return BodyPolicy(MAX_VOICE_NOTE_BODY, UPLOAD_IDLE_TIMEOUT, upload=True, too_large_code="audio_too_large")
         content_type = headers.get("content-type", "").lower()
         if _RAW_UPLOAD_PATH.fullmatch(path) and not content_type.startswith("application/json"):
             return BodyPolicy(MAX_RAW_UPLOAD_BODY, UPLOAD_IDLE_TIMEOUT, upload=True, spool=True)
@@ -377,7 +383,10 @@ async def _read_body(
     if length < 0:
         raise BadRequest("negative content-length")
     if length > policy.limit:
-        raise EarlyResponse(Response.json(413, {"error": f"body too large (>{policy.limit} bytes)"}))
+        too_large = {"error": f"body too large (>{policy.limit} bytes)"}
+        if policy.too_large_code:
+            too_large["code"] = policy.too_large_code
+        raise EarlyResponse(Response.json(413, too_large))
     if length == 0:
         return b"", None
     directory: Path | None = None

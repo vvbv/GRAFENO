@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import html
+import re
 from importlib import resources
 
-from .. import __version__
+from .. import __version__, _toml
 from ..i18n import DEFAULT_LANGUAGE, LANGUAGES, current_language, t_lang
 from .httpcore import Request, Response
 
@@ -28,6 +29,11 @@ CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self'; "
     "img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; "
     "base-uri 'none'; form-action 'self'"
+)
+SKILL_NAME_PLACEHOLDER = '"<served-instance-name>"'
+SKILL_URL_PLACEHOLDER = '"<served-instance-url>"'
+_HOST_HEADER = re.compile(
+    r"(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?"
 )
 
 
@@ -108,3 +114,18 @@ def spec_response(kind: str, language: str) -> Response:
 def skill_text() -> str:
     """Read the packaged API skill without altering its Markdown."""
     return resources.files(__package__).joinpath("static/skill.md").read_text(encoding="utf-8")
+
+
+def render_skill(text: str, name: str, host: str) -> str:
+    """Fill the skill's example entry; an unusable value keeps its placeholder.
+
+    ``name`` must already be normalized. ``host`` comes from the request, so
+    anything but a plain host[:port] is ignored. The scheme is always http:
+    the server does not know about a TLS proxy in front of it, and the skill
+    tells the reader to check it. Tokens never reach this function.
+    """
+    if _HOST_HEADER.fullmatch(host):
+        text = text.replace(SKILL_URL_PLACEHOLDER, _toml._format_value(f"http://{host}"))
+    if name:
+        text = text.replace(SKILL_NAME_PLACEHOLDER, _toml._format_value(name))
+    return text

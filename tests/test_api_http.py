@@ -282,6 +282,9 @@ def test_body_policy_by_route() -> None:
         assert policy.limit == httpcore.MAX_BODY and not policy.upload
     assert httpcore.MAX_UPLOAD_BODY >= media.base64_length(media.MAX_ATTACHMENT_BYTES)
     assert httpcore.MAX_RAW_UPLOAD_BODY == media.MAX_ATTACHMENT_BYTES
+    voice = httpcore.body_policy("POST", "/api/v1/audio/interpret", {"content-type": "audio/mp4"})
+    assert voice.limit == httpcore.MAX_VOICE_NOTE_BODY and voice.upload and not voice.spool
+    assert voice.too_large_code == "audio_too_large"
 
 
 async def _head_only(service: ServerService, path: str, headers: dict[str, str]) -> int:

@@ -978,6 +978,19 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "web.cfg.favicon.none": "No custom favicon.",
         "web.cfg.favicon.clear": "Remove the custom favicon",
         "web.cfg.favicon.too_large": "The favicon exceeds {size} KiB.",
+        "web.cfg.skill.title": "API skill for external agents",
+        "web.cfg.skill.help": "Download the grafeno-api skill so external agents (Claude Code, OpenCode, Codex, Claude.ai...) learn how to operate this instance through its REST and WebSocket API.",
+        "web.cfg.skill.download": "Download skill.md",
+        "web.cfg.skill.install": (
+            "**Install:** create a folder named `grafeno-api` in the skills directory of your client and save the file inside it as `SKILL.md` (uppercase).\n\n"
+            "| Client | Project | Personal |\n"
+            "| --- | --- | --- |\n"
+            "| Claude Code | `.claude/skills/grafeno-api/SKILL.md` | `~/.claude/skills/grafeno-api/SKILL.md` |\n"
+            "| OpenCode | `.opencode/skills/grafeno-api/SKILL.md` | `~/.config/opencode/skills/grafeno-api/SKILL.md` |\n"
+            "| Codex | `.agents/skills/grafeno-api/SKILL.md` | `~/.agents/skills/grafeno-api/SKILL.md` |\n\n"
+            "Claude.ai and other cloud clients: import or upload the skill package and enable it in your account; copying a file into a local folder does not install it there.\n\n"
+            "**Configure:** declare your instances (name and URL, never a token) in `~/.config/grafeno/instances.toml`, or in the project or personal instructions on Claude.ai. The downloaded skill includes an example entry for this instance; see its Instances section."
+        ),
         "web.theme.auto": "Automatic (system light/dark)",
         "web.theme.night": "Night",
         "web.theme.day": "Day",
@@ -1967,6 +1980,19 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "web.cfg.favicon.none": "Sin favicon personalizado.",
         "web.cfg.favicon.clear": "Quitar el favicon personalizado",
         "web.cfg.favicon.too_large": "El favicon supera los {size} KiB.",
+        "web.cfg.skill.title": "Skill de la API para agentes externos",
+        "web.cfg.skill.help": "Descarga el skill grafeno-api para que agentes externos (Claude Code, OpenCode, Codex, Claude.ai...) sepan operar esta instancia mediante su API REST y WebSocket.",
+        "web.cfg.skill.download": "Descargar skill.md",
+        "web.cfg.skill.install": (
+            "**Instalación:** crea una carpeta llamada `grafeno-api` en el directorio de skills de tu cliente y guarda dentro el archivo como `SKILL.md` (en mayúsculas).\n\n"
+            "| Cliente | Proyecto | Personal |\n"
+            "| --- | --- | --- |\n"
+            "| Claude Code | `.claude/skills/grafeno-api/SKILL.md` | `~/.claude/skills/grafeno-api/SKILL.md` |\n"
+            "| OpenCode | `.opencode/skills/grafeno-api/SKILL.md` | `~/.config/opencode/skills/grafeno-api/SKILL.md` |\n"
+            "| Codex | `.agents/skills/grafeno-api/SKILL.md` | `~/.agents/skills/grafeno-api/SKILL.md` |\n\n"
+            "Claude.ai y otros clientes en la nube: importa o sube el paquete del skill y actívalo en tu cuenta; copiar un archivo a una carpeta local no lo instala allí.\n\n"
+            "**Configuración:** declara tus instancias (nombre y URL, nunca un token) en `~/.config/grafeno/instances.toml`, o en las instrucciones del proyecto o personales en Claude.ai. El skill descargado incluye una entrada de ejemplo para esta instancia; consulta su sección Instances."
+        ),
         "web.theme.auto": "Automático (claro/oscuro del sistema)",
         "web.theme.night": "Noche",
         "web.theme.day": "Día",

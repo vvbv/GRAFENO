@@ -250,6 +250,7 @@ dl.info dd { margin: 0; word-break: break-word; white-space: pre-line; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
 .checks { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .help { font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
+.skill-install { margin-top: 12px; font-size: 13px; overflow-x: auto; }  /* the paths table must not overflow the card */
 .form-error { color: var(--danger); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .form-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; position: sticky; bottom: -40px; padding: 12px 0 52px; margin-bottom: -40px; background: var(--bg); border-top: 1px solid var(--border); z-index: 2; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }

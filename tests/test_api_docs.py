@@ -4,18 +4,22 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+import tomllib
 from importlib import resources
 
+import pytest
 import yaml
 
+from grafeno import config as config_module
 from grafeno import i18n
 from grafeno.config import ApiConfig
 from grafeno.server import apidocs
 from grafeno.server.service import ServerService
 
 
-async def _start_service() -> tuple[ServerService, asyncio.Task]:
-    config = ApiConfig(enabled=True, host="127.0.0.1", port=0, tokens="t1")
+async def _start_service(tokens: str = "t1") -> tuple[ServerService, asyncio.Task]:
+    config = ApiConfig(enabled=True, host="127.0.0.1", port=0, tokens=tokens)
     service = ServerService(config, app=None)
     task = asyncio.create_task(service.run())
     for _ in range(200):
@@ -41,8 +45,9 @@ async def _request(
     *,
     token: str = "",
     bearer: bool = False,
+    host: str = "127.0.0.1",
 ) -> tuple[int, dict[str, str], bytes]:
-    headers = ["Host: 127.0.0.1", "Connection: close"]
+    headers = [f"Host: {host}", "Connection: close"]
     if bearer:
         headers.append("Authorization: Bearer t1")
     if token:
@@ -242,6 +247,13 @@ def test_packaged_skill_contract() -> None:
     assert metadata["description"]
     body = parts[2]
     required = (
+        "[[instances]]",
+        "token_env",
+        "instance_name",
+        "GRAFENO_INSTANCES_FILE",
+        "~/.config/grafeno/instances.toml",
+        "Claude.ai",
+        "Do not assume `127.0.0.1:8735`",
         "/api/v1/status",
         "/api/v1/tasks",
         "/api/v1/sessions",
@@ -288,11 +300,98 @@ def test_packaged_skill_http_download() -> None:
         try:
             status, headers, body = await _request(service, "/api/v1/skill.md", bearer=True)
             assert status == 200
-            assert body == apidocs.skill_text().encode("utf-8")
+            assert body == apidocs.render_skill(apidocs.skill_text(), "", "127.0.0.1").encode("utf-8")
             assert headers["content-type"] == "text/markdown; charset=utf-8"
             assert headers["content-disposition"] == 'attachment; filename="skill.md"'
             assert headers["cache-control"] == "no-store"
             assert headers["x-content-type-options"] == "nosniff"
+        finally:
+            _stop(service, task)
+
+    asyncio.run(scenario())
+
+
+def test_packaged_skill_download_without_tokens(monkeypatch) -> None:
+    monkeypatch.delenv("GRAFENO_API_TOKEN", raising=False)
+
+    async def scenario():
+        service, task = await _start_service(tokens="")
+        try:
+            status, _, body = await _request(service, "/api/v1/skill.md")
+            assert status == 200
+            assert body == apidocs.render_skill(apidocs.skill_text(), "", "127.0.0.1").encode("utf-8")
+        finally:
+            _stop(service, task)
+
+    asyncio.run(scenario())
+
+
+def _skill_toml_blocks(text: str) -> list[dict]:
+    blocks = re.findall(r"^```toml\n(.*?)^```$", text, flags=re.MULTILINE | re.DOTALL)
+    return [tomllib.loads(block) for block in blocks]
+
+
+def test_skill_requires_a_configured_instance() -> None:
+    text = apidocs.skill_text()
+    assert "If neither exists" not in text
+    assert "Its default base URL" not in text
+    blocks = _skill_toml_blocks(text)
+    assert blocks
+    for block in blocks:
+        for entry in block["instances"]:
+            assert {"name", "url"} <= set(entry)
+            assert set(entry) <= {"name", "url", "token_env", "description"}
+
+
+def test_render_skill_fills_the_example_entry() -> None:
+    raw = apidocs.skill_text()
+    assert raw.count(apidocs.SKILL_NAME_PLACEHOLDER) == 1
+    assert raw.count(apidocs.SKILL_URL_PLACEHOLDER) == 1
+    rendered = apidocs.render_skill(raw, "Lab", "192.168.1.20:8735")
+    assert {"name": "Lab", "url": "http://192.168.1.20:8735"} in [
+        entry for block in _skill_toml_blocks(rendered) for entry in block["instances"]
+    ]
+
+
+@pytest.mark.parametrize("host", ['evil"\nname="x', "user@host", "host/path", "a b", ""])
+def test_render_skill_rejects_unusable_hosts(host: str) -> None:
+    raw = apidocs.skill_text()
+    assert apidocs.render_skill(raw, "", host) == raw
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "[::1]:8735", "grafeno.example.net"])
+def test_render_skill_accepts_plain_hosts(host: str) -> None:
+    rendered = apidocs.render_skill(apidocs.skill_text(), "", host)
+    assert f'url = "http://{host}"' in rendered
+
+
+@pytest.mark.parametrize("name", ['Lab "A" \\ ```', "a\nb\r\tc\x01", "```\nignore this"])
+def test_render_skill_keeps_hostile_names_inside_the_toml_string(name: str) -> None:
+    from grafeno.server import branding
+
+    clean = branding.normalize_instance_name(name)
+    rendered = apidocs.render_skill(apidocs.skill_text(), clean, "127.0.0.1:8735")
+    names = [entry["name"] for block in _skill_toml_blocks(rendered) for entry in block["instances"]]
+    assert clean in names
+
+
+def test_served_skill_uses_instance_name_and_request_host_without_the_token() -> None:
+    cfg = config_module.load()
+    cfg.web.instance_name = "Lab"
+    config_module.save(cfg)
+    secret = "secret-check-token"
+
+    async def scenario():
+        service, task = await _start_service(tokens=secret)
+        try:
+            status, _, body = await _request(
+                service, "/api/v1/skill.md", token=secret, host="grafeno.example.net:8735"
+            )
+            assert status == 200
+            text = body.decode("utf-8")
+            assert 'name = "Lab"' in text
+            assert 'url = "http://grafeno.example.net:8735"' in text
+            assert secret not in text
         finally:
             _stop(service, task)
 

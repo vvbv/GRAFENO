@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "GRAFENO Remote API",
-    "version": "1.11.1",
+    "version": "1.12.0",
     "summary": "REST API of the GRAFENO remote server (optional token authentication).",
     "description": "REST control API exposed by the GRAFENO TUI while it is running\n(`[api]` section of `~/.grafeno/config.toml`). The server lives only\ninside the TUI process as a worker; there is no standalone daemon.\nAuthentication is OPTIONAL and dedicated to this server (it never\nshares nor overrides credentials with the Telegram bot or any other\nintegration): when tokens are configured, requests must carry the\nshared token as `Authorization: Bearer <token>` or as the `?token=`\nquery parameter (duplicate of `src/grafeno/server/auth.py`); when the\ntoken set is empty (the default), no authentication is required.\nError payloads are always `{\"error\": \"<message>\"}`.\nInteractive documentation is available at `/docs` in English (`en`) and\nSpanish (`es`). WebSocket commands and events are documented separately\nwith AsyncAPI.\n"
   },
@@ -48,7 +48,7 @@
     },
     {
       "name": "audio",
-      "description": "Audio synthesis (TTS) endpoint."
+      "description": "Audio endpoints - speech synthesis (TTS) and voice note interpretation."
     },
     {
       "name": "catalog",
@@ -78,11 +78,11 @@
           "documentation"
         ],
         "summary": "Download the packaged API skill as Markdown.",
-        "description": "Returns the `skill.md` resource packaged with GRAFENO for agents and\nother API consumers. The Markdown bytes are returned without\ntransformation. This endpoint accepts no file path or file name: it\nonly serves this specific resource.\n",
+        "description": "Returns the `skill.md` resource packaged with GRAFENO for agents and\nother API consumers. The Markdown is returned unchanged except for its\nexample instance entry, which is filled with this instance's name and\nthe request `Host` when they are usable. It never contains tokens. This\nendpoint accepts no file path or file name: it only serves this\nspecific resource.\n",
         "operationId": "getApiSkill",
         "responses": {
           "200": {
-            "description": "Packaged Markdown skill, served as an attachment without transformation.",
+            "description": "Packaged Markdown skill with its example instance entry filled in, served as an attachment.",
             "content": {
               "text/markdown": {
                 "schema": {
@@ -2705,6 +2705,113 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/audio/interpret": {
+      "post": {
+        "tags": [
+          "audio"
+        ],
+        "summary": "Transcribe a voice note and propose tasks without creating any.",
+        "description": "The body is the audio file itself. It is transcribed with the Telegram bot STT settings and interpreted with the bot parser CLI, model and effort, using the known projects and existing tasks as context. Each description is rewritten to be clear, precise and structured, keeping all the user's data. The bot does not need to be enabled. Nothing is stored and no task is created: use `POST /api/v1/tasks` with the reviewed proposals (`title` is its `name`). The request can take minutes (STT plus the parser CLI, with `parser_timeout` as the base timeout and retries), so use a long read timeout. The token is checked before the body is read and `Expect: 100-continue` is honored; check the size limit before sending, because the connection closes after a 413. Not available in remote session mode.",
+        "operationId": "interpretVoiceNote",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "description": "File name of the voice note. Its audio suffix (ogg, oga, opus, mp3, wav, m4a or flac) tells the provider the format.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transcription and proposed tasks; `tasks` is empty when the note asks for none.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceNoteInterpretation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing `name` (`audio_name_required`) or empty body (`empty_audio`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "description": "Remote session mode (`remote`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Voice note over the 25 MiB provider limit (`audio_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`name` without an audio suffix or a JSON body (`unsupported_audio`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Transcription failed (`stt_failed`) or interpretation failed (`interpret_failed`: parser CLI missing, crashed or timed out, or unusable output).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceNoteError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "STT URL, model or key not configured (`stt_not_configured`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -6388,11 +6495,73 @@
           },
           "code": {
             "type": "string",
-            "description": "Stable machine-readable code (reviews and project creation endpoints): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed, invalid_branch, invalid_mode, branch_not_found, detached, no_commits, no_upstream, upstream_gone, no_remote, ambiguous_remote, local_changes, diverged, push_rejected, no_operation, upstream_mismatch, auth_failed, remote_unreachable, not_a_repo, binary_file."
+            "description": "Stable machine-readable code (reviews, project creation and voice note endpoints): invalid_name, invalid_url, invalid_mode, invalid_workspace, no_workspace, exists, clone_failed, init_failed, io_error, invalid_path, empty_message, multi_repo, not_pending, conflicted, not_committable, partially_staged, stale, operation_in_progress, commit_failed, git_failed, timeout, git_missing, busy, closed, remote, agent_failed, invalid_branch, invalid_mode, branch_not_found, detached, no_commits, no_upstream, upstream_gone, no_remote, ambiguous_remote, local_changes, diverged, push_rejected, no_operation, upstream_mismatch, auth_failed, remote_unreachable, not_a_repo, binary_file, empty_audio, audio_name_required, unsupported_audio, audio_too_large, stt_not_configured, stt_failed, interpret_failed."
           }
         },
         "required": [
           "error"
+        ]
+      },
+      "VoiceNoteInterpretation": {
+        "type": "object",
+        "properties": {
+          "transcription": {
+            "type": "string",
+            "description": "Full text of the voice note."
+          },
+          "tasks": {
+            "type": "array",
+            "description": "Proposed tasks, at most 10. None of them exists yet.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "description": "Short and specific task title."
+                },
+                "workdir": {
+                  "type": "string",
+                  "description": "Absolute path of an existing local project. Empty when the directory named by the note is not a local folder, or when the note names none and `telegram.default_workdir` is not set or does not exist."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Rewritten task description in Markdown, in the language of the note."
+                }
+              },
+              "required": [
+                "title",
+                "workdir",
+                "description"
+              ]
+            }
+          }
+        },
+        "required": [
+          "transcription",
+          "tasks"
+        ]
+      },
+      "VoiceNoteError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "stt_failed",
+              "interpret_failed"
+            ]
+          },
+          "transcription": {
+            "type": "string",
+            "description": "Text already transcribed; only with `interpret_failed` when the transcription finished."
+          }
+        },
+        "required": [
+          "error",
+          "code"
         ]
       },
       "TaskState": {

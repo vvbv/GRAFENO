@@ -54,7 +54,7 @@ src/grafeno/
 │   ├── api.py              #   Cliente Bot API con urllib (long polling, multipart a mano, troceo 4096 con pacing CHUNK_DELAY entre chunks y reintento ante 429; el reply_markup viaja siempre en el último chunk); transporte inyectable; el token nunca se loguea
 │   ├── stt.py              #   Transcripción vía endpoint OpenAI-compatible (Groq whisper-large-v3-turbo por defecto), best-effort
 │   ├── tts.py              #   Voz generada vía endpoint OpenAI-compatible (Groq orpheus, voz masculina `troy` por defecto), opt-in; el WAV del proveedor se convierte a OGG/OPUS con ffmpeg externo (best effort; sin ffmpeg se envía como sendAudio); el texto se trocea en segmentos de menos de 200 caracteres (límite de Groq Orpheus) y los WAV se unen (`split_speech`/`merge_wavs`); los problemas (proveedor, clave, ffmpeg ausente) se registran en telegram.log y se avisan una vez por chat y en la TUI (`_tts_notice`), y al arrancar el bot se avisa si falta ffmpeg
-│   ├── intents.py          #   Interpretación del mensaje con un CLI de agente (prompt one-shot -> JSON): crear/listar tareas/listar proyectos (directorios del scope global)/tareas de un proyecto/estado/archivos/preguntar
+│   ├── intents.py          #   Interpretación del mensaje con un CLI de agente (prompt one-shot -> JSON): crear/listar tareas/listar proyectos (directorios del scope global)/tareas de un proyecto/estado/archivos/preguntar; además el prompt propio de `POST /api/v1/audio/interpret` (`_VOICE_TASKS_PROMPT`: reescribe las descripciones de forma estructurada, a diferencia de `_PARSER_PROMPT`, que conserva el texto) y `propose_voice_tasks`
 │   └── service.py          #   Bucle de polling (worker de la App), whitelist de chats, propuestas con botones inline, creación origin="telegram", notificación de fin
 ├── server/                 # Servidor remoto REST + WS sobre stdlib (asyncio)
 │   ├── service.py          #   Ciclo de vida: bind, eventos push por sondeo (signature) y registro de conexiones WS; logs a ~/.grafeno/api.log (cap 1 MiB) sin el token
@@ -68,6 +68,7 @@ src/grafeno/
 │   ├── projectfiles.py     #   Explorador de archivos de proyecto de solo lectura: listado paginado (ocultos opcionales, tope SCAN_MAX_ENTRIES), metadatos (mime seguro, preview, texto/binario, urls), páginas de texto por líneas (tope 2 MiB) y bytes en crudo con Range (206/416); rutas relativas validadas, `..`/absolutas rechazadas, `.git` bloqueado, symlinks fuera del proyecto bloqueados; reutiliza projectdocs.resolve_project
 │   ├── webeditor.py        #   POST /api/v1/editor/open y WS editor.open: carpeta del proyecto o de la tarea (projectdocs.resolve_project; 409 en SSH y modo sesión remota), re-aplica los ajustes del editor y construye la URL
 │   ├── projectcreate.py    #   POST /api/v1/projects y WS projects.create: mapea ProjectError.code a status (400/409/422/500/503/504); propaga `code` en el error y registra petición/fallo/éxito con duración en `api.log`; 409 en modo sesión remota
+│   ├── voicenotes.py       #   POST /api/v1/audio/interpret (solo REST): transcribe con el STT del bot e interpreta con su CLI (`parser_role`) mediante `intents.propose_voice_tasks`; no crea tareas ni guarda nada; códigos stt_not_configured/stt_failed/interpret_failed/audio_too_large; 409 en modo sesión remota
 │   ├── branding.py         #   Marca del panel web: nombre de instancia, tema (`WEB_THEMES`) y favicon propio (`~/.grafeno/web/favicon.<ext>`, PNG/ICO/GIF/JPEG/WebP sin SVG, máx. 256 KiB, firma validada); `boot_info()` para la página y `favicon_response()` para `/favicon.ico` (204 sin favicon)
 │   ├── clock.py            #   Reloj del servidor para GET /api/v1/time y el método WS time: payload server_time() (ISO 8601 con offset, UTC con Z, epoch, fecha/hora/día locales, nombre IANA best effort vía TZ, /etc/localtime o /etc/timezone, vacío si no cuadra con el offset)
 │   ├── cliquota.py         #   GET /api/v1/quota y método WS quota.get (en vivo con throttling o `cached=1`); monitor de la App o del servicio
@@ -286,7 +287,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   409 si corre; WS `tasks.attachments`/`tasks.attach`/`tasks.detach`), projects, options, models, fs/dirs, issues,
   `POST /editor/open`, `POST /projects` (crear proyecto; guía en `docs/api/project-create.md`; `GET /projects` devuelve además `sessions` por item y `create` con las opciones de creación), `POST /projects/favorite` (marca/desmarca un proyecto como favorito en el servidor; método WS `projects.favorite`), `GET /projects/changes` (indicador de cambios pendientes por proyecto, recursivo en repos anidados, caché 15 s), `GET /projects/branches` y `POST /projects/push|pull|checkout|abort` (guía en `docs/api/project-git.md`), projects/docs y projects/doc (documentos README.md/AGENTS.md/GRAFENO.md de un proyecto; guía en `docs/api/project-docs.md`; métodos WS `projects.docs`/`projects.doc`; 409 en proyectos remotos y modo sesión remota), `projects/files`, `projects/file`, `projects/file/text` y `projects/file/raw` (explorador de archivos de un proyecto para Grafoide; guía en `docs/api/project-files.md`; métodos WS `projects.files`/`projects.file`/`projects.file_text`/`projects.file_raw` (este con tope de 16 MiB); 409 en proyectos remotos y modo sesión remota), `GET /projects/repos` y `/api/v1/reviews...` (revisión asistida multirrepositorio; guía en `docs/api/reviews.md`; topic WS `reviews` con `review.changed`/`review.deleted`; los errores pueden llevar un campo `code` opcional), reports, quota (uso disponible de los CLIs configurados; en vivo con throttling, `?cached=1` para sondeo; guía en docs/api/cli-quota.md; método WS quota.get), settings (GET/POST) y `/audio/speech` (síntesis
   TTS bajo demanda con el proveedor configurado: WAV por defecto u OGG/OPUS
-  cuando `format=ogg` y hay `ffmpeg` instalado en el host). WebSocket en `/api/v1/ws` con
+  cuando `format=ogg` y hay `ffmpeg` instalado en el host), `/audio/interpret` (nota de voz en binario con `?name=`, máx. 25 MiB en memoria: transcripción y tareas propuestas `title`/`workdir`/`description`, sin crear ninguna). WebSocket en `/api/v1/ws` con
   handshake RFC 6455 (cliente enmascarado obligatorio; servidor sin
   máscara), comandos JSON-RPC `{"id","method","params"}` que devuelven
   `{"id","result"|"error"}` y eventos de suscripción `{"event":"task.changed",
@@ -316,6 +317,7 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   las specs; `GET /api/v1/skill.md` conserva la autenticación normal de la API.
   El contenido definitivo del skill vive solo en
   `src/grafeno/server/static/skill.md` y no debe duplicarse en otras rutas.
+  `apidocs.render_skill` solo rellena al servirlo su entrada de ejemplo (`<served-instance-name>`/`<served-instance-url>`) con el nombre de la instancia y la cabecera `Host` validada. El skill exige resolver y verificar una instancia nombrada antes de operar; esa configuración (`[[instances]]`, `~/.config/grafeno/instances.toml`, sin tokens) es del cliente y GRAFENO no la lee.
   `tests/test_api_specs.py` garantiza que cada ruta REST y cada método WS del
   código estén documentados.
 - **Panel web**: `grafeno --web` arranca el servidor API para esa
@@ -376,6 +378,11 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
   descripción y re-encadenado validado con `scheduler.rechain_error`),
   `roles`, `artifact` y `media`; `discard`/`restart` esperan a que el
   worker cancelado termine para que su PAUSED no pise el estado final.
+  La tarjeta del skill de los ajustes (`settingsView.skillCard`, id `cfg-skill`)
+  descarga `GET /api/v1/skill.md` con `api()` (cabecera Bearer, nunca token en la
+  URL) y muestra la nota de instalación `web.cfg.skill.install`, cuyas rutas deben
+  coincidir con la sección de instalación de `skill.md` (lo comprueba
+  `tests/test_api_web.py`).
   La tarjeta 'Panel web' de los ajustes (`#/settings/web`) define el nombre
   de la instancia (distintivo en la cabecera y título de la pestaña), el
   tema (`auto` = claro/oscuro del sistema, o `night`/`day`/`blue`/`pink`/

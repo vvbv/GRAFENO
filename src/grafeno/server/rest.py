@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
-from . import actions, apidocs, branding, clisessions, cliquota, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings, webeditor
+from . import actions, apidocs, branding, clisessions, cliquota, clock, projectcreate, projectdocs, projectfiles, projectgit, reviews, settings, voicenotes, webeditor
 from .httpcore import Request, Response, WsHandler
 
 if TYPE_CHECKING:
@@ -84,7 +84,11 @@ async def _skill_md(service: "ServerService", request: Request, params: dict[str
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
         },
-        body=text.encode("utf-8"),
+        body=apidocs.render_skill(
+            text,
+            branding.normalize_instance_name(branding.instance_name()),
+            request.headers.get("host", ""),
+        ).encode("utf-8"),
     )
 
 
@@ -386,6 +390,14 @@ async def _audio_speech(service: "ServerService", request: Request, params: dict
     fmt = str(payload.get("format") or "wav").strip().lower()
     audio, mime = await actions.synthesize_speech(service, text, fmt)
     return Response(200, headers={"Content-Type": mime}, body=audio)
+
+
+@route("POST", "/api/v1/audio/interpret")
+async def _audio_interpret(service: "ServerService", request: Request, params: dict[str, str]):
+    """Raw voice note body with ?name=: returns the transcription and proposed tasks."""
+    if request.headers.get("content-type", "").lower().startswith("application/json"):
+        raise actions.ApiError(415, "send the voice note as the raw request body with ?name=", code="unsupported_audio")
+    return await voicenotes.interpret_voice_note(service, request.query.get("name", ""), bytes(request.body))
 
 
 @route("POST", "/api/v1/tasks/{task_id}/start")
