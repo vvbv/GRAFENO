@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GRAFENO Remote API
-  version: 1.11.0
+  version: 1.11.1
   summary: REST API of the GRAFENO remote server (optional token authentication).
   description: |
     REST control API exposed by the GRAFENO TUI while it is running
@@ -72,7 +72,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
-          description: The packaged `skill.md` resource is not installed yet.
+          description: The packaged `skill.md` resource is not available in this installation.
           content:
             application/json:
               schema:

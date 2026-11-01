@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "GRAFENO Remote API",
-    "version": "1.11.0",
+    "version": "1.11.1",
     "summary": "REST API of the GRAFENO remote server (optional token authentication).",
     "description": "REST control API exposed by the GRAFENO TUI while it is running\n(`[api]` section of `~/.grafeno/config.toml`). The server lives only\ninside the TUI process as a worker; there is no standalone daemon.\nAuthentication is OPTIONAL and dedicated to this server (it never\nshares nor overrides credentials with the Telegram bot or any other\nintegration): when tokens are configured, requests must carry the\nshared token as `Authorization: Bearer <token>` or as the `?token=`\nquery parameter (duplicate of `src/grafeno/server/auth.py`); when the\ntoken set is empty (the default), no authentication is required.\nError payloads are always `{\"error\": \"<message>\"}`.\nInteractive documentation is available at `/docs` in English (`en`) and\nSpanish (`es`). WebSocket commands and events are documented separately\nwith AsyncAPI.\n"
   },
@@ -95,7 +95,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "404": {
-            "description": "The packaged `skill.md` resource is not installed yet.",
+            "description": "The packaged `skill.md` resource is not available in this installation.",
             "content": {
               "application/json": {
                 "schema": {

@@ -51,7 +51,7 @@ Cache-Control: no-store
 X-Content-Type-Options: nosniff
 ```
 
-Until the follow-up task installs `src/grafeno/server/static/skill.md`, the documented temporary response is `404` with `{"error":"skill.md is not available"}`. Once that resource exists, the same endpoint returns `200` without further API changes.
+The package includes `src/grafeno/server/static/skill.md`, so a correctly authenticated download returns `200`; a `404` with `{"error":"skill.md is not available"}` means the resource is unavailable in that installation. This portable Agent Skill is installed as `grafeno-api/SKILL.md`.
 
 ## Contributor workflow
 

@@ -70,8 +70,8 @@
     concreto.
 - source: "Packaged Markdown skill, served as an attachment without transformation."
   translation: "Skill de Markdown empaquetado, servido como adjunto sin transformación."
-- source: "The packaged `skill.md` resource is not installed yet."
-  translation: "El recurso `skill.md` empaquetado todavía no está instalado."
+- source: "The packaged `skill.md` resource is not available in this installation."
+  translation: "El recurso `skill.md` empaquetado no está disponible en esta instalación."
 - source: "Upgrade an HTTP connection to the JSON-RPC WebSocket channel."
   translation: "Actualizar una conexión HTTP al canal WebSocket JSON-RPC."
 - source: |

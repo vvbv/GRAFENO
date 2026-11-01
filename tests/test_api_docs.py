@@ -6,6 +6,8 @@ import asyncio
 import json
 from importlib import resources
 
+import yaml
+
 from grafeno import i18n
 from grafeno.config import ApiConfig
 from grafeno.server import apidocs
@@ -223,6 +225,75 @@ def test_documentation_resources_are_packaged() -> None:
         "static/docs/openapi.es.json",
         "static/docs/asyncapi.en.json",
         "static/docs/asyncapi.es.json",
+        "static/skill.md",
     )
     for name in names:
         assert root.joinpath(name).is_file(), name
+
+
+def test_packaged_skill_contract() -> None:
+    text = apidocs.skill_text()
+    assert text.startswith("---\n")
+    parts = text.split("---", 2)
+    assert len(parts) == 3
+    assert parts[0] == ""
+    metadata = yaml.safe_load(parts[1])
+    assert metadata["name"] == "grafeno-api"
+    assert metadata["description"]
+    body = parts[2]
+    required = (
+        "/api/v1/status",
+        "/api/v1/tasks",
+        "/api/v1/sessions",
+        "/api/v1/ws",
+        "/docs/openapi.json?lang=en",
+        "/docs/asyncapi.json?lang=en",
+        "Authorization: Bearer",
+        "task.task",
+        "SKILL.md",
+        "grafeno-api",
+        ".opencode/skills",
+        ".claude/skills",
+        ".agents/skills",
+        "draft",
+        "first_step",
+        "planning",
+        "planned",
+        "implementing",
+        "implemented",
+        "reviewing",
+        "fixing",
+        "finalizing",
+        "done",
+        "failed",
+        "paused",
+        "discarded",
+        "plan",
+        "implement",
+        "review",
+        "fix",
+        "final",
+        "tests",
+        "automode",
+    )
+    for value in required:
+        assert value in body, value
+    for marker in ("TODO", "TBD", "not installed yet", "Bearer t1"):
+        assert marker not in text, marker
+
+
+def test_packaged_skill_http_download() -> None:
+    async def scenario():
+        service, task = await _start_service()
+        try:
+            status, headers, body = await _request(service, "/api/v1/skill.md", bearer=True)
+            assert status == 200
+            assert body == apidocs.skill_text().encode("utf-8")
+            assert headers["content-type"] == "text/markdown; charset=utf-8"
+            assert headers["content-disposition"] == 'attachment; filename="skill.md"'
+            assert headers["cache-control"] == "no-store"
+            assert headers["x-content-type-options"] == "nosniff"
+        finally:
+            _stop(service, task)
+
+    asyncio.run(scenario())
