@@ -23,7 +23,7 @@ _MAX_UNTRACKED_FILES = 20
 def _git(workdir: Path, *args: str) -> tuple[bool, str]:
     try:
         completed = subprocess.run(
-            ["git", "-C", str(workdir), *args],
+            ["git", "-C", str(workdir), "-c", "core.quotePath=false", *args],  # readable non-ASCII paths
             capture_output=True,
             encoding="utf-8",  # never the Windows code page: a failed decode leaves stdout as None
             errors="replace",  # diffs carry raw file bytes in any encoding
@@ -87,10 +87,11 @@ def _read_capped(path: Path, limit: int) -> str | None:
 
 def _untracked_section(workdir: Path) -> tuple[str, list[str]]:
     """Return ``(markdown, skipped)`` for untracked new files."""
-    ok, listing = _git(workdir, "ls-files", "--others", "--exclude-standard")
+    # -z: names come verbatim, without the C-style quoting of special characters.
+    ok, listing = _git(workdir, "ls-files", "-z", "--others", "--exclude-standard")
     if not ok:
         return "(ninguno)", []
-    files = sorted(line.strip() for line in listing.splitlines() if line.strip())
+    files = sorted(name for name in listing.split("\0") if name)
     if not files:
         return "(ninguno)", []
     blocks: list[str] = []

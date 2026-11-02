@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 from grafeno.pipeline import gitops
 
@@ -135,3 +138,51 @@ def test_git_decodes_as_utf8_regardless_of_locale(tmp_path, monkeypatch):
     assert gitops._git(tmp_path, "status") == (True, "out")
     assert seen["encoding"] == "utf-8"
     assert seen["errors"] == "replace"
+
+
+def test_changes_markdown_embeds_untracked_files_with_non_ascii_names(tmp_path):
+    """Non-ASCII names are found and shown as they are, not as quoted octal escapes."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    base = _init_repo(repo)
+    (repo / "\u00c1rbol nuevo.txt").write_text("contenido nuevo\n", encoding="utf-8")
+
+    report = gitops.changes_markdown(repo, base)
+
+    assert "### \u00c1rbol nuevo.txt\n```\ncontenido nuevo\n" in report
+    assert '?? "\u00c1rbol nuevo.txt"' in report
+    assert "\\303" not in report
+    assert "omitido" not in report
+
+
+def test_changes_markdown_shows_modified_non_ascii_paths_readably(tmp_path):
+    """Status and diff headers name the file as it is, not as quoted octal escapes."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    tracked = repo / "\u00cdndice.txt"
+    tracked.write_text("antes\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "tracked")
+    base = _git(repo, "rev-parse", "HEAD")
+    tracked.write_text("despues\n", encoding="utf-8")
+
+    report = gitops.changes_markdown(repo, base)
+
+    assert "M \u00cdndice.txt" in report
+    assert "diff --git a/\u00cdndice.txt b/\u00cdndice.txt" in report
+    assert "\\303" not in report
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows forbids double quotes in file names")
+def test_changes_markdown_embeds_untracked_files_with_quoted_names(tmp_path):
+    """Characters git would C-quote without -z still resolve to the real file."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    base = _init_repo(repo)
+    (repo / 'con"comilla.txt').write_text("contenido nuevo\n", encoding="utf-8")
+
+    report = gitops.changes_markdown(repo, base)
+
+    assert '### con"comilla.txt\n```\ncontenido nuevo\n' in report
+    assert "omitido" not in report
