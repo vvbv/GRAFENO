@@ -32,7 +32,8 @@ def _git(workdir: Path, *args: str) -> tuple[bool, str]:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, str(exc)
-    output = (completed.stdout + completed.stderr).strip()
+    # Only the final newlines: leading and trailing spaces are data (status columns, names, diff lines).
+    output = (completed.stdout + completed.stderr).rstrip("\n")
     return completed.returncode == 0, output
 
 

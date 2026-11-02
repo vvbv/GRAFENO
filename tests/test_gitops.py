@@ -186,3 +186,44 @@ def test_changes_markdown_embeds_untracked_files_with_quoted_names(tmp_path):
 
     assert '### con"comilla.txt\n```\ncontenido nuevo\n' in report
     assert "omitido" not in report
+
+
+def test_changes_markdown_keeps_the_status_columns_of_the_first_line(tmp_path):
+    """An unstaged change must not read as a staged one."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    base = _init_repo(repo)
+    (repo / "a.txt").write_text("cambio sin preparar\n", encoding="utf-8")
+
+    report = gitops.changes_markdown(repo, base)
+
+    assert "## Estado del arbol de trabajo\n M a.txt\n" in report
+
+
+def test_changes_markdown_embeds_untracked_file_with_leading_space(tmp_path):
+    """The first listed name keeps its leading space, so the real file is found."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    base = _init_repo(repo)
+    (repo / " inicial.txt").write_text("contenido nuevo\n", encoding="utf-8")
+
+    report = gitops.changes_markdown(repo, base)
+
+    assert "###  inicial.txt\n```\ncontenido nuevo\n" in report
+    assert "omitido" not in report
+
+
+def test_changes_markdown_keeps_the_last_blank_context_line_of_the_diff(tmp_path):
+    """A diff ending in a blank context line (a lone space) stays complete."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    (repo / "a.txt").write_text("uno\n\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "blank last line")
+    base = _git(repo, "rev-parse", "HEAD")
+    (repo / "a.txt").write_text("dos\n\n", encoding="utf-8")
+
+    report = gitops.changes_markdown(repo, base)
+
+    assert "+dos\n \n```\n" in report
