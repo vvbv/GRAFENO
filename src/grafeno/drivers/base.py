@@ -501,7 +501,8 @@ class CLIDriver:
         command = self.resolve_command(command)
         try:
             completed = subprocess.run(
-                command, capture_output=True, text=True, timeout=30, check=False,
+                command, capture_output=True, timeout=30, check=False,
+                encoding="utf-8", errors="replace",  # never the Windows code page
                 stdin=subprocess.DEVNULL,
             )
         except (OSError, subprocess.TimeoutExpired):

@@ -25,7 +25,8 @@ def _git(workdir: Path, *args: str) -> tuple[bool, str]:
         completed = subprocess.run(
             ["git", "-C", str(workdir), *args],
             capture_output=True,
-            text=True,
+            encoding="utf-8",  # never the Windows code page: a failed decode leaves stdout as None
+            errors="replace",  # diffs carry raw file bytes in any encoding
             timeout=30,
             check=False,
         )

@@ -34,7 +34,8 @@ def _gh(workdir: Path, *args: str) -> tuple[bool, str]:
             ["gh", *args],
             cwd=workdir,
             capture_output=True,
-            text=True,
+            encoding="utf-8",  # never the Windows code page: a failed decode leaves stdout as None
+            errors="replace",
             timeout=_TIMEOUT,
             check=False,
         )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 import time
 from pathlib import Path
 
@@ -1889,3 +1890,18 @@ def test_opencode_prepare_runs_off_loop(monkeypatch):
     asyncio.run(driver.prepare_async())
     assert driver._major == 2
     assert threads and threads[0] is not threading.main_thread()
+
+
+def test_run_sync_decodes_as_utf8_regardless_of_locale(monkeypatch):
+    """The decoding is explicit, so the Windows code page never applies."""
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, stdout="out", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert ClaudeDriver()._run_sync(["claude", "--version"]) == "out"
+    assert seen["encoding"] == "utf-8"
+    assert seen["errors"] == "replace"

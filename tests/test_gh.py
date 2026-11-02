@@ -60,3 +60,18 @@ def test_list_issues_skips_malformed_entries(monkeypatch):
     issues = gh.list_issues(Path("/tmp"))
     assert len(issues) == 1
     assert issues[0].number == 1
+
+
+def test_gh_decodes_as_utf8_regardless_of_locale(tmp_path, monkeypatch):
+    """The decoding is explicit, so the Windows code page never applies."""
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen.update(kwargs)
+        return gh.subprocess.CompletedProcess(command, 0, stdout="out", stderr="")
+
+    monkeypatch.setattr(gh.subprocess, "run", fake_run)
+
+    assert gh._gh(tmp_path, "repo", "view") == (True, "out")
+    assert seen["encoding"] == "utf-8"
+    assert seen["errors"] == "replace"

@@ -175,7 +175,8 @@ def _toplevel(path: Path) -> Path | None:
     try:
         result = subprocess.run(
             ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=GIT_TIMEOUT, env=_git_env(),
+            capture_output=True, timeout=GIT_TIMEOUT, env=_git_env(),
+            encoding="utf-8", errors="surrogateescape",  # a path must round-trip into Path
         )
     except (OSError, subprocess.SubprocessError):
         return None

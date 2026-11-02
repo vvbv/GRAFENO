@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -329,3 +331,12 @@ def test_parse_status_upstream_ahead_behind():
     assert gitrepos.parse_status_v2(raw, repo).upstream_gone is True
     st = gitrepos.parse_status_v2(b"\0".join([*head, b""]), repo)
     assert st.upstream == "" and st.upstream_gone is False
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="needs a filesystem that accepts non-UTF-8 names")
+def test_toplevel_round_trips_a_non_utf8_path(tmp_path):
+    """The toplevel path stays usable whatever bytes it holds."""
+    repo = Path(os.fsdecode(os.fsencode(tmp_path) + b"/caf\xe9"))
+    _init_repo(repo)
+
+    assert gitrepos._toplevel(repo) == repo.resolve()

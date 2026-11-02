@@ -143,7 +143,10 @@ Instalación de usuario: `pipx install .` o `./install.sh` / `install.ps1`.
 - **Estilo**: `from __future__ import annotations` en cada módulo; docstring de
   módulo en la primera línea; dataclasses con `to_dict`/`from_dict` para
   persistencia; type hints modernos (`str | None`); async/await con
-  subprocesos asyncio para los CLIs (sin `shell=True`); comentarios en línea
+  subprocesos asyncio para los CLIs (sin `shell=True`); `subprocess.run` con
+  salida de texto siempre con `encoding="utf-8"` y `errors` explícitos, nunca
+  `text=True` a secas (en Windows decodifica con la página de códigos del
+  sistema y, si un byte no encaja, `stdout` llega como `None`); comentarios en línea
   breves tras el código cuando aclaran un valor (alineados a la derecha).
 - **Drivers**: añadir un CLI = nuevo archivo en `drivers/` que herede de
   `CLIDriver` (implementar `build_command`, `models_command`, `parse_models`,

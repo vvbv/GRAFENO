@@ -104,3 +104,34 @@ def test_changes_markdown_never_raises(tmp_path):
     repo.mkdir()
     # Plain directory masquerading as a repo: is_git_repo is False -> "".
     assert gitops.changes_markdown(repo, "anything") == ""
+
+
+def test_changes_markdown_survives_any_file_encoding(tmp_path):
+    """A diff carries raw file bytes: neither UTF-8 nor Latin-1 content may break it."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    base = _init_repo(repo)
+    # These UTF-8 bytes do not decode as cp1252, which left stdout as None on Windows.
+    (repo / "a.txt").write_text("\u00c1 \u00cd \u2510 \u2550\n", encoding="utf-8")
+    (repo / "latin1.txt").write_bytes(b"caf\xe9\n")
+    _git(repo, "add", ".")
+
+    report = gitops.changes_markdown(repo, base)
+
+    assert "\u00c1 \u00cd \u2510 \u2550" in report
+    assert "caf\ufffd" in report
+
+
+def test_git_decodes_as_utf8_regardless_of_locale(tmp_path, monkeypatch):
+    """The decoding is explicit, so the Windows code page never applies."""
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, stdout="out", stderr="")
+
+    monkeypatch.setattr(gitops.subprocess, "run", fake_run)
+
+    assert gitops._git(tmp_path, "status") == (True, "out")
+    assert seen["encoding"] == "utf-8"
+    assert seen["errors"] == "replace"
